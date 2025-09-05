@@ -1,19 +1,12 @@
 @import "tailwindcss";
 
-/* Light mode variables */
-:root {
-  --bg-color: #ffffff;
-  --text-color: #000000;
-}
+@variant dark (.dark &);
 
-/* Dark mode variables */
-[data-theme='dark'] {
-  --bg-color: #1a1a1a;
-  --text-color: #ffffff;
-}
+@source "./pages/**/*.{js,ts,jsx,tsx,mdx}";
+@source "./Components/**/*.{js,ts,jsx,tsx,mdx}";
+@source "./app/**/*.{js,ts,jsx,tsx,mdx}";
 
+/* Custom styles */
 body {
-  background-color: var(--bg-color);
-  color: var(--text-color);
   transition: background-color 0.3s ease, color 0.3s ease;
 }

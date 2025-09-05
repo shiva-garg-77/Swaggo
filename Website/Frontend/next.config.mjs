@@ -1,4 +1,6 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = {};
+const nextConfig = {
+  // Removed experimental optimizeCss to fix dependency warnings
+};
 
 export default nextConfig;
