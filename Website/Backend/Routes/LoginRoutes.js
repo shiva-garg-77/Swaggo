@@ -1,5 +1,5 @@
 import express from 'express'
-import {signupApi,loginApi,Mailverification,Mailsender,forgetPassword,resetpassword,RefreshkarRahatoken} from '../Controller/LoginApi.js'
+import {signupApi,loginApi,Mailverification,Mailsender,forgetPassword,resetpassword,RefreshkarRahatoken,logoutApi} from '../Controller/LoginApi.js'
 import { signupApiValidator,loginApivalidation,EmailValidator } from '../Helper/LoginValidator.js'
 
 import bodyParser from 'body-parser'
@@ -17,6 +17,7 @@ router.get('/mail-verification',Mailverification)
 router.post('/forget-password',EmailValidator,forgetPassword)
 router.post('/reset-password',resetpassword)
 router.get('/refresh-token',RefreshkarRahatoken)
+router.post('/logout',logoutApi)
 
 
 

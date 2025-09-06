@@ -1,13 +1,23 @@
 "use client";
-import { useState } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import Link from 'next/link';
 import { useTheme } from '../Helper/ThemeProvider';
+import { AuthContext } from '../Helper/AuthProvider';
 
 export default function ForgetPass() {
   const { theme } = useTheme();
+  const { forgetPassword, ErrorMsg, successMsg, authLoading, clearMessages, clearError } = useContext(AuthContext);
   const [formData, setFormData] = useState({
     email: '',
   });
+  const [fieldErrors, setFieldErrors] = useState({});
+
+  // Clear messages on component unmount only
+  useEffect(() => {
+    return () => {
+      clearMessages();
+    };
+  }, []);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -15,12 +25,46 @@ export default function ForgetPass() {
       ...prev,
       [name]: value
     }));
+    
+    // Clear field error when user starts typing
+    if (fieldErrors[name]) {
+      setFieldErrors(prev => ({
+        ...prev,
+        [name]: ''
+      }));
+    }
+    
+    // Clear global error message when user starts typing
+    if (ErrorMsg) {
+      clearError();
+    }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // UI only - no backend logic
-    console.log('Login form submitted (UI only):', formData);
+    
+    // Clear previous field errors
+    setFieldErrors({});
+    
+    // Basic validation
+    const errors = {};
+    
+    if (!formData.email) {
+      errors.email = 'Email address is required';
+    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+      errors.email = 'Please enter a valid email address';
+    }
+    
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return;
+    }
+
+    const result = await forgetPassword(formData.email);
+    
+    if (result.success) {
+      setFormData({ email: '' });
+    }
   };
 
   return (
@@ -41,6 +85,7 @@ export default function ForgetPass() {
           </div>
         </div>
 
+
         {/* Login Form */}
         <form onSubmit={handleSubmit} className="w-full ">
           <div className="mb-10 text-left">
@@ -57,13 +102,24 @@ export default function ForgetPass() {
               placeholder="Enter your email"
               required
             />
+            {fieldErrors.email && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.email}</p>
+            )}
           </div>
+          {/* Error/Success Messages */}
+          {ErrorMsg && <p className="text-red-500 text-sm mb-3 text-center">{ErrorMsg}</p>}
+          {successMsg && <p className="text-green-500 text-sm mb-3 text-center">{successMsg}</p>}
 
           <button
             type="submit"
-            className=" bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold py-3 px-9 rounded-3xl hover:transform hover:-translate-y-1 hover:shadow-2xl hover:shadow-red-500/30 transition-all duration-300 mb-5"
-          >
-            Send Mail
+            disabled={authLoading}
+            className={`bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold py-3 px-9 rounded-3xl transition-all duration-300 mb-5 ${
+              authLoading 
+              ? 'opacity-50 cursor-not-allowed' 
+              : 'cursor-pointer hover:transform hover:-translate-y-1 hover:shadow-2xl hover:shadow-red-500/30'
+              }`}
+              >
+            {authLoading ? 'Sending...' : 'Send Mail'}
           </button>
         </form>
 

@@ -18,7 +18,7 @@ const VerifyToken = async (req, res, next) => {
     } catch (err) {
 
 
-      const response = await fetch('http://localhost:4000/api/refresh-token', {
+      const response = await fetch(`http://localhost:${process.env.PORT}/api/refresh-token`, {
         method: 'GET',
         headers: {
           Cookie: req.headers.cookie 
