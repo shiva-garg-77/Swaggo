@@ -66,7 +66,7 @@ const signupApi = async (req, res) => {
 
 
 const generate_jwt_access_token = async (account) => {
-    return jwt.sign(account, process.env.ACCESS_TOKEN_SECRET, { expiresIn: "7d" })
+    return jwt.sign(account, process.env.ACCESS_TOKEN_SECRET, { expiresIn: "30m" })
 }
 
 const jwt_Refress_token = async (account) => {

@@ -12,9 +12,11 @@ import multer from 'multer';
 import bodyParser from 'body-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
 
 const app = express();
-const port = 4000;
+const port = process.env.PORT;
 
 // Helpers for __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -22,10 +24,10 @@ const __dirname = path.dirname(__filename);
 
 // === Middlewares ===
 app.use(cors(
-//   {
-//   origin: 'http://localhost:3000',
-//   credentials: true, // <- this is important for cookies
-// }
+  {
+  origin: 'http://localhost:3000',
+  credentials: true, // <- this is important for cookies
+}
 ));
 app.use(express.json());
 app.use(cookieParser());
@@ -34,6 +36,7 @@ app.use(cookieParser());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // === Multer Setup ===
+
 const storage = multer.diskStorage({
   destination: path.join(__dirname, 'uploads'),
   filename: (req, file, cb) => {
@@ -45,15 +48,6 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // === REST Endpoint for Upload ===
-// app.post('/upload', upload.single('file'), (req, res) => {
-//   if (!req.file) {
-//     return res.status(400).json({ error: 'No file uploaded' });
-//   }
-
-//   const fileUrl = `http://localhost:${port}/uploads/${req.file.filename}`;
-//   res.json({ url: fileUrl });
-// });
-
 
 app.post('/upload', upload.single('file'), (req, res) => {
   if (!req.file) {
@@ -80,10 +74,15 @@ app.get('/', (req, res) => {
   res.send('hello');
 });
 
+
+// GraphQL with Auth
+
 const authWrapper = (req, res) =>
   new Promise((resolve) => {
     auth(req, res, () => resolve());
   });
+
+
 
 // app.use('/graphql', async (req, res, next) => {
 //   await authWrapper(req, res);
@@ -98,17 +97,7 @@ const authWrapper = (req, res) =>
 //   })(req, res, next);
 // });
 
-// app.use(
-//   '/graphql',
-//   bodyParser.json(),
-//   expressMiddleware(server, {
-//     context: async ({ req, res }) => ({
-//       user: req.user,
-//       req,
-//       res
-//     })
-//   })
-// );
+// GraphQL without Auth
 
 app.use(
   '/graphql',
@@ -119,9 +108,6 @@ app.use(
   })
 );
 
-// app.use('/graphql', 
-//   expressMiddleware(server)
-// );
 
 // === Start Server ===
 app.listen(port, '0.0.0.0', () => {

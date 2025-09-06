@@ -3,11 +3,12 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import Link from 'next/link';
 import { useTheme } from '../Helper/ThemeProvider';
+import {AuthInfo} from '../Helper/AuthProvider';
 
 export default function Login() {
+  const { login, accessToken, loading }=AuthInfo();
   const { theme } = useTheme();
   const router = useRouter();
-  const [AccessToken, setAccessToken] = useState(null)
   const [formData, setFormData] = useState({
     email: '',
     password: ''
@@ -24,7 +25,7 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-     const { username, password } = formData;
+    const { username, password } = formData;
         let info;
         if (username.includes('@')) {
             info = { email: username, password }
@@ -32,26 +33,6 @@ export default function Login() {
             info = { username, password }
         }
 
-        const result = await fetch(`http://localhost:${process.env.NEXT_PUBLIC_PORT}/api/login`, {
-            method: "POST",
-            body: JSON.stringify(info),
-            headers: {
-                "Content-type": "application/json; charset=UTF-8"
-            },
-
-        })
-
-        const callresult = await result.json()
-        if (callresult.success) {
-            document.cookie = `username=${username}; path=/; Secure`;
-            formData.email = ''
-            formData.password = ''
-            setAccessToken(callresult.token)
-            router.push(`/home`);
-        }
-        else {
-            setError("Error", { message: callresult.msg })
-        }
     // UI only - no backend logic
     console.log('Login form submitted (UI only):', formData);
   };
