@@ -21,6 +21,7 @@ const signupApi = async (req, res) => {
             msg: error.array()[0].msg
         })
     }
+    console.log("signupApi called")
     const { email, username, password } = req.body
     const olduser = await User.findOne({ email })
     if (olduser) {
