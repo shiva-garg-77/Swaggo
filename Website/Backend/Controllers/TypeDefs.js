@@ -9,11 +9,34 @@ type Comments {
     userto:Profiles
     commenttoid:String
     comment:String!
+    replies:[Comments!]
+    likeCount:Int!
+    isLikedByUser:Boolean!
+    createdAt:String
+    updatedAt:String
 }
 type Likes {
     profile:Profiles!
     postid:String!
-    comment: [Comments!]! 
+    commentid:String
+    createdAt:String
+}
+type Drafts {
+    draftid:String!
+    profileid:String!
+    profile:Profiles!
+    postUrl:String
+    postType:String
+    title:String
+    caption:String
+    location:String
+    taggedPeople:[String!]
+    tags:[String!]
+    allowComments:Boolean
+    hideLikeCount:Boolean
+    autoPlay:Boolean
+    createdAt:String
+    updatedAt:String
 }
 type Posts {
     postid:String!
@@ -21,6 +44,10 @@ type Posts {
     postUrl:String!
     like:[Likes!]
     comments:[Comments!]
+    likeCount:Int!
+    commentCount:Int!
+    isLikedByUser:Boolean!
+    isSavedByUser:Boolean!
     title:String
     Description:String
     postType:String! # IMAGE or VIDEO
@@ -29,6 +56,7 @@ type Posts {
     tags:[String!]
     allowComments:Boolean
     hideLikeCount:Boolean
+    autoPlay:Boolean
     createdAt:String
     updatedAt:String
 }
@@ -59,6 +87,7 @@ type Profiles {
     followers:[Profiles!]
     following:[Profiles!]
     post:[Posts!]
+    drafts:[Drafts!]
     likedpost:[Posts!]
     savedpost:[Posts!]
     memories:[Memory!]
@@ -73,9 +102,28 @@ hello: String
     getPosts:[Posts!]
     getPostbyId(postid:String!):Posts
     
+    # Drafts
+    getDrafts(profileid:String!):[Drafts!]
+    getDraftById(draftid:String!):Drafts
+    
     # Memories
     getMemories(profileid:String!):[Memory!]
     getMemoryById(memoryid:String!):Memory
+    
+    # Comments and Likes
+    getCommentsByPost(postid:String!):[Comments!]
+    getCommentReplies(commentid:String!):[Comments!]
+    getLikesByPost(postid:String!):[Likes!]
+    getLikesByComment(commentid:String!):[Likes!]
+    getPostStats(postid:String!):PostStats
+}
+
+type PostStats {
+    postid:String!
+    likeCount:Int!
+    commentCount:Int!
+    isLikedByCurrentUser:Boolean!
+    isSavedByCurrentUser:Boolean!
 }
 # type Result{
 #     success:Boolean!
@@ -99,16 +147,19 @@ type Mutation {
         taggedPeople:[String!],
         tags:[String!],
         allowComments:Boolean,
-        hideLikeCount:Boolean
+        hideLikeCount:Boolean,
+        autoPlay:Boolean
     ):Posts
     DeletePost(postid:String!):Posts
     UpdatePost(postid:String!,title:String,Description:String):Posts
     # Commenting on Post
     CreateComment(postid:String!,profileid:String!,usertoid:String,commenttoid:String,comment:String!):Comments
+    CreateCommentReply(commentid:String!,profileid:String!,usertoid:String,comment:String!):Comments
     DeleteComment(postid:String!,commentid:String!):Comments
     UpdateComment(postid:String!,commentid:String!,comment:String!):Comments
-    # Liking Post
-    ToggleLike(profileid:String!,postid:String!,commentid:String):Likes
+    # Liking Post and Comments
+    TogglePostLike(profileid:String!,postid:String!):Likes
+    ToggleCommentLike(profileid:String!,commentid:String!):Likes
     # Saving Post
     ToggleSavePost(profileid:String!,postid:String!):Posts
     # Following and UnFollowing User
@@ -116,6 +167,38 @@ type Mutation {
     # Tagging/Mentioning User in Post/Story
     Tag_and_MentionPost(profileid:String!,postid:String!,tag:[String]!):Profiles
     
+    # Draft Management
+    CreateDraft(
+        profileid:String!,
+        postUrl:String,
+        postType:String,
+        title:String,
+        caption:String,
+        location:String,
+        tags:[String!],
+        taggedPeople:[String!],
+        allowComments:Boolean,
+        hideLikeCount:Boolean,
+        autoPlay:Boolean
+    ):Drafts
+    UpdateDraft(
+        draftid:String!,
+        postUrl:String,
+        postType:String,
+        title:String,
+        caption:String,
+        location:String,
+        tags:[String!],
+        taggedPeople:[String!],
+        allowComments:Boolean,
+        hideLikeCount:Boolean,
+        autoPlay:Boolean
+    ):Drafts
+    DeleteDraft(draftid:String!):Drafts
+    PublishDraft(
+        draftid:String!
+    ):Posts
+
     # Memory Management
     CreateMemory(profileid:String!,title:String!,coverImage:String):Memory
     UpdateMemory(memoryid:String!,title:String,coverImage:String):Memory

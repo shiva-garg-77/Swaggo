@@ -5,12 +5,13 @@ const PostSchema = new mongoose.Schema({
     postUrl: { type: String, required: true },
     title: String,
     Description: String,
-    postType: { type: String, enum: ['IMAGE', 'VIDEO'], required: true },
+    postType: { type: String, enum: ['IMAGE', 'VIDEO', 'TEXT'], required: true },
     location: String,
     taggedPeople: [String],
     tags: [String],
     allowComments: { type: Boolean, default: true },
     hideLikeCount: { type: Boolean, default: false },
+    autoPlay: { type: Boolean, default: false },
 }, {
     timestamps: true
 })

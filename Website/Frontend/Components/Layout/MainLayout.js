@@ -127,7 +127,9 @@ export default function MainLayout({ children }) {
           <div className="flex h-full">
             {/* Content Area */}
             <main className="flex-1 overflow-y-auto scrollbar-hide">
-              <div className="max-w-2xl mx-auto p-6">
+              <div className={`mx-auto p-6 ${
+                pathname === '/Profile' ? 'max-w-4xl' : 'max-w-2xl'
+              }`}>
                 {children}
               </div>
             </main>

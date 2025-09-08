@@ -1,9 +1,19 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import PostModal from '../Post/PostModal';
 
-export default function ProfileGrid({ posts, activeTab, loading, theme, currentUser }) {
+export default function ProfileGrid({ posts, activeTab, loading, theme, currentUser, onEditDraft, onDeleteDraft, onPublishDraft }) {
   const [selectedPostIndex, setSelectedPostIndex] = useState(null);
+  
+  // Debug logging for posts data
+  console.log('🗺 ProfileGrid Debug:');
+  console.log('- activeTab:', activeTab);
+  console.log('- posts received:', posts);
+  console.log('- posts count:', posts?.length || 0);
+  if (activeTab === 'draft') {
+    console.log('- Draft data details:', posts.map(p => ({ draftid: p.draftid, title: p.title, caption: p.caption })));
+  }
 
   // Close modal on escape key
   useEffect(() => {
@@ -48,14 +58,23 @@ export default function ProfileGrid({ posts, activeTab, loading, theme, currentU
 
   if (loading) {
     return (
-      <div className="grid grid-cols-3 gap-0.5 md:gap-1">
+      <div className="grid grid-cols-3 gap-1 md:gap-2">
         {[...Array(9)].map((_, index) => (
           <div 
             key={index}
-            className={`aspect-square rounded-lg animate-pulse ${
+            className={`aspect-square rounded-lg animate-pulse shadow-sm ${
               theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'
             }`}
-          />
+          >
+            {/* Skeleton content */}
+            <div className="w-full h-full flex items-center justify-center">
+              <div className={`w-8 h-8 rounded-full animate-spin ${
+                theme === 'dark' ? 'bg-gray-600' : 'bg-gray-300'
+              }`}>
+                <div className="w-full h-full border-2 border-transparent border-t-red-500 rounded-full animate-spin"></div>
+              </div>
+            </div>
+          </div>
         ))}
       </div>
     );
@@ -63,80 +82,452 @@ export default function ProfileGrid({ posts, activeTab, loading, theme, currentU
 
   if (!posts || posts.length === 0) {
     return (
-      <div className="text-center py-20">
-        <div className={`mb-4 ${
-          theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
-        }`}>
-          <NoPostsIcon />
+      <div className="w-full py-16">
+        <div className="text-center">
+          <div className={`mb-6 ${
+            theme === 'dark' ? 'text-gray-600' : 'text-gray-400'
+          }`}>
+            <NoPostsIcon />
+          </div>
+          <h3 className={`text-xl font-semibold mb-3 ${
+            theme === 'dark' ? 'text-white' : 'text-gray-900'
+          }`}>
+            {getEmptyStateTitle(activeTab)}
+          </h3>
+          <p className={`text-sm max-w-sm mx-auto ${
+            theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+          }`}>
+            {getEmptyStateSubtitle(activeTab)}
+          </p>
         </div>
-        <h3 className={`text-2xl font-light mb-2 ${
-          theme === 'dark' ? 'text-white' : 'text-gray-900'
-        }`}>
-          {getEmptyStateTitle(activeTab)}
-        </h3>
-        <p className={`text-sm ${
-          theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
-        }`}>
-          {getEmptyStateSubtitle(activeTab)}
-        </p>
       </div>
     );
   }
 
   return (
     <>
-      <div className="grid grid-cols-3 gap-0.5 md:gap-1">
-        {posts.map((post, index) => (
-          <PostGridItem
-            key={post.postid}
-            post={post}
-            onClick={() => openPostModal(index)}
-            theme={theme}
-          />
-        ))}
+      <div className="w-full py-4">
+        <div className="grid grid-cols-3 gap-1.5 md:gap-3 lg:gap-4">
+          {posts.map((post, index) => {
+            // Check if this is a draft post (has draftid instead of postid)
+            const isDraft = !!post.draftid;
+            // Ensure a stable, unique key across updates. Include index and createdAt as tiebreakers.
+            const baseKey = isDraft ? (post.draftid || post.id || `draft-${index}`) : (post.postid || `post-${index}`);
+            const itemKey = `${baseKey}-${index}-${post.createdAt || post.updatedAt || ''}`;
+            
+            return isDraft ? (
+              <DraftGridItem
+                key={itemKey}
+                draft={post}
+                theme={theme}
+                onEdit={() => onEditDraft?.(post)}
+                onDelete={() => onDeleteDraft?.(post.id || post.draftid)}
+                onPublish={() => onPublishDraft?.(post)}
+              />
+            ) : (
+              <PostGridItem
+                key={itemKey}
+                post={post}
+                onClick={() => openPostModal(index)}
+                theme={theme}
+              />
+            );
+          })}
+        </div>
       </div>
 
       {/* Post Modal */}
       {selectedPostIndex !== null && posts[selectedPostIndex] && (
         <PostModal
           post={posts[selectedPostIndex]}
-          currentIndex={selectedPostIndex}
-          totalPosts={posts.length}
+          isOpen={true}
           onClose={closePostModal}
-          onNavigate={navigatePost}
           theme={theme}
-          currentUser={currentUser}
+          showNavigation={true}
+          onNext={() => navigatePost('next')}
+          onPrevious={() => navigatePost('prev')}
+          hasNext={selectedPostIndex < posts.length - 1}
+          hasPrevious={selectedPostIndex > 0}
+          currentIndex={selectedPostIndex + 1}
+          totalCount={posts.length}
         />
       )}
     </>
   );
 }
 
+// Draft grid item component - Enhanced to be more like posts
+function DraftGridItem({ draft, theme, onEdit, onDelete, onPublish }) {
+  const [isInView, setIsInView] = useState(false);
+  const videoRef = useRef(null);
+  const createdDate = new Date(draft.createdAt || Date.now());
+  const formattedDate = createdDate.toLocaleDateString();
+  const timeAgo = getTimeAgo(createdDate);
+  const isVideo = draft.postType === 'VIDEO' || draft.postType === 'video';
+  
+  // Intersection Observer for video autoplay in drafts
+  useEffect(() => {
+    if (!isVideo || !videoRef.current) return;
+    
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsInView(entry.isIntersecting);
+        if (entry.isIntersecting) {
+          videoRef.current?.play().catch(console.log);
+        } else {
+          videoRef.current?.pause();
+        }
+      },
+      { threshold: 0.5 }
+    );
+    
+    observer.observe(videoRef.current);
+    return () => observer.disconnect();
+  }, [isVideo]);
+  
+  // Render draft media preview (if available)
+  const renderDraftMedia = () => {
+    if (draft.postUrl || draft.mediaUrl) {
+      let mediaUrl = draft.postUrl || draft.mediaUrl;
+      
+      // Fix URL - handle localhost port issues
+      if (mediaUrl && mediaUrl.includes('localhost:3001')) {
+        mediaUrl = mediaUrl.replace('localhost:3001', 'localhost:45799');
+      } else if (mediaUrl && mediaUrl.startsWith('/uploads/')) {
+        mediaUrl = `http://localhost:45799${mediaUrl}`;
+      }
+      
+      if (isVideo) {
+        return (
+          <video
+            ref={videoRef}
+            src={mediaUrl}
+            className="w-full h-full object-cover"
+            muted
+            loop
+            playsInline
+            autoPlay={draft.autoPlay !== undefined ? draft.autoPlay : true}
+            preload="metadata"
+            onError={(e) => {
+              console.error('Draft video load error:', mediaUrl);
+              console.error('Original URL:', draft.postUrl || draft.mediaUrl);
+              
+              // Try alternative URL
+              const alternatives = [
+                mediaUrl.replace('localhost:45799', 'localhost:3001'),
+                mediaUrl.replace('45799', '3001')
+              ];
+              
+              for (const altUrl of alternatives) {
+                if (altUrl !== mediaUrl) {
+                  console.log('Trying alternative draft video URL:', altUrl);
+                  e.target.src = altUrl;
+                  return;
+                }
+              }
+              
+              // If all alternatives fail, hide video
+              e.target.style.display = 'none';
+            }}
+            onLoadedData={(e) => {
+              e.target.currentTime = 0;
+              if (isInView) {
+                e.target.play().catch(() => {});
+              }
+            }}
+            onCanPlay={(e) => {
+              if (isInView) {
+                e.target.play().catch(() => {});
+              }
+            }}
+          />
+        );
+      } else {
+        return (
+          <img
+            src={mediaUrl}
+            alt={draft.title || 'Draft preview'}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              console.error('Draft image load error:', mediaUrl);
+              console.error('Original URL:', draft.postUrl || draft.mediaUrl);
+              
+              // Try alternative URL
+              const alternatives = [
+                mediaUrl.replace('localhost:45799', 'localhost:3001'),
+                mediaUrl.replace('45799', '3001')
+              ];
+              
+              for (const altUrl of alternatives) {
+                if (altUrl !== mediaUrl) {
+                  console.log('Trying alternative draft image URL:', altUrl);
+                  e.target.src = altUrl;
+                  return;
+                }
+              }
+              
+              // If all alternatives fail, hide image
+              e.target.style.display = 'none';
+            }}
+          />
+        );
+      }
+    }
+    
+    // Fallback placeholder for drafts without media
+    return (
+      <div className={`w-full h-full flex flex-col items-center justify-center p-4 ${
+        theme === 'dark' ? 'bg-gray-800' : 'bg-gray-100'
+      }`}>
+        <div className="text-center">
+          {isVideo ? (
+            <VideoIcon className={`w-10 h-10 mb-3 mx-auto ${
+              theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
+            }`} />
+          ) : (
+            <DocumentIcon className={`w-10 h-10 mb-3 mx-auto ${
+              theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
+            }`} />
+          )}
+          <h4 className={`text-xs font-medium mb-1 line-clamp-2 ${
+            theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+          }`}>
+            {draft.title || 'Untitled Draft'}
+          </h4>
+          <p className={`text-xs ${
+            theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+          }`}>
+            {timeAgo}
+          </p>
+        </div>
+      </div>
+    );
+  };
+  
+  return (
+    <div
+      className={`relative aspect-square overflow-hidden cursor-pointer group rounded-lg transition-all duration-300 shadow-sm hover:shadow-md border-2 ${
+        theme === 'dark' 
+          ? 'bg-gray-800 hover:bg-gray-750 border-orange-500/50' 
+          : 'bg-white hover:bg-gray-50 border-orange-300/50'
+      }`}
+    >
+      {/* Draft Media/Content */}
+      <div className="relative w-full h-full">
+        {renderDraftMedia()}
+      </div>
+      
+      {/* Draft Badge */}
+      <div className="absolute top-2 left-2 z-10">
+        <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+          theme === 'dark' 
+            ? 'bg-orange-500 text-white' 
+            : 'bg-orange-500 text-white'
+        }`}>
+          ✨ Draft
+        </div>
+      </div>
+      
+      {/* Media type indicator */}
+      {isVideo && (
+        <div className="absolute top-2 right-2 z-10">
+          <div className="bg-black/70 backdrop-blur-sm rounded-full p-1.5">
+            <VideoIcon className="w-3 h-3 text-white" />
+          </div>
+        </div>
+      )}
+      
+      {/* Draft Info Overlay - Shows draft details */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+        <div className="absolute bottom-0 left-0 right-0 p-3 text-white">
+          <div className="space-y-1">
+            {draft.caption && (
+              <p className="text-xs line-clamp-2 leading-relaxed">
+                {draft.caption}
+              </p>
+            )}
+            {draft.location && (
+              <p className="text-xs opacity-80">
+                📍 {draft.location}
+              </p>
+            )}
+            {draft.tags && draft.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {draft.tags.slice(0, 3).map((tag, idx) => (
+                  <span key={idx} className="text-xs bg-white/20 px-1.5 py-0.5 rounded">
+                    #{tag}
+                  </span>
+                ))}
+                {draft.tags.length > 3 && (
+                  <span className="text-xs opacity-60">+{draft.tags.length - 3}</span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Draft Actions Overlay */}
+      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit();
+            }}
+            className="bg-blue-500 hover:bg-blue-600 text-white p-3 rounded-full transition-colors shadow-lg hover:scale-105"
+            title="Edit Draft"
+          >
+            <EditIcon className="w-5 h-5" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onPublish();
+            }}
+            className="bg-green-500 hover:bg-green-600 text-white p-3 rounded-full transition-colors shadow-lg hover:scale-105"
+            title="Publish Draft"
+          >
+            <PublishIcon className="w-5 h-5" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="bg-red-500 hover:bg-red-600 text-white p-3 rounded-full transition-colors shadow-lg hover:scale-105"
+            title="Delete Draft"
+          >
+            <TrashIcon className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Helper function for time ago
+function getTimeAgo(date) {
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
+}
+
 // Individual post grid item
 function PostGridItem({ post, onClick, theme }) {
+  const [isInView, setIsInView] = useState(false);
+  const videoRef = useRef(null);
+  
   const isVideo = post.postType === 'VIDEO' || post.postType === 'video';
   const isImage = post.postType === 'IMAGE' || post.postType === 'image' || !post.postType;
   const likesCount = post.like?.length || 0;
   const commentsCount = post.comments?.length || 0;
+  
+  // Intersection Observer for video autoplay
+  useEffect(() => {
+    if (!isVideo || !videoRef.current) return;
+    
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsInView(entry.isIntersecting);
+        if (entry.isIntersecting) {
+          videoRef.current?.play().catch(console.log);
+        } else {
+          videoRef.current?.pause();
+        }
+      },
+      { threshold: 0.5 }
+    );
+    
+    observer.observe(videoRef.current);
+    return () => observer.disconnect();
+  }, [isVideo]);
 
-  // Handle different media types
+  // Handle different media types with robust URL fixing
   const renderMedia = () => {
-    // Fix URL if it starts with localhost
+    // Fix URL - handle localhost port issues
     let mediaUrl = post.postUrl;
+    
+    // Handle different localhost port configurations
     if (mediaUrl && mediaUrl.includes('localhost:3001')) {
-      mediaUrl = mediaUrl.replace('localhost:3001', 'localhost:3001');
+      mediaUrl = mediaUrl.replace('localhost:3001', 'localhost:45799');
+    } else if (mediaUrl && mediaUrl.startsWith('/uploads/')) {
+      mediaUrl = `http://localhost:45799${mediaUrl}`;
     }
+    
+    // Generate backup URLs to try on failure
+    const generateBackupUrls = (url) => {
+      if (!url) return [];
+      const backups = [];
+      
+      // Try different port configurations
+      if (url.includes('45799')) {
+        backups.push(url.replace('45799', '3001'));
+      }
+      if (url.includes('3001')) {
+        backups.push(url.replace('3001', '45799'));
+      }
+      
+      // Try different protocols
+      if (url.startsWith('http://')) {
+        backups.push(url.replace('http://', 'https://'));
+      }
+      if (url.startsWith('https://')) {
+        backups.push(url.replace('https://', 'http://'));
+      }
+      
+      // Try relative path
+      const pathMatch = url.match(/\/uploads\/.*/);
+      if (pathMatch) {
+        backups.push(`http://localhost:45799${pathMatch[0]}`);
+        backups.push(`http://localhost:3001${pathMatch[0]}`);
+      }
+      
+      return [...new Set(backups)]; // Remove duplicates
+    };
+    
+    const backupUrls = generateBackupUrls(mediaUrl);
 
     if (isVideo) {
+      let attemptedUrls = []; // Track URLs we've already tried
+      
       return (
         <video
+          ref={videoRef}
           src={mediaUrl}
           className="w-full h-full object-cover"
           muted
+          loop
+          playsInline
+          autoPlay
           preload="metadata"
           onError={(e) => {
-            console.error('Video load error:', e, 'URL:', mediaUrl);
-            // Replace with error placeholder
+            console.error('Video load error for URL:', mediaUrl);
+            console.error('Original URL:', post.postUrl);
+            
+            // Track attempted URLs to avoid infinite loops
+            if (!attemptedUrls.includes(e.target.src)) {
+              attemptedUrls.push(e.target.src);
+            }
+            
+            // Try backup URLs one by one
+            const nextUrl = backupUrls.find(url => !attemptedUrls.includes(url));
+            
+            if (nextUrl) {
+              attemptedUrls.push(nextUrl);
+              e.target.src = nextUrl;
+              return;
+            }
+            
+            // If all backup URLs fail, show error placeholder
             e.target.style.display = 'none';
             const parent = e.target.parentElement;
             if (parent && !parent.querySelector('.error-placeholder')) {
@@ -144,8 +535,32 @@ function PostGridItem({ post, onClick, theme }) {
               errorDiv.className = `error-placeholder w-full h-full flex items-center justify-center ${
                 theme === 'dark' ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-500'
               }`;
-              errorDiv.innerHTML = '<span class="text-sm">Video unavailable</span>';
+              errorDiv.innerHTML = `
+                <div class="text-center">
+                  <div class="text-2xl mb-2">📹</div>
+                  <div class="text-xs">Video unavailable</div>
+                  <div class="text-xs text-gray-500 mt-1">Check backend server</div>
+                </div>
+              `;
               parent.appendChild(errorDiv);
+            }
+          }}
+          onLoadedData={(e) => {
+            // Ensure video starts playing once loaded and is in view
+            const video = e.target;
+            video.currentTime = 0;
+            if (isInView) {
+              video.play().catch(() => {});
+            }
+          }}
+          onCanPlay={(e) => {
+            if (isInView) {
+              e.target.play().catch(() => {});
+            }
+          }}
+          onLoadedMetadata={(e) => {
+            if (isInView) {
+              e.target.play().catch(() => {});
             }
           }}
         />
@@ -157,8 +572,24 @@ function PostGridItem({ post, onClick, theme }) {
           alt={post.title || 'Post'}
           className="w-full h-full object-cover"
           onError={(e) => {
-            console.error('Image load error:', e, 'URL:', mediaUrl);
-            // Show placeholder on error
+            console.error('Image load error for URL:', mediaUrl);
+            console.error('Original URL:', post.postUrl);
+            
+            // Try alternative URL before showing placeholder
+            const alternatives = [
+              mediaUrl.replace('localhost:3001', 'localhost:45799'),
+              mediaUrl.replace('localhost:45799', 'localhost:3001')
+            ];
+            
+            for (const altUrl of alternatives) {
+              if (altUrl !== mediaUrl) {
+                console.log('Trying alternative image URL:', altUrl);
+                e.target.src = altUrl;
+                return;
+              }
+            }
+            
+            // If all alternatives fail, show placeholder
             e.target.src = '/default-profile.svg';
           }}
         />
@@ -178,10 +609,16 @@ function PostGridItem({ post, onClick, theme }) {
   return (
     <div
       onClick={onClick}
-      className="relative aspect-square overflow-hidden cursor-pointer group rounded-sm"
+      className={`relative aspect-square overflow-hidden cursor-pointer group rounded-lg transition-all duration-300 shadow-sm hover:shadow-md ${
+        theme === 'dark' 
+          ? 'bg-gray-800 hover:bg-gray-750' 
+          : 'bg-white hover:bg-gray-50 border border-gray-100'
+      }`}
     >
       {/* Post Media */}
-      {renderMedia()}
+      <div className="relative w-full h-full">
+        {renderMedia()}
+      </div>
 
       {/* Video indicator */}
       {isVideo && (
@@ -197,304 +634,25 @@ function PostGridItem({ post, onClick, theme }) {
         </div>
       )}
 
-      {/* Hover overlay */}
-      <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-all duration-200 flex items-center justify-center opacity-0 group-hover:opacity-100">
-        <div className="flex items-center space-x-6 text-white">
-          <div className="flex items-center space-x-1">
-            <HeartIcon className="w-6 h-6" />
-            <span className="font-semibold">{likesCount}</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <CommentIcon className="w-6 h-6" />
-            <span className="font-semibold">{commentsCount}</span>
+      {/* Video indicator */}
+      {isVideo && (
+        <div className="absolute top-2 right-2 z-10">
+          <div className="bg-black/70 backdrop-blur-sm rounded-full p-1.5">
+            <VideoIcon className="w-3 h-3 text-white" />
           </div>
         </div>
-      </div>
-    </div>
-  );
-}
-
-// Instagram-style post modal
-function PostModal({ post, currentIndex, totalPosts, onClose, onNavigate, theme, currentUser }) {
-  const [isLiked, setIsLiked] = useState(false);
-  const [isSaved, setIsSaved] = useState(false);
-  const [commentText, setCommentText] = useState('');
-  const [localLikeCount, setLocalLikeCount] = useState(post.like?.length || 0);
-  
-  const isVideo = post.postType === 'VIDEO' || post.postType === 'video';
-  const isFirstPost = currentIndex === 0;
-  const isLastPost = currentIndex === totalPosts - 1;
-
-  // Check if current user has liked this post
-  useEffect(() => {
-    if (currentUser && post.like) {
-      const userLiked = post.like.some(like => like.profile?.profileid === currentUser.profileid);
-      setIsLiked(userLiked);
-    }
-  }, [currentUser, post.like]);
-
-  const handleBackdropClick = (e) => {
-    if (e.target === e.currentTarget) {
-      onClose();
-    }
-  };
-
-  const handleLike = () => {
-    if (!currentUser) return;
-    
-    setIsLiked(!isLiked);
-    setLocalLikeCount(prev => isLiked ? prev - 1 : prev + 1);
-    
-    // TODO: Implement GraphQL mutation for liking
-    console.log('Toggle like for post:', post.postid);
-  };
-
-  const handleSave = () => {
-    if (!currentUser) return;
-    
-    setIsSaved(!isSaved);
-    
-    // TODO: Implement GraphQL mutation for saving
-    console.log('Toggle save for post:', post.postid);
-  };
-
-  const handleShare = () => {
-    // Copy post URL to clipboard
-    navigator.clipboard.writeText(window.location.href + '?post=' + post.postid)
-      .then(() => alert('Link copied to clipboard!'))
-      .catch(() => console.error('Failed to copy link'));
-  };
-
-  const handleComment = () => {
-    if (!commentText.trim() || !currentUser) return;
-    
-    // TODO: Implement GraphQL mutation for commenting
-    console.log('Add comment:', commentText, 'to post:', post.postid);
-    setCommentText('');
-  };
-
-  const renderMedia = () => {
-    // Fix URL if it starts with localhost
-    let mediaUrl = post.postUrl;
-    if (mediaUrl && mediaUrl.includes('localhost:3001')) {
-      mediaUrl = mediaUrl.replace('localhost:3001', 'localhost:3001');
-    }
-
-    if (isVideo) {
-      return (
-        <video
-          src={mediaUrl}
-          controls
-          className="w-full h-full object-cover"
-          style={{ aspectRatio: '1/1', maxHeight: '600px' }}
-          onError={(e) => {
-            console.error('Video load error in modal:', e, 'URL:', mediaUrl);
-            e.target.style.display = 'none';
-            const parent = e.target.parentElement;
-            if (parent && !parent.querySelector('.modal-error-placeholder')) {
-              const errorDiv = document.createElement('div');
-              errorDiv.className = 'modal-error-placeholder w-full h-full flex items-center justify-center bg-gray-800 text-gray-400';
-              errorDiv.innerHTML = '<span class="text-lg">Video could not be loaded</span>';
-              parent.appendChild(errorDiv);
-            }
-          }}
-        />
-      );
-    } else {
-      return (
-        <img
-          src={mediaUrl}
-          alt={post.title || 'Post'}
-          className="w-full h-full object-cover"
-          style={{ aspectRatio: '1/1', maxHeight: '600px' }}
-          onError={(e) => {
-            console.error('Image load error in modal:', e, 'URL:', mediaUrl);
-            // Show fallback image
-            e.target.src = '/default-profile.svg';
-          }}
-        />
-      );
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50">
-      {/* Blurred backdrop */}
-      <div 
-        className="absolute inset-0 backdrop-blur-sm bg-black bg-opacity-60"
-        onClick={handleBackdropClick}
-      />
-      
-      {/* Navigation Buttons */}
-      {!isFirstPost && (
-        <button
-          onClick={() => onNavigate('prev')}
-          className="absolute left-8 top-1/2 -translate-y-1/2 z-60 p-4 rounded-full bg-white shadow-lg text-gray-700 hover:bg-gray-100 transition-all"
-          aria-label="Previous post"
-        >
-          <ChevronLeftIcon className="w-6 h-6" />
-        </button>
-      )}
-      
-      {!isLastPost && (
-        <button
-          onClick={() => onNavigate('next')}
-          className="absolute right-8 top-1/2 -translate-y-1/2 z-60 p-4 rounded-full bg-white shadow-lg text-gray-700 hover:bg-gray-100 transition-all"
-          aria-label="Next post"
-        >
-          <ChevronRightIcon className="w-6 h-6" />
-        </button>
       )}
 
-      {/* Close button */}
-      <button
-        onClick={onClose}
-        className="absolute top-6 right-6 z-60 p-3 rounded-full bg-white shadow-lg text-gray-700 hover:bg-gray-100 transition-all"
-        aria-label="Close modal"
-      >
-        <CloseIcon className="w-6 h-6" />
-      </button>
-
-      {/* Modal content */}
-      <div className="flex items-center justify-center min-h-screen p-8">
-        <div className="bg-white rounded-lg shadow-2xl max-w-4xl w-full max-h-[80vh] overflow-hidden flex">
-          {/* Media Section */}
-          <div className="flex-1 bg-black flex items-center justify-center">
-            {renderMedia()}
+      {/* Hover overlay */}
+      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100">
+        <div className="flex items-center space-x-4 text-white text-sm font-medium">
+          <div className="flex items-center space-x-1">
+            <HeartIcon className="w-4 h-4" />
+            <span>{likesCount}</span>
           </div>
-
-          {/* Info Section */}
-          <div className="w-96 flex flex-col">
-            {/* Header */}
-            <div className="p-4 border-b border-gray-200">
-              <div className="flex items-center space-x-3">
-                <img
-                  src={currentUser?.profilePic || '/api/placeholder/40/40'}
-                  alt="Profile"
-                  className="w-8 h-8 rounded-full"
-                />
-                <div className="flex-1">
-                  <h4 className="font-semibold text-sm">{currentUser?.username}</h4>
-                  <div className="text-xs text-gray-500">
-                    {currentIndex + 1} of {totalPosts}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Post content */}
-            <div className="p-4 border-b border-gray-200">
-              <div className="flex items-start space-x-3">
-                <img
-                  src={currentUser?.profilePic || '/api/placeholder/32/32'}
-                  alt="Profile"
-                  className="w-8 h-8 rounded-full flex-shrink-0"
-                />
-                <div className="flex-1">
-                  <p className="text-sm">
-                    <span className="font-semibold">{currentUser?.username}</span>{' '}
-                    {post.Description || post.title}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Comments section */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {/* Show existing comments */}
-              {post.comments && post.comments.length > 0 ? (
-                post.comments.map((comment, index) => (
-                  <div key={comment.commentid || index} className="flex items-start space-x-3">
-                    <img
-                      src={'/api/placeholder/32/32'}
-                      alt="Commenter"
-                      className="w-8 h-8 rounded-full flex-shrink-0"
-                    />
-                    <div className="flex-1">
-                      <p className="text-sm">
-                        <span className="font-semibold">user{index + 1}</span>{' '}
-                        Sample comment text for post
-                      </p>
-                      <div className="text-xs text-gray-500 mt-1">
-                        <span>2h</span>
-                        <button className="ml-4 hover:text-gray-700">Reply</button>
-                      </div>
-                    </div>
-                    <button className="text-gray-400 hover:text-red-500">
-                      <HeartIcon className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center text-gray-500 py-8">
-                  <p className="text-sm">No comments yet.</p>
-                  <p className="text-xs">Be the first to comment!</p>
-                </div>
-              )}
-            </div>
-
-            {/* Actions */}
-            <div className="border-t border-gray-200">
-              {/* Action buttons */}
-              <div className="p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <button 
-                      onClick={handleLike}
-                      className={`p-1 transition-colors ${
-                        isLiked ? 'text-red-500' : 'text-gray-700 hover:text-red-500'
-                      }`}
-                    >
-                      <HeartIcon className="w-6 h-6" filled={isLiked} />
-                    </button>
-                    <button className="p-1 text-gray-700 hover:text-blue-500 transition-colors">
-                      <CommentIcon className="w-6 h-6" />
-                    </button>
-                    <button 
-                      onClick={handleShare}
-                      className="p-1 text-gray-700 hover:text-green-500 transition-colors"
-                    >
-                      <ShareIcon className="w-6 h-6" />
-                    </button>
-                  </div>
-                  <button 
-                    onClick={handleSave}
-                    className={`p-1 transition-colors ${
-                      isSaved ? 'text-yellow-500' : 'text-gray-700 hover:text-yellow-500'
-                    }`}
-                  >
-                    <BookmarkIcon className="w-6 h-6" filled={isSaved} />
-                  </button>
-                </div>
-                
-                {/* Like count */}
-                <div className="mt-2">
-                  <p className="font-semibold text-sm">{localLikeCount} likes</p>
-                </div>
-              </div>
-
-              {/* Comment input */}
-              <div className="border-t border-gray-200 p-4">
-                <div className="flex items-center space-x-3">
-                  <input
-                    type="text"
-                    placeholder="Add a comment..."
-                    value={commentText}
-                    onChange={(e) => setCommentText(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleComment()}
-                    className="flex-1 text-sm border-none outline-none bg-transparent"
-                  />
-                  {commentText.trim() && (
-                    <button
-                      onClick={handleComment}
-                      className="text-blue-500 font-semibold text-sm hover:text-blue-600"
-                    >
-                      Post
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
+          <div className="flex items-center space-x-1">
+            <CommentIcon className="w-4 h-4" />
+            <span>{commentsCount}</span>
           </div>
         </div>
       </div>
@@ -505,38 +663,38 @@ function PostModal({ post, currentIndex, totalPosts, onClose, onNavigate, theme,
 // Helper functions
 function getEmptyStateTitle(activeTab) {
   switch (activeTab) {
-    case 'uploads':
-      return 'No Posts Yet';
+    case 'saved':
+      return 'No saved posts';
     case 'draft':
-      return 'No Drafts';
+      return 'No drafts yet';
     case 'tagged':
-      return 'No Tagged Posts';
+      return 'Photos of you';
+    case 'uploads':
     default:
-      return 'No Posts Yet';
+      return 'Share your first post';
   }
 }
 
 function getEmptyStateSubtitle(activeTab) {
   switch (activeTab) {
-    case 'uploads':
-      return 'When you share posts, they will appear here.';
+    case 'saved':
+      return 'Save posts you want to see again';
     case 'draft':
-      return 'Posts you draft will appear here.';
+      return 'Save drafts to publish later';
     case 'tagged':
-      return 'When you get tagged in posts, they will appear here.';
+      return 'When people tag you in posts, they\'ll appear here';
+    case 'uploads':
     default:
-      return 'When you share posts, they will appear here.';
+      return 'Posts you share will appear on your profile';
   }
 }
 
 // Icon Components
 function NoPostsIcon() {
   return (
-    <div className="w-16 h-16 mx-auto">
-      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" className="w-full h-full">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-      </svg>
-    </div>
+    <svg className="w-20 h-20 mx-auto opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+    </svg>
   );
 }
 
@@ -544,6 +702,15 @@ function VideoIcon({ className }) {
   return (
     <svg className={className} fill="currentColor" viewBox="0 0 20 20">
       <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
+    </svg>
+  );
+}
+
+function MultipleImagesIcon({ className }) {
+  return (
+    <svg className={className} fill="currentColor" viewBox="0 0 20 20">
+      <path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" />
+      <path d="M3 1a1 1 0 000 2h.01a1 1 0 100-2H3zM6 1a1 1 0 000 2h.01a1 1 0 100-2H6zM9 1a1 1 0 100 2h.01a1 1 0 100-2H9z" />
     </svg>
   );
 }
@@ -571,14 +738,6 @@ function CommentIcon({ className }) {
   );
 }
 
-function CloseIcon({ className }) {
-  return (
-    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-    </svg>
-  );
-}
-
 function ChevronLeftIcon({ className }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -595,11 +754,10 @@ function ChevronRightIcon({ className }) {
   );
 }
 
-function MultipleImagesIcon({ className }) {
+function CloseIcon({ className }) {
   return (
-    <svg className={className} fill="currentColor" viewBox="0 0 20 20">
-      <path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" />
-      <path d="M3 1a1 1 0 000 2h.01a1 1 0 100-2H3zM6 1a1 1 0 000 2h.01a1 1 0 100-2H6zM9 1a1 1 0 100 2h.01a1 1 0 100-2H9z" />
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
     </svg>
   );
 }
@@ -623,6 +781,38 @@ function BookmarkIcon({ className, filled = false }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+    </svg>
+  );
+}
+
+function DocumentIcon({ className }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
+  );
+}
+
+function EditIcon({ className }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+    </svg>
+  );
+}
+
+function TrashIcon({ className }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+  );
+}
+
+function PublishIcon({ className }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
     </svg>
   );
 }

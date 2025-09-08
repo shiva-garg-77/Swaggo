@@ -26,6 +26,8 @@ const __dirname = path.dirname(__filename);
 app.use(cors({
   origin: ['http://localhost:3000', 'http://localhost:3001'],
   credentials: true, // <- this is important for cookies
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -79,6 +81,22 @@ app.get('/', (req, res) => {
   res.send('hello');
 });
 
+// Debug endpoint to check file existence
+app.get('/debug/file/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const filePath = path.join(__dirname, 'uploads', filename);
+  
+  const fs = require('fs');
+  const exists = fs.existsSync(filePath);
+  
+  res.json({
+    filename,
+    exists,
+    fullPath: filePath,
+    uploadDir: path.join(__dirname, 'uploads')
+  });
+});
+
 
 // GraphQL with Auth
 
@@ -95,6 +113,8 @@ app.use(
   cors({
     origin: ['http://localhost:3000', 'http://localhost:3001'],
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
   }),
   expressMiddleware(server, {
     context: async ({ req, res }) => {

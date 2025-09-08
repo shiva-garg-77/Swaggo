@@ -1,6 +1,7 @@
 import Profile from '../Models/FeedModels/Profile.js'
 import Comment from '../Models/FeedModels/Comments.js'
 import Post from '../Models/FeedModels/Post.js';
+import Draft from '../Models/FeedModels/Draft.js';
 import Followers from '../Models/FeedModels/Followers.js';
 import Following from '../Models/FeedModels/Following.js';
 import Likes from '../Models/FeedModels/Likes.js';
@@ -9,6 +10,17 @@ import LikedPost from '../Models/FeedModels/LikedPost.js';
 import SavedPost from '../Models/FeedModels/SavedPost.js';
 import Memory from '../Models/FeedModels/Memory.js';
 import { v4 as uuidv4 } from 'uuid';
+import {
+    getPostLikeCount,
+    getCommentLikeCount,
+    getPostCommentCount,
+    hasUserLikedPost,
+    hasUserLikedComment,
+    hasUserSavedPost,
+    getCommentReplies,
+    getTopLevelComments,
+    getPostStats
+} from '../Helper/LikeCommentHelpers.js';
 
 
 const Resolvers = {
@@ -55,6 +67,14 @@ const Resolvers = {
                 throw new Error(`Error fetching saved post for user ${Parent.username}: ${err.message}`);
             }
         },
+        drafts: async (Parent) => {
+            try {
+                const drafts = await Draft.find({ profileid: Parent.profileid });
+                return drafts || [];
+            } catch (err) {
+                throw new Error(`Error fetching drafts for user ${Parent.username}: ${err.message}`);
+            }
+        },
         memories: async (Parent) => {
             try {
                 const memories = await Memory.find({ profileid: Parent.profileid });
@@ -84,10 +104,8 @@ const Resolvers = {
             }
         },
         like: async (Parent) => {
-
-
             try {
-                const likes = await Likes.find({ postid: Parent.postid });
+                const likes = await Likes.find({ postid: Parent.postid, commentid: { $exists: false } });
                 return likes || [];
             } catch (err) {
                 throw new Error(`Error fetching likes for post with id ${Parent.postid}: ${err.message}`);
@@ -95,13 +113,25 @@ const Resolvers = {
         },
         comments: async (Parent) => {
             try {
-                const comments = await Comment.find({ postid: Parent.postid });
+                // Get only top-level comments (not replies)
+                const comments = await getTopLevelComments(Parent.postid);
                 return comments || [];
             } catch (err) {
                 throw new Error(`Error fetching comments for post with id ${Parent.postid}: ${err.message}`);
             }
+        },
+        likeCount: async (Parent) => {
+            return await getPostLikeCount(Parent.postid);
+        },
+        commentCount: async (Parent) => {
+            return await getPostCommentCount(Parent.postid);
+        },
+        isLikedByUser: async (Parent, args, { user }) => {
+            return user ? await hasUserLikedPost(Parent.postid, user.profileid) : false;
+        },
+        isSavedByUser: async (Parent, args, { user }) => {
+            return user ? await hasUserSavedPost(Parent.postid, user.profileid) : false;
         }
-
     },
 
     Likes: {
@@ -115,18 +145,7 @@ const Resolvers = {
             } catch (err) {
                 throw new Error(`Error fetching profile for like: ${err.message}`);
             }
-        },
-        comment: async (Parent) => {
-            try {
-                if (!Parent.commentid) return [];
-
-                const comment = await Comment.findOne({ commentid: Parent.commentid });
-                return comment ? [comment] : [];
-            } catch (err) {
-                throw new Error(`Error fetching comment: ${err.message}`);
-            }
         }
-
     },
     Comments: {
         profile: async (Parent) => {
@@ -137,21 +156,45 @@ const Resolvers = {
                 }
                 return profile;
             } catch (err) {
-                throw new Error(`Error fetching comments for post with id ${Parent.postid}: ${err.message}`);
+                throw new Error(`Error fetching profile for comment: ${err.message}`);
             }
         },
         userto: async (Parent) => {
             try {
+                if (!Parent.usertoid) return null;
                 const user = await Profile.findOne({ profileid: Parent.usertoid });
-                if (!user) {
-                    return null
-                }
-                return user;
+                return user || null;
             } catch (err) {
                 throw new Error(`Error fetching user for id ${Parent.usertoid}: ${err.message}`);
             }
+        },
+        replies: async (Parent) => {
+            try {
+                return await getCommentReplies(Parent.commentid);
+            } catch (err) {
+                throw new Error(`Error fetching replies for comment: ${err.message}`);
+            }
+        },
+        likeCount: async (Parent) => {
+            return await getCommentLikeCount(Parent.commentid);
+        },
+        isLikedByUser: async (Parent, args, { user }) => {
+            return user ? await hasUserLikedComment(Parent.commentid, user.profileid) : false;
         }
+    },
 
+    Drafts: {
+        profile: async (Parent) => {
+            try {
+                const profile = await Profile.findOne({ profileid: Parent.profileid });
+                if (!profile) {
+                    throw new Error(`Profile with id ${Parent.profileid} not found`);
+                }
+                return profile;
+            } catch (err) {
+                throw new Error(`Error fetching profile for draft: ${err.message}`);
+            }
+        }
     },
 
     Memory: {
@@ -262,6 +305,58 @@ const Resolvers = {
                 throw new Error(`Error fetching memories: ${err.message}`);
             }
         },
+        getDrafts: async (_, { profileid }, { user }) => {
+            try {
+                console.log('\n📝 getDrafts Debug:');
+                console.log('ProfileID requested:', profileid);
+                console.log('User context:', user ? `Username: ${user.username}, ProfileID: ${user.profileid}` : 'NULL');
+                
+                // For testing: Allow getting drafts if no user but still verify profileid exists
+                if (!user && profileid) {
+                    console.log('⚠️ No authentication but allowing for testing...');
+                    const drafts = await Draft.find({ profileid });
+                    console.log(`Found ${drafts.length} drafts for profileid ${profileid}`);
+                    return drafts || [];
+                }
+                
+                // Normal authentication check
+                if (!user) {
+                    throw new Error('Authentication required to view drafts');
+                }
+                
+                if (user.profileid !== profileid) {
+                    throw new Error('You can only view your own drafts');
+                }
+                
+                const drafts = await Draft.find({ profileid });
+                console.log(`Found ${drafts.length} authenticated drafts`);
+                return drafts || [];
+            } catch (err) {
+                console.error('getDrafts error:', err);
+                throw new Error(`Error fetching drafts: ${err.message}`);
+            }
+        },
+        getDraftById: async (_, { draftid }, { user }) => {
+            try {
+                if (!user) {
+                    throw new Error('Authentication required to view draft');
+                }
+                
+                const draft = await Draft.findOne({ draftid });
+                if (!draft) {
+                    throw new Error(`Draft with id ${draftid} not found`);
+                }
+                
+                // Verify ownership
+                if (draft.profileid !== user.profileid) {
+                    throw new Error('You can only view your own drafts');
+                }
+                
+                return draft;
+            } catch (err) {
+                throw new Error(`Error fetching draft: ${err.message}`);
+            }
+        },
         getMemoryById: async (_, { memoryid }) => {
             try {
                 const memory = await Memory.findOne({ memoryid });
@@ -271,6 +366,42 @@ const Resolvers = {
                 return memory;
             } catch (err) {
                 throw new Error(`Error fetching memory: ${err.message}`);
+            }
+        },
+        getCommentsByPost: async (_, { postid }) => {
+            try {
+                return await getTopLevelComments(postid);
+            } catch (err) {
+                throw new Error(`Error fetching comments: ${err.message}`);
+            }
+        },
+        getCommentReplies: async (_, { commentid }) => {
+            try {
+                return await getCommentReplies(commentid);
+            } catch (err) {
+                throw new Error(`Error fetching comment replies: ${err.message}`);
+            }
+        },
+        getLikesByPost: async (_, { postid }) => {
+            try {
+                return await Likes.find({ postid, commentid: { $exists: false } });
+            } catch (err) {
+                throw new Error(`Error fetching post likes: ${err.message}`);
+            }
+        },
+        getLikesByComment: async (_, { commentid }) => {
+            try {
+                return await Likes.find({ commentid });
+            } catch (err) {
+                throw new Error(`Error fetching comment likes: ${err.message}`);
+            }
+        },
+        getPostStats: async (_, { postid }, { user }) => {
+            try {
+                const currentUserProfileId = user ? user.profileid : null;
+                return await getPostStats(postid, currentUserProfileId);
+            } catch (err) {
+                throw new Error(`Error fetching post stats: ${err.message}`);
             }
         },
     },
@@ -336,7 +467,7 @@ const Resolvers = {
                 throw new Error(`Error updating Parent: ${err.message}`);
             }
         },
-        CreatePost: async (_, { profileid, postUrl, title, Description, postType, location, taggedPeople, tags, allowComments, hideLikeCount }, { user }) => {
+        CreatePost: async (_, { profileid, postUrl, title, Description, postType, location, taggedPeople, tags, allowComments, hideLikeCount, autoPlay }, { user }) => {
             try {
                 console.log('\n📝 CreatePost Debug:');
                 console.log('User context received:', user ? `Username: ${user.username}, ID: ${user._id}` : 'NULL');
@@ -364,9 +495,19 @@ const Resolvers = {
                 if (!userProfile) {
                     throw new Error('Profile not found');
                 }
-                // Validate postUrl
+                // Enhanced validation for postUrl and postType
                 if (!postUrl || postUrl.replace(/\s+/g, '') === "") {
                     throw new Error("Post URL cannot be empty");
+                }
+                
+                // Validate postType
+                if (!postType || !['IMAGE', 'VIDEO', 'TEXT'].includes(postType)) {
+                    throw new Error("Post type must be IMAGE, VIDEO, or TEXT");
+                }
+                
+                // Validate media URL format for media posts
+                if (['IMAGE', 'VIDEO'].includes(postType) && postUrl === 'text-post-placeholder') {
+                    throw new Error("Media posts require a valid media URL");
                 }
 
                 const newPost = new Post({
@@ -380,7 +521,8 @@ const Resolvers = {
                     taggedPeople: taggedPeople || [],
                     tags: tags || [],
                     allowComments: allowComments !== undefined ? allowComments : true,
-                    hideLikeCount: hideLikeCount !== undefined ? hideLikeCount : false
+                    hideLikeCount: hideLikeCount !== undefined ? hideLikeCount : false,
+                    autoPlay: autoPlay !== undefined ? autoPlay : false
                 })
                 await newPost.save()
                 console.log('Created post:', newPost);
@@ -469,6 +611,51 @@ const Resolvers = {
                 throw new Error(`Error creating comment: ${err.message}`);
             }
         },
+        CreateCommentReply: async (_, { commentid, profileid, usertoid, comment }, { user }) => {
+            try {
+                // Check if user is authenticated
+                if (!user) {
+                    throw new Error('User not logged in. Please refresh and try again.');
+                }
+                
+                // Find the parent comment to get the post ID
+                const parentComment = await Comment.findOne({ commentid });
+                if (!parentComment) {
+                    throw new Error(`Parent comment with id ${commentid} not found`);
+                }
+                
+                // Check if the user exists
+                const userProfile = await Profile.findOne({ profileid });
+                if (!userProfile) {
+                    throw new Error(`User with id ${profileid} does not exist`);
+                }
+                
+                if (usertoid) {
+                    const userToProfile = await Profile.findOne({ profileid: usertoid });
+                    if (!userToProfile) {
+                        throw new Error(`User with id ${usertoid} does not exist`);
+                    }
+                }
+                
+                if (comment.replace(/\s+/g, '') === "") {
+                    throw new Error("Comment cannot be empty");
+                }
+                
+                const newReply = new Comment({
+                    commentid: uuidv4(),
+                    postid: parentComment.postid, // Use the parent comment's post ID
+                    profileid,
+                    usertoid,
+                    commenttoid: commentid, // Reply to the parent comment
+                    comment
+                });
+                
+                await newReply.save();
+                return newReply;
+            } catch (err) {
+                throw new Error(`Error creating comment reply: ${err.message}`);
+            }
+        },
         DeleteComment: async (_, { postid, commentid }) => {
             // Check if the post exists
             const post = await Post.findOne({ postid });
@@ -513,59 +700,91 @@ const Resolvers = {
                 throw new Error(`Error updating comment: ${err.message}`);
             }
         },
-        ToggleLike: async (_, { postid, profileid, commentid }, { user }) => {
+        TogglePostLike: async (_, { postid, profileid }, { user }) => {
             try {
                 // Check if user is authenticated
                 if (!user) {
                     throw new Error('User not logged in. Please refresh and try again.');
                 }
                 
-                // Check if the user exists
-                const userProfile = await Profile.findOne({ profileid });
-                if (!userProfile) {
-                    throw new Error(`User with id ${profileid} does not exist`);
+                // Verify the user owns the profile
+                if (user.profileid !== profileid) {
+                    throw new Error('You can only like posts with your own profile');
                 }
+                
+                // Check if the post exists
                 const post = await Post.findOne({ postid });
                 if (!post) {
-                    throw new Error(`Post with id ${postid} not found`)
+                    throw new Error(`Post with id ${postid} not found`);
                 }
-                // If cprofileid is provided, check if the cprofile exists
-                if (commentid) {
-                    const comment = await Comment.findOne({ postid, commentid });
-                    if (!comment) {
-                        throw new Error(`Comment with id ${commentid} not found for post ${postid}`);
-                    }
-                    // If commentid is provided, we can assume the like is for the comment
-                    const existingLike = await Likes.findOne({ postid, commentid, profileid });
-                    let newLike
-                    if (existingLike) {
-                        // Unlike the comment
-                        await Likes.deleteOne({ postid, commentid, profileid });
-                    } else {
-                        // Like the comment
-                        newLike = new Likes({ postid, commentid, profileid });
-                        await newLike.save();
-                    }
-                    return existingLike || newLike;
-                }
-                // If no commentid is provided, we assume the like is for the post
-                const existingPostLike = await Likes.findOne({ postid, profileid });
-                let newPostLike;
-                if (existingPostLike) {
+                
+                // Check if user already liked the post (no commentid means post like)
+                const existingLike = await Likes.findOne({ 
+                    postid, 
+                    profileid, 
+                    commentid: { $exists: false } 
+                });
+                
+                let result;
+                if (existingLike) {
                     // Unlike the post
-                    await Likes.deleteOne({ postid, profileid });
+                    await Likes.deleteOne({ postid, profileid, commentid: { $exists: false } });
                     await LikedPost.deleteOne({ postid, profileid });
+                    result = existingLike;
                 } else {
                     // Like the post
-                    newPostLike = new Likes({ postid, profileid });
+                    const newLike = new Likes({ postid, profileid });
                     const newLikedPost = new LikedPost({ postid, profileid });
+                    await newLike.save();
                     await newLikedPost.save();
-                    await newPostLike.save();
+                    result = newLike;
                 }
-
-                return existingPostLike || newPostLike;
+                
+                return result;
             } catch (err) {
-                throw new Error(`Error creating like: ${err.message}`);
+                throw new Error(`Error toggling post like: ${err.message}`);
+            }
+        },
+        ToggleCommentLike: async (_, { commentid, profileid }, { user }) => {
+            try {
+                // Check if user is authenticated
+                if (!user) {
+                    throw new Error('User not logged in. Please refresh and try again.');
+                }
+                
+                // Verify the user owns the profile
+                if (user.profileid !== profileid) {
+                    throw new Error('You can only like comments with your own profile');
+                }
+                
+                // Check if the comment exists
+                const comment = await Comment.findOne({ commentid });
+                if (!comment) {
+                    throw new Error(`Comment with id ${commentid} not found`);
+                }
+                
+                // Check if user already liked the comment
+                const existingLike = await Likes.findOne({ commentid, profileid });
+                
+                let result;
+                if (existingLike) {
+                    // Unlike the comment
+                    await Likes.deleteOne({ commentid, profileid });
+                    result = existingLike;
+                } else {
+                    // Like the comment  
+                    const newLike = new Likes({ 
+                        postid: comment.postid, // Include postid for consistency
+                        commentid, 
+                        profileid 
+                    });
+                    await newLike.save();
+                    result = newLike;
+                }
+                
+                return result;
+            } catch (err) {
+                throw new Error(`Error toggling comment like: ${err.message}`);
             }
         },
         ToggleSavePost: async (_, { postid, profileid }) => {
@@ -763,6 +982,206 @@ const Resolvers = {
                 return memory;
             } catch (err) {
                 throw new Error(`Error removing story from memory: ${err.message}`);
+            }
+        },
+        
+        // Draft Management
+        CreateDraft: async (_, { profileid, postUrl, postType, title, caption, location, tags, taggedPeople, allowComments, hideLikeCount, autoPlay }, { user }) => {
+            try {
+                console.log('\n📝 CreateDraft Debug:');
+                console.log('User context:', user ? `Username: ${user.username}` : 'NULL');
+                console.log('Arguments:', { profileid, title, caption });
+                
+                if (!profileid) {
+                    throw new Error('Profile ID is required');
+                }
+                
+                const userProfile = await Profile.findOne({ profileid });
+                if (!userProfile) {
+                    throw new Error('Profile not found');
+                }
+                
+                // Validate media fields
+                if (postType && ['IMAGE', 'VIDEO'].includes(postType) && !postUrl) {
+                    console.log('⚠️ Warning: Media type specified but no postUrl provided');
+                }
+                
+                // Set defaults based on content
+                const finalPostType = postType || (postUrl ? 'IMAGE' : 'TEXT');
+                const finalPostUrl = postUrl || null;
+                
+                // For testing: Allow draft creation without user if profileid exists
+                if (!user) {
+                    console.log('⚠️ No authentication but allowing for testing...');
+                } else if (user.profileid !== profileid) {
+                    throw new Error('You can only create drafts for your own profile');
+                }
+                
+                const newDraft = new Draft({
+                    draftid: uuidv4(),
+                    profileid,
+                    postUrl: finalPostUrl,
+                    postType: finalPostType,
+                    title: title || null,
+                    caption: caption || null,
+                    location: location || null,
+                    tags: tags || [],
+                    taggedPeople: taggedPeople || [],
+                    allowComments: allowComments !== undefined ? allowComments : true,
+                    hideLikeCount: hideLikeCount !== undefined ? hideLikeCount : false,
+                    autoPlay: autoPlay !== undefined ? autoPlay : false
+                });
+                
+                await newDraft.save();
+                console.log('Created draft:', newDraft);
+                return newDraft;
+            } catch (err) {
+                console.error('Error in CreateDraft resolver:', err);
+                throw new Error(`Error creating draft: ${err.message}`);
+            }
+        },
+        
+        UpdateDraft: async (_, { draftid, postUrl, postType, title, caption, location, tags, taggedPeople, allowComments, hideLikeCount, autoPlay }, { user }) => {
+            try {
+                if (!user) {
+                    throw new Error('Authentication required to update draft');
+                }
+                
+                const draft = await Draft.findOne({ draftid });
+                if (!draft) {
+                    throw new Error(`Draft with id ${draftid} not found`);
+                }
+                
+                if (draft.profileid !== user.profileid) {
+                    throw new Error('You can only update your own drafts');
+                }
+                
+                // Validate postType if provided
+                if (postType !== undefined && !['IMAGE', 'VIDEO', 'TEXT'].includes(postType)) {
+                    throw new Error('Post type must be IMAGE, VIDEO, or TEXT');
+                }
+                
+                // Validate media consistency
+                if (postType && ['IMAGE', 'VIDEO'].includes(postType) && (postUrl === null || postUrl === '')) {
+                    console.log('⚠️ Warning: Setting media type without media URL');
+                }
+                
+                // Update fields if provided
+                if (postUrl !== undefined) draft.postUrl = postUrl;
+                if (postType !== undefined) draft.postType = postType;
+                if (title !== undefined) draft.title = title;
+                if (caption !== undefined) draft.caption = caption;
+                if (location !== undefined) draft.location = location;
+                if (tags !== undefined) draft.tags = tags;
+                if (taggedPeople !== undefined) draft.taggedPeople = taggedPeople;
+                if (allowComments !== undefined) draft.allowComments = allowComments;
+                if (hideLikeCount !== undefined) draft.hideLikeCount = hideLikeCount;
+                if (autoPlay !== undefined) draft.autoPlay = autoPlay;
+                
+                draft.updatedAt = new Date();
+                
+                await draft.save();
+                return draft;
+            } catch (err) {
+                throw new Error(`Error updating draft: ${err.message}`);
+            }
+        },
+        
+        DeleteDraft: async (_, { draftid }, { user }) => {
+            try {
+                if (!user) {
+                    throw new Error('Authentication required to delete draft');
+                }
+                
+                const draft = await Draft.findOne({ draftid });
+                if (!draft) {
+                    throw new Error(`Draft with id ${draftid} not found`);
+                }
+                
+                if (draft.profileid !== user.profileid) {
+                    throw new Error('You can only delete your own drafts');
+                }
+                
+                await Draft.deleteOne({ draftid });
+                return draft;
+            } catch (err) {
+                throw new Error(`Error deleting draft: ${err.message}`);
+            }
+        },
+        
+        PublishDraft: async (_, { draftid }, { user }) => {
+            try {
+                console.log('\n📤 PublishDraft Debug:');
+                console.log('Draft ID:', draftid);
+                console.log('User:', user ? user.username : 'NULL');
+                
+                if (!user) {
+                    throw new Error('Authentication required to publish draft');
+                }
+                
+                const draft = await Draft.findOne({ draftid });
+                if (!draft) {
+                    throw new Error(`Draft with id ${draftid} not found`);
+                }
+                
+                console.log('Draft found:', {
+                    draftid: draft.draftid,
+                    title: draft.title,
+                    postUrl: draft.postUrl,
+                    postType: draft.postType
+                });
+                
+                if (draft.profileid !== user.profileid) {
+                    throw new Error('You can only publish your own drafts');
+                }
+                
+                // Validate draft content before publishing
+                if (!draft.title && !draft.caption && !draft.postUrl) {
+                    throw new Error('Draft must have at least a title, caption, or media to be published');
+                }
+                
+                // Use draft's existing media fields with proper defaults
+                const finalPostUrl = draft.postUrl || 'text-post-placeholder';
+                const finalPostType = draft.postType || 'TEXT';
+                
+                console.log('Final media fields:', {
+                    postUrl: finalPostUrl,
+                    postType: finalPostType
+                });
+                
+                // Create a new post from the draft
+                const newPost = new Post({
+                    postid: uuidv4(),
+                    profileid: draft.profileid,
+                    postUrl: finalPostUrl,
+                    postType: finalPostType,
+                    title: draft.title,
+                    Description: draft.caption, // Draft uses 'caption', Post uses 'Description'
+                    location: draft.location,
+                    taggedPeople: draft.taggedPeople || [],
+                    tags: draft.tags || [],
+                    allowComments: draft.allowComments !== false,
+                    hideLikeCount: draft.hideLikeCount || false,
+                    autoPlay: draft.autoPlay !== undefined ? draft.autoPlay : false
+                });
+                
+                console.log('Creating post with data:', {
+                    postid: newPost.postid,
+                    postUrl: newPost.postUrl,
+                    postType: newPost.postType,
+                    title: newPost.title
+                });
+                
+                await newPost.save();
+                
+                // Delete the draft after successful post creation
+                await Draft.deleteOne({ draftid });
+                
+                console.log('✅ Successfully published draft as post');
+                return newPost;
+            } catch (err) {
+                console.error('❌ Error in PublishDraft:', err);
+                throw new Error(`Error publishing draft: ${err.message}`);
             }
         },
     }
