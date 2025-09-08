@@ -1,13 +1,12 @@
 import MainLayout from '../../../Components/Layout/MainLayout'
 import ProtectedRoute from '../../../Components/Helper/ProtectedRoute'
+import CreatePostComponent from '../../../Components/MainComponents/Post/CreatePost'
 
 export default function CreatePage() {
   return (
     <ProtectedRoute>
       <MainLayout>
-        <div className="text-center py-20">
-          <h1 className="text-4xl font-bold dark:text-white">Create Page</h1>
-        </div>
+        <CreatePostComponent />
       </MainLayout>
     </ProtectedRoute>
   )

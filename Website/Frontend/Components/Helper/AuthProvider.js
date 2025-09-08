@@ -8,18 +8,84 @@ export const AuthProvider = ({ children }) => {
     const [ErrorMsg, setErrorMsg] = useState(null);
     const [successMsg, setSuccessMsg] = useState(null);
     const [accessToken, setAccessToken] = useState(null);
+    const [user, setUser] = useState(null); // Add user state for profile data
     const [loading, setLoading] = useState(true);
     const [authLoading, setAuthLoading] = useState(false);
+
+    // Helper function to decode JWT and extract user info
+    const extractUserFromToken = (token) => {
+        try {
+            if (!token) return null;
+            
+            // Decode JWT token (simple base64 decode of payload)
+            const base64Url = token.split('.')[1];
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            const jsonPayload = decodeURIComponent(
+                atob(base64)
+                    .split('')
+                    .map(function(c) {
+                        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                    })
+                    .join('')
+            );
+            
+            const payload = JSON.parse(jsonPayload);
+            console.log('🔍 Extracted user payload from token:', payload);
+            console.log('📝 Profile ID in token payload:', payload.profileid || '❌ NOT PRESENT');
+            console.log('👤 Username:', payload.username);
+            console.log('🆔 User ID:', payload.id || payload._id);
+            
+            const userData = {
+                id: payload.id || payload._id,
+                username: payload.username,
+                email: payload.email,
+                profileid: payload.profileid, // This should now be present from backend
+                profilePic: payload.profilePic,
+                name: payload.name,
+                dateOfBirth: payload.dateOfBirth
+            };
+            
+            console.log('✅ Final user data object:', userData);
+            return userData;
+        } catch (error) {
+            console.error('Error extracting user from token:', error);
+            return null;
+        }
+    };
+
+    // Update user data whenever accessToken changes
+    useEffect(() => {
+        console.log('\n🔄 Processing access token change...');
+        const userData = extractUserFromToken(accessToken);
+        setUser(userData);
+        
+        if (userData) {
+            console.log('👤 User data set:', userData);
+            if (userData.profileid) {
+                console.log('✅ Profile ID available for GraphQL mutations:', userData.profileid);
+            } else {
+                console.log('⚠️ Profile ID missing from token! This may cause post creation issues.');
+                console.log('🔧 Check if backend is including profileid in JWT token generation.');
+            }
+        } else {
+            console.log('❌ No user data extracted from token');
+        }
+    }, [accessToken]);
 
     // Try auto-login on mount
     useEffect(() => {
         const refresh = async () => {
             try {
+                console.log('Attempting refresh token to:', `http://localhost:${process.env.NEXT_PUBLIC_PORT}/api/refresh-token`);
+                
                 const DataResult = await fetch(`http://localhost:${process.env.NEXT_PUBLIC_PORT}/api/refresh-token`, {
                     method: 'GET',
                     credentials: 'include',
                     cache: 'no-store',
                 });
+                
+                console.log('Refresh token response status:', DataResult.status);
+                console.log('Refresh token response ok:', DataResult.ok);
                 
                 if (!DataResult.ok) {
                     console.log("Refresh token failed with status:", DataResult.status);
@@ -28,16 +94,29 @@ export const AuthProvider = ({ children }) => {
                 }
                 
                 const res = await DataResult.json();
+                console.log('🔄 Refresh token response data:', res);
                 
                 if (res.success && res.accessToken) {
+                    console.log('✅ Refresh token successful! Setting access token...');
+                    console.log('Token preview:', `${res.accessToken.substring(0, 20)}...`);
+                    
+                    // Try to decode and check if profileid is present
+                    const testUser = extractUserFromToken(res.accessToken);
+                    if (testUser?.profileid) {
+                        console.log('✅ Profile ID found in refreshed token:', testUser.profileid);
+                    } else {
+                        console.log('⚠️ Profile ID missing in refreshed token!');
+                    }
+                    
                     setAccessToken(res.accessToken);
-                    console.log("Auto-login successful");
+                    console.log("Auto-login successful with token:", `${res.accessToken.substring(0, 20)}...`);
                 } else {
-                    console.log("Refresh token response:", res.msg);
+                    console.log('❌ Refresh token failed:', res.msg);
+                    console.log("Full refresh response:", res);
                     setAccessToken(null);
                 }
             } catch (err) {
-                console.error("Refresh token error:", err);
+                console.error("Refresh token network error:", err);
                 setAccessToken(null);
             } finally {
                 setLoading(false);
@@ -47,10 +126,17 @@ export const AuthProvider = ({ children }) => {
     }, []);
 
     const login = async (info) => {
+        console.log('\n🔴 LOGIN FUNCTION CALLED!');
+        console.log('- Info received:', info);
+        console.log('- Current accessToken:', accessToken || 'NULL');
+        
         // Clear any previous error messages
         setErrorMsg(null);
         
         try {
+            console.log('- Making request to backend...');
+            console.log('- URL:', `http://localhost:${process.env.NEXT_PUBLIC_PORT}/api/login`);
+            
             const result = await fetch(`http://localhost:${process.env.NEXT_PUBLIC_PORT}/api/login`, {
                 method: "POST",
                 body: JSON.stringify(info),
@@ -60,18 +146,41 @@ export const AuthProvider = ({ children }) => {
                 credentials: 'include' // important to include cookies
             });
             
-            const res = await result.json();
+            console.log('Login response status:', result.status);
+            console.log('Login response ok:', result.ok);
             
-            if(res.success){
+            const res = await result.json();
+            console.log('Login response data:', res);
+            console.log('Access token in response:', res.accessToken ? `Present (${res.accessToken.substring(0, 20)}...)` : 'MISSING');
+            
+            if(res.success && res.accessToken){
+                console.log('✅ LOGIN SUCCESS! About to set token...');
+                console.log('- Token received:', res.accessToken.substring(0, 30) + '...');
+                
+                // Check if profileid is in the new token
+                const loginUser = extractUserFromToken(res.accessToken);
+                if (loginUser?.profileid) {
+                    console.log('✅ Profile ID found in login token:', loginUser.profileid);
+                } else {
+                    console.log('⚠️ Profile ID missing in login token!');
+                }
+                
+                console.log('- Setting accessToken now...');
                 setAccessToken(res.accessToken);
-                setErrorMsg(null); // Clear error on success
+                console.log('- setAccessToken called!');
+                setErrorMsg(null);
+                
+                // Wait a moment and check if it was stored
+                setTimeout(() => {
+                    console.log('- Current accessToken after 100ms:', accessToken || 'STILL NULL');
+                }, 100);
             } else {
-                setErrorMsg(res.msg);
-                console.log("Error Message", res.msg);
+                console.log('❌ Login failed:', res.msg);
+                setErrorMsg(res.msg || 'Login failed');
             }
         } catch (error) {
             setErrorMsg("Network error. Please try again.");
-            console.error("Login error:", error);
+            console.error("Login network error:", error);
         }
     };
 
@@ -87,6 +196,7 @@ export const AuthProvider = ({ children }) => {
         } finally {
             // Clear client state regardless of backend response
             setAccessToken(null);
+            setUser(null); // Clear user data on logout
             setErrorMsg(null);
             // Redirect will be handled by ProtectedRoute
         }
@@ -216,10 +326,35 @@ export const AuthProvider = ({ children }) => {
         setErrorMsg(null);
         setSuccessMsg(null);
     };
+    
+    // Helper function to debug user/profile data
+    const debugUserData = () => {
+        console.log('\n🔍 DEBUG USER DATA:');
+        console.log('- Access Token:', accessToken ? `Present (${accessToken.substring(0, 20)}...)` : 'Not present');
+        console.log('- User Object:', user);
+        console.log('- Profile ID:', user?.profileid || 'Not available');
+        console.log('- Username:', user?.username || 'Not available');
+        
+        if (accessToken && !user?.profileid) {
+            console.log('⚠️ Issue detected: Token present but no profileid!');
+            console.log('🔧 Possible solutions:');
+            console.log('  1. Check backend JWT token generation includes profileid');
+            console.log('  2. Refresh the page to get new token');
+            console.log('  3. Logout and login again');
+        }
+        
+        return {
+            hasToken: !!accessToken,
+            hasUser: !!user,
+            hasProfileId: !!user?.profileid,
+            userData: user
+        };
+    };
 
     return (
         <AuthContext.Provider value={{ 
-            accessToken, 
+            accessToken,
+            user, // Add user data to context
             login, 
             signup,
             forgetPassword,
@@ -231,7 +366,8 @@ export const AuthProvider = ({ children }) => {
             authLoading,
             clearError,
             clearSuccess,
-            clearMessages
+            clearMessages,
+            debugUserData // Add debug helper
         }}>
             {children}
         </AuthContext.Provider>

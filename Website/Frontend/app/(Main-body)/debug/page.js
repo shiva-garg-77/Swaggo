@@ -1,12 +1,12 @@
 import MainLayout from '../../../Components/Layout/MainLayout'
 import ProtectedRoute from '../../../Components/Helper/ProtectedRoute'
-import UserProfile from '../../../Components/MainComponents/Profile/UserProfile'
+import PostsDebug from '../../../Components/MainComponents/PostsDebug'
 
-export default function ProfilePage() {
+export default function DebugPage() {
   return (
     <ProtectedRoute>
       <MainLayout>
-        <UserProfile />
+        <PostsDebug />
       </MainLayout>
     </ProtectedRoute>
   )

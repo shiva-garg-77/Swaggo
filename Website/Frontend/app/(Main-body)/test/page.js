@@ -1,12 +1,12 @@
 import MainLayout from '../../../Components/Layout/MainLayout'
 import ProtectedRoute from '../../../Components/Helper/ProtectedRoute'
-import UserProfile from '../../../Components/MainComponents/Profile/UserProfile'
+import GraphQLTest from '../../../Components/MainComponents/GraphQLTest'
 
-export default function ProfilePage() {
+export default function TestPage() {
   return (
     <ProtectedRoute>
       <MainLayout>
-        <UserProfile />
+        <GraphQLTest />
       </MainLayout>
     </ProtectedRoute>
   )

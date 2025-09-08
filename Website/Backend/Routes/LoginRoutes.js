@@ -1,11 +1,8 @@
 import express from 'express'
-import {signupApi,loginApi,Mailverification,Mailsender,forgetPassword,resetpassword,RefreshkarRahatoken,logoutApi} from '../Controller/LoginApi.js'
+import {signupApi,loginApi,Mailverification,Mailsender,forgetPassword,resetpassword,RefreshkarRahatoken,logoutApi} from '../Controllers/LoginApi.js'
 import { signupApiValidator,loginApivalidation,EmailValidator } from '../Helper/LoginValidator.js'
 
-import bodyParser from 'body-parser'
-const router=express()
-router.use(bodyParser.json())
-router.use(bodyParser.urlencoded({extended:true}))
+const router=express.Router()
 
 
 // Un-Authorized Routes     -----      REST API

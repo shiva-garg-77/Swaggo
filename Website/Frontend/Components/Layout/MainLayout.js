@@ -40,6 +40,7 @@ export default function MainLayout({ children }) {
     { id: 'reel', label: 'Reel', route: '/reel', icon: <ReelsIcon /> },
     { id: 'bonus', label: 'Bonus', route: '/bonus', icon: <BonusIcon /> },
     { id: 'games', label: 'Games', route: '/game', icon: <GamesIcon /> },
+    { id: 'debug', label: 'Debug', route: '/debug', icon: <DebugIcon /> },
   ];
 
   return (
@@ -310,6 +311,14 @@ function GamesIcon() {
   return (
     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a1 1 0 01-1-1V9a1 1 0 011-1h1a2 2 0 100-4H4a1 1 0 01-1-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
+    </svg>
+  );
+}
+
+function DebugIcon() {
+  return (
+    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10m0 0v8a2 2 0 01-2 2H9a2 2 0 01-2-2V8m8 0V7a2 2 0 00-2-2H9a2 2 0 00-2 2v1m8 0L15 4m2 4L15 4" />
     </svg>
   );
 }
