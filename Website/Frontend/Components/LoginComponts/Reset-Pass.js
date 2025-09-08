@@ -1,35 +1,100 @@
 "use client";
-
 import React from 'react'
-import { useState } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import { useTheme } from '../Helper/ThemeProvider';
-import Link from 'next/link';
+import { AuthContext } from '../Helper/AuthProvider';
+import { useRouter } from 'next/navigation';
 
-const Resetpass = () => {
-
+const Resetpass = ({ token }) => {
+  const router = useRouter();
   const { theme } = useTheme();
-    const [formData, setFormData] = useState({
-      password: '',
-      confirmPassword: ''
-    });
-  
-    const handleInputChange = (e) => {
-      const { name, value } = e.target;
-      setFormData(prev => ({
+  const { resetPassword, ErrorMsg, successMsg, authLoading, clearMessages, clearError, accessToken } = useContext(AuthContext);
+  const [formData, setFormData] = useState({
+    password: '',
+    confirmPassword: ''
+  });
+  const [fieldErrors, setFieldErrors] = useState({});
+
+  // Redirect to home if already authenticated
+  useEffect(() => {
+    if (accessToken) {
+      router.push('/home');
+    }
+  }, [accessToken, router]);
+
+  // Clear messages on component unmount only
+  useEffect(() => {
+    return () => {
+      clearMessages();
+    };
+  }, []);
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+    
+    // Clear field error when user starts typing
+    if (fieldErrors[name]) {
+      setFieldErrors(prev => ({
         ...prev,
-        [name]: value
+        [name]: ''
       }));
-    };
-  
-    const handleSubmit = (e) => {
-      e.preventDefault();
-      // UI only - no backend logic
-      console.log('Login form submitted (UI only):', formData);
-    };
-  
+    }
+    
+    // Clear global error message when user starts typing
+    if (ErrorMsg) {
+      clearError();
+    }
+  };
+
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    // Clear previous field errors
+    setFieldErrors({});
+    
+    // Basic validation
+    const errors = {};
+    
+    if (!formData.password) {
+      errors.password = 'Password is required';
+    } else if (formData.password.length < 6) {
+      errors.password = 'Password must be at least 6 characters long';
+    }
+    
+    if (!formData.confirmPassword) {
+      errors.confirmPassword = 'Please confirm your password';
+    } else if (formData.password !== formData.confirmPassword) {
+      errors.confirmPassword = 'Passwords do not match';
+    }
+    
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return;
+    }
+
+    const result = await resetPassword(formData, token);
+    
+    if (result.success) {
+      // Reset form
+      setFormData({
+        password: '',
+        confirmPassword: ''
+      });
+      // Redirect to home after successful reset
+      setTimeout(() => {
+        router.push('/home');
+      }, 500);
+    }
+  };
+
 
   return (
-   <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-900 dark:to-gray-800 flex flex-col items-center justify-center p-5 gap-5 flex-wrap transition-all duration-300">
+    <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-900 dark:to-gray-800 flex flex-col items-center justify-center p-5 gap-5 flex-wrap transition-all duration-300">
 
       {/* Login Card */}
       <div className="bg-white/90 dark:bg-white/5 backdrop-blur-xl rounded-2xl px-10 w-full max-w-md text-center shadow-2xl border border-white/20 dark:border-white/10 hover:transform hover:-translate-y-2 transition-all duration-300 animate-[slideUp_0.6s_ease-out]">
@@ -45,6 +110,7 @@ const Resetpass = () => {
             />
           </div>
         </div>
+
 
         {/* Login Form */}
         <form onSubmit={handleSubmit} className="w-full">
@@ -63,6 +129,9 @@ const Resetpass = () => {
               placeholder="Enter your new password"
               required
             />
+            {fieldErrors.password && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.password}</p>
+            )}
           </div>
           <div className="mb-5 text-left">
             <label htmlFor="confirmPassword" className="block text-gray-700 dark:text-gray-200 font-medium mb-2 text-sm transition-colors duration-300">
@@ -78,13 +147,26 @@ const Resetpass = () => {
               placeholder="Re-enter Password"
               required
             />
+            {fieldErrors.confirmPassword && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.confirmPassword}</p>
+            )}
           </div>
+          
+        {/* Error/Success Messages */}
+        {ErrorMsg && <p className="text-red-500 text-sm mb-3 text-center">{ErrorMsg}</p>}
+        {successMsg && <p className="text-green-500 text-sm mb-3 text-center">{successMsg}</p>}
+        {fieldErrors.general && <p className="text-red-500 text-sm mb-3 text-center">{fieldErrors.general}</p>}
 
           <button
             type="submit"
-            className=" bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold py-3 px-9 rounded-3xl hover:transform hover:-translate-y-1 hover:shadow-2xl hover:shadow-red-500/30 transition-all duration-300 mb-5"
-          >
-            Reset Password
+            disabled={authLoading}
+            className={`bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold py-3 px-9 rounded-3xl transition-all duration-300 mb-5 ${
+              authLoading 
+              ? 'opacity-50 cursor-not-allowed' 
+              : 'cursor-pointer hover:transform hover:-translate-y-1 hover:shadow-2xl hover:shadow-red-500/30'
+              }`}
+              >
+            {authLoading ? 'Resetting...' : 'Reset Password'}
           </button>
         </form>
       </div>

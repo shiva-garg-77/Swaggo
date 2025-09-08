@@ -2,7 +2,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import ThemeProvider from "../Components/Helper/ThemeProvider";
 import ThemeToggle from "../Components/Helper/ThemeToggle";
-import { AuthProvider } from "@/Components/Helper/AuthProvider";
+import { AuthProvider } from "../Components/Helper/AuthProvider";
+import CustomApolloProvider from "../Components/Helper/ApolloProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -47,10 +48,12 @@ export default function RootLayout({ children }) {
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <AuthProvider>
-          <ThemeProvider>
-            <ThemeToggle />
-            {children}
-          </ThemeProvider>
+          <CustomApolloProvider>
+            <ThemeProvider>
+              <ThemeToggle />
+              {children}
+            </ThemeProvider>
+          </CustomApolloProvider>
         </AuthProvider>
       </body>
     </html>

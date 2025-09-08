@@ -1,9 +1,13 @@
-import React from 'react'
+import MainLayout from '../../../Components/Layout/MainLayout'
+import HomeContent from '../../../Components/MainComponents/Home/HomeContent'
+import ProtectedRoute from '../../../Components/Helper/ProtectedRoute'
 
-const Home = () => {
+export default function HomePage() {
   return (
-    <div>Home</div>
+    <ProtectedRoute>
+      <MainLayout>
+        <HomeContent />
+      </MainLayout>
+    </ProtectedRoute>
   )
 }
-
-export default Home

@@ -5,11 +5,11 @@ import cookieParser from 'cookie-parser';
 import LoginRoutes from './Routes/LoginRoutes.js';
 import { Connectdb } from './db/Connectdb.js';
 import { expressMiddleware } from '@apollo/server/express4';
-import TypeDef from './Controller/TypeDefs.js';
-import Resolvers from './Controller/Resolver.js';
+import TypeDef from './Controllers/TypeDefs.js';
+import Resolvers from './Controllers/Resolver.js';
 import auth from './Middleware/Auth.js';
+import jwt from 'jsonwebtoken';
 import multer from 'multer';
-import bodyParser from 'body-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
@@ -23,13 +23,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // === Middlewares ===
-app.use(cors(
-  {
-  origin: 'http://localhost:3000',
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://localhost:3001'],
   credentials: true, // <- this is important for cookies
-}
-));
+}));
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 // Static folder for uploaded files
@@ -55,7 +54,13 @@ app.post('/upload', upload.single('file'), (req, res) => {
   }
 
   const fileUrl = `${req.protocol}://${req.hostname}:${port}/uploads/${req.file.filename}`;
-  res.json({ url: fileUrl });
+  res.json({ 
+    success: true,
+    fileUrl: fileUrl,
+    filename: req.file.filename,
+    originalname: req.file.originalname,
+    size: req.file.size
+  });
 });
 
 // === Connect to DB ===
@@ -84,27 +89,51 @@ const authWrapper = (req, res) =>
 
 
 
-// app.use('/graphql', async (req, res, next) => {
-//   await authWrapper(req, res);
-//   expressMiddleware(server, {
-//     context: async () => {
-//       return {
-//         user: req.user,
-//         req,
-//         res
-//       }
-//     }
-//   })(req, res, next);
-// });
-
-// GraphQL without Auth
-
+// GraphQL with optional authentication (let resolvers handle auth checks)
 app.use(
   '/graphql',
-  cors(),    
-  bodyParser.json(),
+  cors({
+    origin: ['http://localhost:3000', 'http://localhost:3001'],
+    credentials: true,
+  }),
   expressMiddleware(server, {
-    context: async ({ req, res }) => ({ req, res })
+    context: async ({ req, res }) => {
+      // Try to extract user from token without failing the request
+      let user = null;
+      
+      console.log('\n🔍 GraphQL Context Debug:');
+      console.log('Request headers:', {
+        authorization: req.headers['authorization'] ? 'Present' : 'Missing',
+        'user-agent': req.headers['user-agent'],
+        origin: req.headers['origin']
+      });
+      
+      try {
+        const authHeader = req.headers['authorization'];
+        console.log('Auth header:', authHeader ? `Bearer ${authHeader.split(' ')[1]?.substring(0, 20)}...` : 'Not found');
+        
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+          const token = authHeader.split(' ')[1];
+          console.log('Attempting to verify token...');
+          const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+          user = decoded;
+          console.log('✅ Token verified successfully for user:', user.username);
+        } else {
+          console.log('❌ No valid Authorization header found');
+        }
+      } catch (err) {
+        // Don't fail here - let individual resolvers handle authentication
+        console.log('❌ Token verification failed:', err.message);
+      }
+      
+      console.log('Final user context:', user ? `User: ${user.username}` : 'No user');
+      
+      return {
+        user,
+        req,
+        res
+      }
+    }
   })
 );
 
