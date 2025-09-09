@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import CreatePostModal from '../Post/CreatePostModal';
+import MacOSSettingsModal from '../../Settings/MacOSSettingsModal';
 
 export default function ProfileHeader({ 
   profile, 
@@ -16,6 +17,7 @@ export default function ProfileHeader({
 }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showCreatePost, setShowCreatePost] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   if (!profile) return null;
 
@@ -83,11 +85,14 @@ export default function ProfileHeader({
                   }`}>
                     Edit Profile
                   </button>
-                  <button className={`px-5 py-2.5 rounded-lg transition-colors ${
-                    theme === 'dark' 
-                      ? 'bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700' 
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200'
-                  }`}>
+                  <button 
+                    onClick={() => setShowSettings(true)}
+                    className={`px-5 py-2.5 rounded-lg transition-colors ${
+                      theme === 'dark' 
+                        ? 'bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700' 
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200'
+                    }`}
+                  >
                     <SettingsIcon className="w-5 h-5" />
                   </button>
                 </>
@@ -227,6 +232,12 @@ export default function ProfileHeader({
           }}
         />
       )}
+      
+      {/* Settings Modal */}
+      <MacOSSettingsModal 
+        isOpen={showSettings} 
+        onClose={() => setShowSettings(false)} 
+      />
     </div>
   );
 }
