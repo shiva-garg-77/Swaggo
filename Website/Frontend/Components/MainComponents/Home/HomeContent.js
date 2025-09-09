@@ -35,67 +35,13 @@ export default function HomeContent() {
     }
   });
   
-  // Fallback sample posts data with reliable URLs
-  const fallbackPosts = [
-    {
-      id: 1,
-      username: 'alex_photographer',
-      fullName: 'Alex Johnson',
-      avatar: 'https://picsum.photos/100/100?random=1',
-      image: 'https://picsum.photos/600/400?random=10',
-      caption: 'Beautiful landscape! 🌅 Nature never fails to amaze me. #nature #photography',
-      likes: 1420,
-      comments: 45,
-      timeAgo: '2h',
-      isVerified: true
-    },
-    {
-      id: 2,
-      username: 'fitness_sarah',
-      fullName: 'Sarah Wilson',
-      avatar: 'https://picsum.photos/100/100?random=2',
-      image: 'https://picsum.photos/600/400?random=20',
-      caption: 'Just finished my morning workout! 💪 Feeling great and ready to take on the day. #fitness #motivation',
-      likes: 892,
-      comments: 23,
-      timeAgo: '4h',
-      isVerified: false
-    },
-    {
-      id: 3,
-      username: 'mike_developer',
-      fullName: 'Mike Chang',
-      avatar: 'https://picsum.photos/100/100?random=3',
-      image: 'https://picsum.photos/600/400?random=30',
-      caption: 'New project launch! Excited to share this with everyone ✨ Working on something amazing! #coding #tech #startup',
-      likes: 2340,
-      comments: 67,
-      timeAgo: '6h',
-      isVerified: true
-    },
-    {
-      id: 4,
-      username: 'travel_emma',
-      fullName: 'Emma Davis',
-      avatar: 'https://picsum.photos/100/100?random=4',
-      image: 'https://picsum.photos/600/400?random=40',
-      caption: 'Exploring the mountains today! The view from up here is absolutely breathtaking 🏔️ #travel #mountains #adventure',
-      likes: 567,
-      comments: 34,
-      timeAgo: '8h',
-      isVerified: false
-    }
-  ];
 
-  // Use real posts if available, otherwise use fallback
-  const rawPosts = data?.getPosts?.length > 0 ? data.getPosts : fallbackPosts;
+  // Use only real posts from database
+  const rawPosts = data?.getPosts || [];
   
   // Filter out posts with invalid or missing image URLs
   const posts = rawPosts.filter(post => {
     const imageUrl = post.postUrl || post.image;
-    
-    // Always allow fallback posts
-    if (!post.postid) return true;
     
     // Check for basic validity
     if (!imageUrl || 
@@ -234,8 +180,8 @@ export default function HomeContent() {
           <div className={`text-center py-20 ${
             theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
           }`}>
-            <p className="text-lg mb-4">No posts yet!</p>
-            <p className="text-sm">Create your first post to see it here.</p>
+            <p className="text-lg mb-4">No posts found!</p>
+            <p className="text-sm">There are no posts to display at the moment.</p>
           </div>
         ) : (
           posts.map((post) => (
