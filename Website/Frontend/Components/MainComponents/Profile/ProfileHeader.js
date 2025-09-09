@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from 'react';
+import CreatePostModal from '../Post/CreatePostModal';
 
 export default function ProfileHeader({ 
   profile, 
@@ -10,9 +11,11 @@ export default function ProfileHeader({
   onMessage, 
   onRestrict, 
   onBlock, 
+  onRefresh,
   theme 
 }) {
   const [showMenu, setShowMenu] = useState(false);
+  const [showCreatePost, setShowCreatePost] = useState(false);
 
   if (!profile) return null;
 
@@ -21,89 +24,104 @@ export default function ProfileHeader({
   const postsCount = profile.post?.length || 0;
 
   return (
-    <div className="mb-12">
-      {/* Profile Info Section */}
-      <div className="flex flex-col md:flex-row items-start md:items-center gap-8 mb-8">
+    <div className="w-full px-4 py-4">
+      {/* Instagram-style Horizontal Layout - Medium width */}
+      <div className="flex flex-col md:flex-row md:items-start gap-6 md:gap-16 max-w-none w-full">
         {/* Profile Picture */}
-        <div className="flex-shrink-0">
+        <div className="flex-shrink-0 mx-auto md:mx-0">
           <div className="relative">
             <img
-              src={profile.profilePic || '/default-profile.svg'}
-              alt={profile.username}
-              className="w-32 h-32 md:w-40 md:h-40 rounded-full object-cover border-4 border-gray-200 dark:border-gray-700"
+              src={profile.profilepic || '/default-profile.svg'}
+              alt={profile.displayname || profile.username}
+              className="w-24 h-24 md:w-32 md:h-32 lg:w-36 lg:h-36 rounded-full object-cover ring-2 ring-gray-200 dark:ring-gray-700"
             />
             {profile.isVerified && (
-              <div className="absolute bottom-2 right-2 bg-blue-500 rounded-full p-1">
+              <div className="absolute -bottom-1 -right-1 bg-blue-500 rounded-full p-1.5 border-2 border-white dark:border-gray-900">
                 <CheckBadgeIcon className="w-4 h-4 text-white" />
               </div>
             )}
           </div>
         </div>
 
-        {/* Profile Details */}
-        <div className="flex-1 min-w-0">
-          {/* Username and Actions */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-4">
+        {/* Profile Info */}
+        <div className="flex-1 space-y-4">
+          
+          {/* Username and Actions Row */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h1 className={`text-2xl font-semibold ${
+              <h1 className={`text-2xl md:text-3xl font-semibold ${
                 theme === 'dark' ? 'text-white' : 'text-gray-900'
               }`}>
                 {profile.username}
               </h1>
               {profile.name && (
-                <p className={`text-sm ${
-                  theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                <p className={`text-base font-medium mt-1 ${
+                  theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
                 }`}>
                   {profile.name}
                 </p>
               )}
             </div>
-
+            
             {/* Action Buttons */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               {isOwnProfile ? (
                 <>
-                  <button className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+                  <button 
+                    onClick={() => setShowCreatePost(true)}
+                    className={`px-6 py-2.5 text-sm font-semibold rounded-lg transition-colors min-w-[100px] ${
                     theme === 'dark' 
-                      ? 'bg-gray-800 text-white hover:bg-gray-700 border border-gray-600' 
-                      : 'bg-gray-100 text-gray-900 hover:bg-gray-200 border border-gray-300'
+                      ? 'bg-red-600 text-white hover:bg-red-700' 
+                      : 'bg-red-500 text-white hover:bg-red-600'
+                  }`}>
+                    + New Post
+                  </button>
+                  <button className={`px-6 py-2.5 text-sm font-semibold rounded-lg transition-colors min-w-[100px] ${
+                    theme === 'dark' 
+                      ? 'bg-gray-800 text-white hover:bg-gray-700 border border-gray-700' 
+                      : 'bg-gray-100 text-gray-900 hover:bg-gray-200 border border-gray-200'
                   }`}>
                     Edit Profile
+                  </button>
+                  <button className={`px-5 py-2.5 rounded-lg transition-colors ${
+                    theme === 'dark' 
+                      ? 'bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700' 
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200'
+                  }`}>
+                    <SettingsIcon className="w-5 h-5" />
                   </button>
                 </>
               ) : (
                 <>
                   <button
                     onClick={onFollowToggle}
-                    className={`px-6 py-2 rounded-lg font-medium transition-all duration-300 ${
+                    className={`px-6 py-2.5 text-sm font-semibold rounded-lg transition-colors min-w-[100px] ${
                       isFollowing
                         ? theme === 'dark'
-                          ? 'bg-gray-800 text-white hover:bg-gray-700 border border-gray-600'
-                          : 'bg-gray-100 text-gray-900 hover:bg-gray-200 border border-gray-300'
-                        : 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white hover:shadow-lg'
+                          ? 'bg-gray-800 text-white hover:bg-gray-700 border border-gray-700'
+                          : 'bg-gray-200 text-gray-900 hover:bg-gray-300 border border-gray-200'
+                        : 'bg-red-500 hover:bg-red-600 text-white'
                     }`}
                   >
                     {isFollowing ? 'Following' : 'Follow'}
                   </button>
                   <button
                     onClick={onMessage}
-                    className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+                    className={`px-6 py-2.5 text-sm font-semibold rounded-lg transition-colors min-w-[100px] ${
                       theme === 'dark' 
-                        ? 'bg-gray-800 text-white hover:bg-gray-700' 
-                        : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
+                        ? 'bg-gray-800 text-white hover:bg-gray-700 border border-gray-700' 
+                        : 'bg-gray-100 text-gray-900 hover:bg-gray-200 border border-gray-200'
                     }`}
                   >
                     Message
                   </button>
-                  
-                  {/* More Options Menu */}
                   <div className="relative">
                     <button
                       onClick={() => setShowMenu(!showMenu)}
-                      className={`p-2 rounded-lg transition-colors ${
+                      className={`px-5 py-2.5 rounded-lg transition-colors ${
                         theme === 'dark' 
-                          ? 'text-gray-300 hover:bg-gray-800' 
-                          : 'text-gray-600 hover:bg-gray-100'
+                          ? 'bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700' 
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200'
                       }`}
                     >
                       <DotsHorizontalIcon className="w-5 h-5" />
@@ -118,20 +136,20 @@ export default function ProfileHeader({
                             onRestrict();
                             setShowMenu(false);
                           }}
-                          className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
+                          className={`w-full text-left px-4 py-3 text-sm rounded-t-lg hover:bg-gray-50 dark:hover:bg-gray-700 ${
                             theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
                           }`}
                         >
-                          Restrict
+                          Restrict User
                         </button>
                         <button
                           onClick={() => {
                             onBlock();
                             setShowMenu(false);
                           }}
-                          className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                          className="w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-b-lg"
                         >
-                          Block
+                          Block User
                         </button>
                       </div>
                     )}
@@ -141,57 +159,74 @@ export default function ProfileHeader({
             </div>
           </div>
 
-          {/* Stats */}
-          <div className="flex items-center gap-8 mb-6">
-            <div className="text-center">
-              <div className={`text-lg font-semibold ${
+          {/* Stats Row */}
+          <div className="flex items-center gap-8 md:gap-10">
+            <div>
+              <span className={`text-lg md:text-xl font-semibold ${
                 theme === 'dark' ? 'text-white' : 'text-gray-900'
               }`}>
-                {postsCount}
-              </div>
-              <div className={`text-sm ${
+                {postsCount.toLocaleString()}
+              </span>
+              <span className={`ml-1 text-sm ${
                 theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
               }`}>
-                Uploads
-              </div>
+                posts
+              </span>
             </div>
-            <div className="text-center">
-              <div className={`text-lg font-semibold ${
+            <div>
+              <span className={`text-lg md:text-xl font-semibold ${
                 theme === 'dark' ? 'text-white' : 'text-gray-900'
               }`}>
-                {followersCount}
-              </div>
-              <div className={`text-sm ${
+                {followersCount.toLocaleString()}
+              </span>
+              <span className={`ml-1 text-sm ${
                 theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
               }`}>
-                Followers
-              </div>
+                followers
+              </span>
             </div>
-            <div className="text-center">
-              <div className={`text-lg font-semibold ${
+            <div>
+              <span className={`text-lg md:text-xl font-semibold ${
                 theme === 'dark' ? 'text-white' : 'text-gray-900'
               }`}>
-                {followingCount}
-              </div>
-              <div className={`text-sm ${
+                {followingCount.toLocaleString()}
+              </span>
+              <span className={`ml-1 text-sm ${
                 theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
               }`}>
-                Following
-              </div>
+                following
+              </span>
             </div>
           </div>
 
           {/* Bio */}
           {profile.bio && (
-            <div className={`text-sm ${
+            <div className={`text-sm md:text-base leading-relaxed max-w-md ${
               theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
             }`}>
               {profile.bio}
             </div>
           )}
-
+          
         </div>
       </div>
+      
+      {/* Create Post Modal */}
+      {showCreatePost && (
+        <CreatePostModal
+          isOpen={showCreatePost}
+          onClose={() => setShowCreatePost(false)}
+          theme={theme}
+          onPostSuccess={() => {
+            setShowCreatePost(false);
+            if (onRefresh) {
+              onRefresh();
+            } else {
+              window.location.reload();
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -209,6 +244,15 @@ function DotsHorizontalIcon({ className }) {
   return (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h.01M12 12h.01M19 12h.01" />
+    </svg>
+  );
+}
+
+function SettingsIcon({ className }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
     </svg>
   );
 }

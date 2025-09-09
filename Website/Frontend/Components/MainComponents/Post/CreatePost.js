@@ -4,7 +4,7 @@ import { useState, useRef, useContext, useEffect } from 'react';
 import { useMutation } from '@apollo/client';
 import { useTheme } from '../../Helper/ThemeProvider';
 import { AuthContext } from '../../Helper/AuthProvider';
-import { CREATE_POST_MUTATION } from '../../../lib/graphql/profileQueries';
+import { CREATE_POST_MUTATION, CREATE_DRAFT_MUTATION } from '../../../lib/graphql/profileQueries';
 
 export default function CreatePost() {
   const { theme } = useTheme();
@@ -36,11 +36,15 @@ export default function CreatePost() {
   const [taggedPeople, setTaggedPeople] = useState([]);
   const [allowComments, setAllowComments] = useState(true);
   const [hideLikeCount, setHideLikeCount] = useState(false);
+  const [autoPlay, setAutoPlay] = useState(false);
   const [tagInput, setTagInput] = useState('');
   const [peopleInput, setPeopleInput] = useState('');
   
   // Upload state
   const [isUploading, setIsUploading] = useState(false);
+  
+  // Save dialog state
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
   
   // Cleanup blob URLs on component unmount or file change
   useEffect(() => {
@@ -75,6 +79,17 @@ export default function CreatePost() {
     }
   });
 
+  const [createDraft] = useMutation(CREATE_DRAFT_MUTATION, {
+    onCompleted: (data) => {
+      console.log('Draft created successfully:', data);
+      alert('💾 Draft saved successfully!');
+    },
+    onError: (error) => {
+      console.error('Error creating draft:', error);
+      alert(`❌ Failed to save draft: ${error.message}`);
+    }
+  });
+
   // Helper functions
   const resetForm = () => {
     setCurrentStep(1);
@@ -89,6 +104,7 @@ export default function CreatePost() {
     setTaggedPeople([]);
     setAllowComments(true);
     setHideLikeCount(false);
+    setAutoPlay(false);
     setTagInput('');
     setPeopleInput('');
     setFilter('none');
@@ -218,11 +234,23 @@ export default function CreatePost() {
     try {
       console.log('📤 Starting post upload...');
       
+      // Apply filters to the file before uploading
+      let fileToUpload = selectedFile;
+      
+      // If filters/adjustments have been applied, create a new file with filters (only for images)
+      if ((filter !== 'none' || brightness !== 100 || contrast !== 100 || saturation !== 100) && fileType === 'IMAGE') {
+        console.log('🎨 Applying filters to image before upload...');
+        fileToUpload = await applyFiltersToFile(selectedFile);
+      } else if (fileType === 'VIDEO') {
+        console.log('🎥 Video upload - skipping filter processing');
+        fileToUpload = selectedFile;
+      }
+      
       const formData = new FormData();
-      formData.append('file', selectedFile);
+      formData.append('file', fileToUpload);
       
       console.log('📏 Uploading file to server...');
-      const uploadResponse = await fetch(`http://localhost:${process.env.NEXT_PUBLIC_PORT}/upload`, {
+      const uploadResponse = await fetch(`http://localhost:45799/upload`, {
         method: 'POST',
         body: formData,
       });
@@ -245,7 +273,8 @@ export default function CreatePost() {
         tags: tags.length > 0 ? tags : null,
         taggedPeople: taggedPeople.length > 0 ? taggedPeople : null,
         allowComments,
-        hideLikeCount
+        hideLikeCount,
+        autoPlay
       };
       
       console.log('📨 Creating post with data:', postData);
@@ -264,8 +293,90 @@ export default function CreatePost() {
   const openModal = () => setShowModal(true);
   const closeModal = () => {
     if (!isUploading) {
+      if (selectedFile || title || caption) {
+        setShowSaveDialog(true);
+      } else {
+        resetForm();
+        setShowModal(false);
+      }
+    }
+  };
+  
+  const handleCloseWithoutSaving = () => {
+    setShowSaveDialog(false);
+    resetForm();
+    setShowModal(false);
+  };
+
+  const handleCloseSaveDialog = () => {
+    setShowSaveDialog(false);
+  };
+
+  const handleSaveAsDraft = async () => {
+    if (!selectedFile && !title && !caption) return;
+    
+    if (!user || !user.profileid) {
+      alert('⚠️ Please log in to save drafts.');
+      return;
+    }
+
+    setIsUploading(true);
+    
+    try {
+      let fileUrl = null;
+      let postType = 'TEXT';
+      
+      // Upload file if we have one
+      if (selectedFile) {
+        // Apply filters to the file before uploading
+        let fileToUpload = selectedFile;
+        
+        if ((filter !== 'none' || brightness !== 100 || contrast !== 100 || saturation !== 100) && fileType === 'IMAGE') {
+          fileToUpload = await applyFiltersToFile(selectedFile);
+        }
+        
+        const formData = new FormData();
+        formData.append('file', fileToUpload);
+        
+        const uploadResponse = await fetch(`http://localhost:45799/upload`, {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (!uploadResponse.ok) {
+          throw new Error('Failed to upload file');
+        }
+        
+        const uploadData = await uploadResponse.json();
+        fileUrl = uploadData.fileUrl;
+        postType = fileType;
+      }
+      
+      // Use CREATE_DRAFT_MUTATION
+      await createDraft({
+        variables: {
+          profileid: user.profileid,
+          postUrl: fileUrl,
+          postType: postType,
+          title: title || null,
+          caption: caption || null,
+          location: location || null,
+          tags: tags.length > 0 ? tags : [],
+          taggedPeople: taggedPeople.length > 0 ? taggedPeople : [],
+          allowComments,
+          hideLikeCount,
+          autoPlay
+        }
+      });
+      
+      setShowSaveDialog(false);
       resetForm();
       setShowModal(false);
+    } catch (error) {
+      console.error('Error saving draft:', error);
+      alert('❌ Failed to save draft.');
+    } finally {
+      setIsUploading(false);
     }
   };
   
@@ -309,6 +420,34 @@ export default function CreatePost() {
   const applyFilter = (filterName) => {
     console.log('Applying filter:', filterName);
     setFilter(filterName);
+  };
+  
+  const applyFiltersToFile = async (file) => {
+    return new Promise((resolve) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      
+      img.onload = () => {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        
+        // Apply filters to canvas context
+        ctx.filter = getFilterString();
+        ctx.drawImage(img, 0, 0);
+        
+        // Convert canvas to blob
+        canvas.toBlob((blob) => {
+          const filteredFile = new File([blob], file.name, {
+            type: file.type,
+            lastModified: Date.now()
+          });
+          resolve(filteredFile);
+        }, file.type);
+      };
+      
+      img.src = URL.createObjectURL(file);
+    });
   };
 
   return (
@@ -423,17 +562,27 @@ export default function CreatePost() {
                     {isUploading ? '📤 Sharing...' : '🚀 Share Post'}
                   </button>
                 )}
-                <button
-                  onClick={closeModal}
-                  disabled={isUploading}
-                  className={`p-2 rounded-full transition-colors ${
-                    theme === 'dark' 
-                      ? 'text-gray-400 hover:text-white hover:bg-gray-800' 
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                  } ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  <CloseIcon className="w-6 h-6" />
-                </button>
+                <div className="flex items-center gap-2">
+                  {(selectedFile || title || caption) && !isUploading && (
+                    <button
+                      onClick={handleSaveAsDraft}
+                      className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors"
+                    >
+                      Save as Draft
+                    </button>
+                  )}
+                  <button
+                    onClick={closeModal}
+                    disabled={isUploading}
+                    className={`p-2 rounded-full transition-colors ${
+                      theme === 'dark' 
+                        ? 'text-gray-400 hover:text-white hover:bg-gray-800' 
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                    } ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <CloseIcon className="w-6 h-6" />
+                  </button>
+                </div>
               </div>
             </div>
             
@@ -509,12 +658,19 @@ export default function CreatePost() {
                       <video
                         src={editedPreview || filePreview}
                         controls
+                        autoPlay
+                        muted
+                        loop
+                        playsInline
                         className="max-w-full max-h-full object-contain"
                         style={{
                           filter: getFilterString()
                         }}
                         onError={(e) => {
                           console.error('Video load error:', e);
+                        }}
+                        onLoadedData={(e) => {
+                          e.target.play().catch(() => {});
                         }}
                       />
                     ) : (
@@ -660,12 +816,19 @@ export default function CreatePost() {
                       <video
                         src={editedPreview || filePreview}
                         controls
+                        autoPlay
+                        muted
+                        loop
+                        playsInline
                         className="max-w-full max-h-full object-contain"
                         style={{
                           filter: getFilterString()
                         }}
                         onError={(e) => {
                           console.error('Final preview video load error:', e);
+                        }}
+                        onLoadedData={(e) => {
+                          e.target.play().catch(() => {});
                         }}
                       />
                     ) : (
@@ -906,10 +1069,102 @@ export default function CreatePost() {
                           />
                         </button>
                       </div>
+                      
+                      {/* Auto Play Setting - Only show for videos */}
+                      {fileType === 'VIDEO' && (
+                        <div className="flex items-center justify-between">
+                          <label className={`text-sm font-medium ${
+                            theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                          }`}>
+                            ▶️ Auto Play Video
+                          </label>
+                          <button
+                            onClick={() => setAutoPlay(!autoPlay)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                              autoPlay ? 'bg-red-500' : theme === 'dark' ? 'bg-gray-600' : 'bg-gray-300'
+                            }`}
+                            disabled={isUploading}
+                          >
+                            <span
+                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                autoPlay ? 'translate-x-6' : 'translate-x-1'
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Save Draft Dialog - Enhanced UI */}
+      {showSaveDialog && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className={`w-96 rounded-2xl shadow-2xl border transform transition-all ${
+            theme === 'dark' 
+              ? 'bg-gray-800 border-gray-700' 
+              : 'bg-white border-gray-200'
+          }`}>
+            <div className="p-8">
+              {/* Icon */}
+              <div className={`w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center ${
+                theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'
+              }`}>
+                <svg className={`w-8 h-8 ${
+                  theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              
+              <h3 className={`text-xl font-bold text-center mb-2 ${
+                theme === 'dark' ? 'text-white' : 'text-gray-900'
+              }`}>
+                Save your post?
+              </h3>
+              <p className={`text-sm text-center mb-8 leading-relaxed ${
+                theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+              }`}>
+                You have unsaved changes. Would you like to save this as a draft or discard it?
+              </p>
+              
+              {/* Symmetric Button Layout */}
+              <div className="space-y-3">
+                <button
+                  onClick={handleSaveAsDraft}
+                  className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white py-3 px-6 rounded-xl font-semibold transition-all duration-300 hover:shadow-lg transform hover:scale-[1.02]"
+                >
+                  💾 Save as Draft
+                </button>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={handleCloseWithoutSaving}
+                    className={`py-3 px-4 rounded-xl font-semibold transition-all duration-300 hover:shadow-md transform hover:scale-[1.02] ${
+                      theme === 'dark'
+                        ? 'bg-gray-700 text-white hover:bg-gray-600'
+                        : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
+                    }`}
+                  >
+                    🗑️ Discard
+                  </button>
+                  <button
+                    onClick={handleCloseSaveDialog}
+                    className={`py-3 px-4 rounded-xl font-semibold transition-all duration-300 hover:shadow-md transform hover:scale-[1.02] border ${
+                      theme === 'dark'
+                        ? 'border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white'
+                        : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    ↩️ Cancel
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

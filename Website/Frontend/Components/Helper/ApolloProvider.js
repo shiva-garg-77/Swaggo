@@ -15,7 +15,7 @@ export default function CustomApolloProvider({ children }) {
     console.log('- accessToken in useMemo:', accessToken ? 'Present' : 'NOT PRESENT');
     
     const httpLink = createHttpLink({
-      uri: `http://localhost:${process.env.NEXT_PUBLIC_PORT}/graphql`,
+      uri: `http://localhost:45799/graphql`,
       credentials: 'include',
       fetch: (uri, options) => {
         console.log('GraphQL Fetch to:', uri);

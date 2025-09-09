@@ -1,8 +1,17 @@
 "use client";
-import { createContext, useState, useEffect } from "react";
+import { createContext, useState, useEffect, useContext } from "react";
 
 
 export const AuthContext = createContext();
+
+// Custom hook to use the AuthContext
+export const useAuth = () => {
+    const context = useContext(AuthContext);
+    if (!context) {
+        throw new Error('useAuth must be used within an AuthProvider');
+    }
+    return context;
+};
 
 export const AuthProvider = ({ children }) => {
     const [ErrorMsg, setErrorMsg] = useState(null);

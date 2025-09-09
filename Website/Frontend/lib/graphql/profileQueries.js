@@ -32,7 +32,6 @@ export const GET_USER_BY_USERNAME = gql`
             profileid
             username
           }
-          postid
         }
         comments {
           commentid
@@ -42,19 +41,6 @@ export const GET_USER_BY_USERNAME = gql`
           }
           comment
         }
-      }
-      memories {
-        memoryid
-        title
-        coverImage
-        stories {
-          storyid
-          mediaUrl
-          mediaType
-          createdAt
-        }
-        createdAt
-        updatedAt
       }
     }
   }
@@ -157,6 +143,151 @@ export const CREATE_PROFILE = gql`
 `;
 
 // Create post
+export const CREATE_DRAFT_MUTATION = gql`
+  mutation CreateDraft(
+    $profileid: String!
+    $postUrl: String
+    $postType: String
+    $title: String
+    $caption: String
+    $location: String
+    $tags: [String!]
+    $taggedPeople: [String!]
+    $allowComments: Boolean
+    $hideLikeCount: Boolean
+    $autoPlay: Boolean
+  ) {
+    CreateDraft(
+      profileid: $profileid
+      postUrl: $postUrl
+      postType: $postType
+      title: $title
+      caption: $caption
+      location: $location
+      tags: $tags
+      taggedPeople: $taggedPeople
+      allowComments: $allowComments
+      hideLikeCount: $hideLikeCount
+      autoPlay: $autoPlay
+    ) {
+      draftid
+      profileid
+      postUrl
+      postType
+      title
+      caption
+      location
+      tags
+      taggedPeople
+      allowComments
+      hideLikeCount
+      autoPlay
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const GET_DRAFTS_QUERY = gql`
+  query GetDrafts($profileid: String!) {
+    getDrafts(profileid: $profileid) {
+      draftid
+      postUrl
+      postType
+      title
+      caption
+      location
+      tags
+      taggedPeople
+      allowComments
+      hideLikeCount
+      autoPlay
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const UPDATE_DRAFT_MUTATION = gql`
+  mutation UpdateDraft(
+    $draftid: String!
+    $postUrl: String
+    $postType: String
+    $title: String
+    $caption: String
+    $location: String
+    $tags: [String!]
+    $taggedPeople: [String!]
+    $allowComments: Boolean
+    $hideLikeCount: Boolean
+    $autoPlay: Boolean
+  ) {
+    UpdateDraft(
+      draftid: $draftid
+      postUrl: $postUrl
+      postType: $postType
+      title: $title
+      caption: $caption
+      location: $location
+      tags: $tags
+      taggedPeople: $taggedPeople
+      allowComments: $allowComments
+      hideLikeCount: $hideLikeCount
+      autoPlay: $autoPlay
+    ) {
+      draftid
+      profileid
+      postUrl
+      postType
+      title
+      caption
+      location
+      tags
+      taggedPeople
+      allowComments
+      hideLikeCount
+      autoPlay
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const DELETE_DRAFT_MUTATION = gql`
+  mutation DeleteDraft($draftid: String!) {
+    DeleteDraft(draftid: $draftid) {
+      draftid
+      profileid
+      title
+      caption
+    }
+  }
+`;
+
+export const PUBLISH_DRAFT_MUTATION = gql`
+  mutation PublishDraft(
+    $draftid: String!
+  ) {
+    PublishDraft(
+      draftid: $draftid
+    ) {
+      postid
+      postUrl
+      title
+      Description
+      postType
+      location
+      tags
+      taggedPeople
+      allowComments
+      hideLikeCount
+      autoPlay
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
 export const CREATE_POST_MUTATION = gql`
   mutation CreatePost(
     $profileid: String!
@@ -169,6 +300,7 @@ export const CREATE_POST_MUTATION = gql`
     $tags: [String!]
     $allowComments: Boolean
     $hideLikeCount: Boolean
+    $autoPlay: Boolean
   ) {
     CreatePost(
       profileid: $profileid
@@ -181,6 +313,7 @@ export const CREATE_POST_MUTATION = gql`
       tags: $tags
       allowComments: $allowComments
       hideLikeCount: $hideLikeCount
+      autoPlay: $autoPlay
     ) {
       postid
       postUrl
@@ -192,6 +325,7 @@ export const CREATE_POST_MUTATION = gql`
       tags
       allowComments
       hideLikeCount
+      autoPlay
       createdAt
     }
   }

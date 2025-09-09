@@ -1,13 +1,24 @@
 "use client";
+import { useState } from 'react';
 import { useTheme } from '../../Helper/ThemeProvider';
-import { useQuery } from '@apollo/client';
-import { GET_ALL_POSTS } from '../../../lib/graphql/simpleQueries';
+import { useQuery, useMutation } from '@apollo/client';
+import { useAuth } from '../../Helper/AuthProvider';
+import { GET_ALL_POSTS, TOGGLE_POST_LIKE, TOGGLE_SAVE_POST } from '../../../lib/graphql/simpleQueries';
+import PostModal from '../Post/PostModal';
 
 export default function HomeContent() {
   const { theme } = useTheme();
+  const { user } = useAuth();
+  const [selectedPost, setSelectedPost] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   
-  const { data, loading, error } = useQuery(GET_ALL_POSTS, {
+  // GraphQL Mutations
+  const [togglePostLike] = useMutation(TOGGLE_POST_LIKE);
+  const [toggleSavePost] = useMutation(TOGGLE_SAVE_POST);
+  
+  const { data, loading, error, refetch } = useQuery(GET_ALL_POSTS, {
     errorPolicy: 'all', // Return partial data on error
+    fetchPolicy: 'cache-and-network', // Always try to fetch fresh data
     onError: (error) => {
       console.error('🔴 GraphQL Error:', error);
       if (error.graphQLErrors) {
@@ -24,60 +35,9 @@ export default function HomeContent() {
     }
   });
   
-  // Fallback sample posts data with reliable URLs
-  const fallbackPosts = [
-    {
-      id: 1,
-      username: 'alex_photographer',
-      fullName: 'Alex Johnson',
-      avatar: 'https://picsum.photos/100/100?random=1',
-      image: 'https://picsum.photos/600/400?random=10',
-      caption: 'Beautiful landscape! 🌅 Nature never fails to amaze me. #nature #photography',
-      likes: 1420,
-      comments: 45,
-      timeAgo: '2h',
-      isVerified: true
-    },
-    {
-      id: 2,
-      username: 'fitness_sarah',
-      fullName: 'Sarah Wilson',
-      avatar: 'https://picsum.photos/100/100?random=2',
-      image: 'https://picsum.photos/600/400?random=20',
-      caption: 'Just finished my morning workout! 💪 Feeling great and ready to take on the day. #fitness #motivation',
-      likes: 892,
-      comments: 23,
-      timeAgo: '4h',
-      isVerified: false
-    },
-    {
-      id: 3,
-      username: 'mike_developer',
-      fullName: 'Mike Chang',
-      avatar: 'https://picsum.photos/100/100?random=3',
-      image: 'https://picsum.photos/600/400?random=30',
-      caption: 'New project launch! Excited to share this with everyone ✨ Working on something amazing! #coding #tech #startup',
-      likes: 2340,
-      comments: 67,
-      timeAgo: '6h',
-      isVerified: true
-    },
-    {
-      id: 4,
-      username: 'travel_emma',
-      fullName: 'Emma Davis',
-      avatar: 'https://picsum.photos/100/100?random=4',
-      image: 'https://picsum.photos/600/400?random=40',
-      caption: 'Exploring the mountains today! The view from up here is absolutely breathtaking 🏔️ #travel #mountains #adventure',
-      likes: 567,
-      comments: 34,
-      timeAgo: '8h',
-      isVerified: false
-    }
-  ];
 
-  // Use real posts if available, otherwise use fallback
-  const rawPosts = data?.getPosts || fallbackPosts;
+  // Use only real posts from database
+  const rawPosts = data?.getPosts || [];
   
   // Filter out posts with invalid or missing image URLs
   const posts = rawPosts.filter(post => {
@@ -95,7 +55,7 @@ export default function HomeContent() {
       return false;
     }
     
-    // Check for example/test URLs that don't exist
+    // Check for example/test URLs that don't exist  
     const testUrls = [
       'https://example.com',
       'http://example.com',
@@ -120,18 +80,6 @@ export default function HomeContent() {
       return false;
     }
     
-    // Check for valid URL format
-    const isValidUrl = imageUrl.startsWith('http') || imageUrl.startsWith('/');
-    
-    if (!isValidUrl) {
-      console.log('⚠️ Filtering out invalid URL format:', {
-        postId: post.postid || post.id,
-        imageUrl: imageUrl,
-        reason: 'Invalid URL format'
-      });
-      return false;
-    }
-    
     return true;
   });
   
@@ -140,6 +88,76 @@ export default function HomeContent() {
     valid: posts?.length || 0,
     filtered: (rawPosts?.length || 0) - (posts?.length || 0)
   });
+
+  // Modal handlers
+  const openPostModal = (post) => {
+    setSelectedPost(post);
+    setIsModalOpen(true);
+  };
+
+  const closePostModal = () => {
+    setSelectedPost(null);
+    setIsModalOpen(false);
+  };
+  
+  // Post action handlers
+  const handlePostLike = async (postId) => {
+    if (!user?.profileid) {
+      alert('Please login to like posts');
+      return;
+    }
+    
+    console.log('🔄 Liking post:', postId, 'by user:', user.profileid);
+    
+    try {
+      const result = await togglePostLike({
+        variables: {
+          profileid: user.profileid,
+          postid: postId
+        }
+      });
+      
+      console.log('✅ Like toggle result:', result);
+      
+      // Refetch the posts to get updated like counts and states
+      await refetch();
+      
+    } catch (error) {
+      console.error('❌ Error toggling post like:', error);
+      if (error.message?.includes('not logged in')) {
+        alert('Please login to like posts');
+      }
+    }
+  };
+  
+  const handlePostSave = async (postId) => {
+    if (!user?.profileid) {
+      alert('Please login to save posts');
+      return;
+    }
+    
+    console.log('🔖 Saving post:', postId, 'by user:', user.profileid);
+    
+    try {
+      const result = await toggleSavePost({
+        variables: {
+          profileid: user.profileid,
+          postid: postId
+        }
+      });
+      
+      console.log('✅ Save toggle result:', result);
+      
+      // Refetch the posts to get updated save states
+      await refetch();
+      
+    } catch (error) {
+      console.error('❌ Error toggling save post:', error);
+      if (error.message?.includes('not logged in')) {
+        alert('Please login to save posts');
+      }
+    }
+  };
   
   if (loading) {
     return (
@@ -155,28 +173,47 @@ export default function HomeContent() {
   }
 
   return (
-    <div className="space-y-4 lg:space-y-6">
-      {/* Posts Feed */}
-      {posts.length === 0 ? (
-        <div className={`text-center py-20 ${
-          theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
-        }`}>
-          <p className="text-lg mb-4">No posts yet!</p>
-          <p className="text-sm">Create your first post to see it here.</p>
-        </div>
-      ) : (
-        posts.map((post) => (
-          <PostCard key={post.id || post.postid} post={post} theme={theme} />
-        ))
-      )}
-    </div>
+    <>
+      <div className="space-y-4 lg:space-y-6">
+        {/* Posts Feed */}
+        {posts.length === 0 ? (
+          <div className={`text-center py-20 ${
+            theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+          }`}>
+            <p className="text-lg mb-4">No posts found!</p>
+            <p className="text-sm">There are no posts to display at the moment.</p>
+          </div>
+        ) : (
+          posts.map((post) => (
+            <PostCard 
+              key={post.id || post.postid} 
+              post={post} 
+              theme={theme} 
+              user={user}
+              onImageClick={() => openPostModal(post)}
+              onLike={handlePostLike}
+              onSave={handlePostSave}
+            />
+          ))
+        )}
+      </div>
+
+      {/* Post Modal */}
+      <PostModal
+        post={selectedPost}
+        isOpen={isModalOpen}
+        onClose={closePostModal}
+        theme={theme}
+      />
+    </>
   );
 }
 
 // Post Card Component
-function PostCard({ post, theme }) {
+function PostCard({ post, theme, user, onImageClick, onLike, onSave }) {
   // Handle both real posts from database and fallback posts
   const isRealPost = !!post.postid;
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   
   console.log('📋 Processing post:', post);
   
@@ -188,11 +225,19 @@ function PostCard({ post, theme }) {
     image: post.postUrl || post.image || null,
     caption: post.Description || post.caption || '',
     title: post.title || '',
-    likes: post.likes || 0,
-    comments: post.comments || 0,
-    timeAgo: post.timeAgo || 'Recently',
+    location: post.location || '',
+    tags: post.tags || [],
+    taggedPeople: post.taggedPeople || [],
+    likes: post.likeCount || post.likes || 0,
+    comments: post.commentCount || post.comments || 0,
+    timeAgo: post.timeAgo || (post.createdAt ? new Date(post.createdAt).toLocaleDateString() : 'Recently'),
     isVerified: post.profile?.isVerified || post.isVerified || false,
-    postType: post.postType || 'IMAGE'
+    postType: post.postType || 'IMAGE',
+    isLikedByUser: post.isLikedByUser || false,
+    isSavedByUser: post.isSavedByUser || false,
+    allowComments: post.allowComments !== false,
+    hideLikeCount: post.hideLikeCount || false,
+    autoPlay: post.autoPlay || false
   };
   
   console.log('🖼️ Post image URL:', postData.image);
@@ -259,35 +304,51 @@ function PostCard({ post, theme }) {
       </div>
 
       {/* Post Media */}
-      <div className="relative">
+      <div className="relative cursor-pointer" onClick={onImageClick}>
         {postData.postType === 'VIDEO' ? (
           <video
             src={postData.image}
-            className="w-full h-64 lg:h-80 object-cover"
-            controls
+            className="w-full h-64 lg:h-80 object-cover hover:brightness-95 transition-all duration-200"
+            autoPlay={postData.autoPlay}
+            loop={postData.autoPlay}
+            muted={postData.autoPlay}
+            playsInline
+            preload="metadata"
+            onPlay={() => setIsVideoPlaying(true)}
+            onPause={() => setIsVideoPlaying(false)}
             onError={(e) => {
-              console.error('❌ Video load error for URL:', postData.image, e);
+              console.error('❌ Video load error:', {
+                url: postData.image,
+                error: e.type || 'Unknown error',
+                networkState: e.target?.networkState || 'Unknown',
+                readyState: e.target?.readyState || 'Unknown',
+                timestamp: new Date().toISOString()
+              });
+              
+              // Hide broken video
               e.target.style.display = 'none';
+              
+              // Show error placeholder
               const parent = e.target.parentElement;
               if (parent && !parent.querySelector('.video-error')) {
                 const errorDiv = document.createElement('div');
-                errorDiv.className = `video-error w-full h-64 lg:h-80 flex flex-col items-center justify-center ${
-                  theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'
-                }`;
+                errorDiv.className = 'video-error w-full h-64 lg:h-80 flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 cursor-pointer';
                 errorDiv.innerHTML = `
-                  <div class="text-center p-4">
-                    <svg class="w-12 h-12 mx-auto mb-2 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z"/>
+                  <div class="text-center p-6">
+                    <svg class="w-16 h-16 mx-auto mb-4 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z" />
                     </svg>
-                    <p class="text-sm text-gray-500">Video could not be loaded</p>
-                    <p class="text-xs text-gray-400 mt-1">Check your internet connection</p>
+                    <p class="text-lg font-medium mb-1">Video Unavailable</p>
+                    <p class="text-sm opacity-70">Unable to load video content</p>
+                    <p class="text-xs opacity-50 mt-2">Click to try viewing in full screen</p>
                   </div>
                 `;
+                errorDiv.onclick = onImageClick;
                 parent.appendChild(errorDiv);
               }
             }}
             onLoadStart={() => {
-              console.log('▶️ Video starting to load:', postData.image);
+              console.log('▶️ Video loading started:', postData.image);
             }}
           />
         ) : (
@@ -295,33 +356,36 @@ function PostCard({ post, theme }) {
             <img
               src={postData.image}
               alt={postData.title || 'Post content'}
-              className="w-full h-64 lg:h-80 object-cover"
+              className="w-full h-64 lg:h-80 object-cover hover:brightness-95 transition-all duration-200"
               onError={(e) => {
-                console.error('❌ Image load error for URL:', postData.image, e);
-                console.error('Error details:', {
-                  src: e.target.src,
-                  naturalWidth: e.target.naturalWidth,
-                  naturalHeight: e.target.naturalHeight,
-                  complete: e.target.complete
-                });
+                const errorDetails = {
+                  url: postData.image,
+                  error: e.type,
+                  timestamp: new Date().toISOString(),
+                  networkState: e.target.networkState,
+                  readyState: e.target.readyState
+                };
+                console.error('❌ Image load error:', errorDetails);
                 
-                // Replace with error placeholder
+                // Replace with enhanced error placeholder
                 e.target.style.display = 'none';
                 const parent = e.target.parentElement;
                 if (parent && !parent.querySelector('.image-error')) {
                   const errorDiv = document.createElement('div');
-                  errorDiv.className = `image-error w-full h-64 lg:h-80 flex flex-col items-center justify-center ${
-                    theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'
+                  errorDiv.className = `image-error w-full h-64 lg:h-80 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 ${
+                    theme === 'dark' ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                   }`;
                   errorDiv.innerHTML = `
-                    <div class="text-center p-4">
-                      <svg class="w-12 h-12 mx-auto mb-2 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd"/>
+                    <div class="text-center p-6">
+                      <svg class="w-16 h-16 mx-auto mb-4 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M21,19V5C21,3.89 20.1,3 19,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19M19,19H5V5H19V19M13.96,12.71L11.21,15.46L9.25,13.5L5.5,17.25H18.5L13.96,12.71Z" />
                       </svg>
-                      <p class="text-sm text-gray-500">Image could not be loaded</p>
-                      <p class="text-xs text-gray-400 mt-1">The image may be corrupted or unavailable</p>
+                      <p class="text-lg font-medium mb-1">Image Unavailable</p>
+                      <p class="text-sm opacity-70">This image could not be loaded</p>
+                      <p class="text-xs opacity-50 mt-2">Click to try viewing in modal</p>
                     </div>
                   `;
+                  errorDiv.onclick = onImageClick;
                   parent.appendChild(errorDiv);
                 }
               }}
@@ -329,6 +393,15 @@ function PostCard({ post, theme }) {
                 console.log('✅ Image loaded successfully:', postData.image);
               }}
             />
+            
+            {/* Hover overlay for better UX */}
+            <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-10 transition-all duration-200 flex items-center justify-center opacity-0 hover:opacity-100">
+              <div className="bg-white bg-opacity-90 rounded-full p-2">
+                <svg className="w-6 h-6 text-gray-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                </svg>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -337,40 +410,55 @@ function PostCard({ post, theme }) {
       <div className="p-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-4">
-            <button className="p-1 hover:bg-opacity-10 hover:bg-red-500 rounded-full transition-colors duration-200">
-              <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <button 
+              onClick={() => onLike && onLike(postData.id)}
+              disabled={!user?.profileid || !isRealPost}
+              className={`p-1 hover:bg-opacity-10 hover:bg-red-500 rounded-full transition-all duration-200 ${
+                postData.isLikedByUser ? 'text-red-500 scale-110' : 'text-gray-500 hover:text-red-500'
+              } ${!user?.profileid || !isRealPost ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <svg className={`w-6 h-6 ${postData.isLikedByUser ? 'fill-current' : ''}`} fill={postData.isLikedByUser ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
               </svg>
             </button>
-            <button className={`p-1 hover:bg-opacity-10 hover:bg-gray-500 rounded-full transition-colors duration-200 ${
-              theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
-            }`}>
+            <button 
+              onClick={onImageClick}
+              className={`p-1 hover:bg-opacity-10 hover:bg-gray-500 rounded-full transition-colors duration-200 ${
+                theme === 'dark' ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
             </button>
             <button className={`p-1 hover:bg-opacity-10 hover:bg-gray-500 rounded-full transition-colors duration-200 ${
-              theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+              theme === 'dark' ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-800'
             }`}>
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
               </svg>
             </button>
           </div>
-          <button className={`p-1 hover:bg-opacity-10 hover:bg-gray-500 rounded-full transition-colors duration-200 ${
-            theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
-          }`}>
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button 
+            onClick={() => onSave && onSave(postData.id)}
+            disabled={!user?.profileid || !isRealPost}
+            className={`p-1 hover:bg-opacity-10 hover:bg-yellow-500 rounded-full transition-all duration-200 ${
+              postData.isSavedByUser ? 'text-yellow-500 scale-110' : 'text-gray-500 hover:text-yellow-500'
+            } ${!user?.profileid || !isRealPost ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            <svg className={`w-6 h-6 ${postData.isSavedByUser ? 'fill-current' : ''}`} fill={postData.isSavedByUser ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
             </svg>
           </button>
         </div>
         
-        <p className={`font-semibold mb-2 ${
-          theme === 'dark' ? 'text-white' : 'text-gray-900'
-        }`}>
-          {postData.likes.toLocaleString()} likes
-        </p>
+        {!postData.hideLikeCount && (
+          <p className={`font-semibold mb-2 ${
+            theme === 'dark' ? 'text-white' : 'text-gray-900'
+          }`}>
+            {postData.likes.toLocaleString()} {postData.likes === 1 ? 'like' : 'likes'}
+          </p>
+        )}
         
         {postData.caption && (
           <p className={`${
@@ -381,18 +469,71 @@ function PostCard({ post, theme }) {
         )}
         
         {postData.title && (
-          <p className={`text-sm mt-1 ${
-            theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+          <p className={`text-sm mt-1 font-medium ${
+            theme === 'dark' ? 'text-gray-300' : 'text-gray-800'
           }`}>
             {postData.title}
           </p>
         )}
         
-        <button className={`text-sm mt-2 ${
-          theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
-        }`}>
-          View all comments
-        </button>
+        {/* Location */}
+        {postData.location && (
+          <div className={`flex items-center mt-2 text-sm ${
+            theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+          }`}>
+            <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+            </svg>
+            {postData.location}
+          </div>
+        )}
+        
+        {/* Tags */}
+        {postData.tags && postData.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-2">
+            {postData.tags.map((tag, index) => (
+              <span
+                key={index}
+                className={`text-sm px-2 py-1 rounded-full ${
+                  theme === 'dark' 
+                    ? 'bg-blue-900/30 text-blue-300' 
+                    : 'bg-blue-100 text-blue-700'
+                }`}
+              >
+                #{tag}
+              </span>
+            ))}
+          </div>
+        )}
+        
+        {/* Tagged People */}
+        {postData.taggedPeople && postData.taggedPeople.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-2">
+            {postData.taggedPeople.map((person, index) => (
+              <span
+                key={index}
+                className={`text-sm px-2 py-1 rounded-full cursor-pointer hover:opacity-80 ${
+                  theme === 'dark' 
+                    ? 'bg-purple-900/30 text-purple-300' 
+                    : 'bg-purple-100 text-purple-700'
+                }`}
+              >
+                @{person}
+              </span>
+            ))}
+          </div>
+        )}
+        
+        {postData.allowComments && (
+          <button 
+            onClick={onImageClick}
+            className={`text-sm mt-3 transition-colors ${
+              theme === 'dark' ? 'text-gray-400 hover:text-gray-300' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {postData.comments > 0 ? `View all ${postData.comments} comments` : 'Be the first to comment'}
+          </button>
+        )}
       </div>
     </div>
   );

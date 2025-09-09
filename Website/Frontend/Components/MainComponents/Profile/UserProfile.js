@@ -1,20 +1,29 @@
 "use client";
 
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from '../../Helper/ThemeProvider';
 import { AuthContext } from '../../Helper/AuthProvider';
 import { useQuery, useMutation } from '@apollo/client';
-import { GET_USER_BY_USERNAME, TOGGLE_FOLLOW_USER, TOGGLE_LIKE_POST, TOGGLE_SAVE_POST } from '../../../lib/graphql/profileQueries';
+import { 
+  GET_USER_BY_USERNAME, 
+  TOGGLE_FOLLOW_USER, 
+  TOGGLE_LIKE_POST, 
+  TOGGLE_SAVE_POST,
+  DELETE_DRAFT_MUTATION,
+  PUBLISH_DRAFT_MUTATION,
+  GET_DRAFTS_QUERY
+} from '../../../lib/graphql/profileQueries';
 import { GET_USER_SIMPLE, HELLO_QUERY } from '../../../lib/graphql/simpleQueries';
 import ProfileHeader from './ProfileHeader';
 import ProfileTabs from './ProfileTabs';
 import ProfileGrid from './ProfileGrid';
 import MemorySection from './MemorySection';
+import CreatePostModal from '../Post/CreatePostModal';
 
 export default function UserProfile() {
   const { theme } = useTheme();
-  const { accessToken } = useContext(AuthContext);
+  const { accessToken, user } = useContext(AuthContext);
   const router = useRouter();
   const searchParams = useSearchParams();
   
@@ -27,11 +36,13 @@ export default function UserProfile() {
   const [isFollowing, setIsFollowing] = useState(false);
   const [currentUserProfile, setCurrentUserProfile] = useState(null);
 
-  // GraphQL queries - using full query with likes and comments
+  // GraphQL queries - optimized to reduce multiple calls
   const { data, loading, error, refetch } = useQuery(GET_USER_BY_USERNAME, {
     variables: { username: profileUsername },
     skip: !accessToken,
     errorPolicy: 'all',
+    fetchPolicy: 'cache-first', // Use cache first to reduce network calls
+    notifyOnNetworkStatusChange: false, // Prevent extra renders
   });
 
   // Get current user's profile for follow status check
@@ -39,18 +50,40 @@ export default function UserProfile() {
     variables: { username: null }, // null will return current user's profile
     skip: !accessToken || isOwnProfile,
     errorPolicy: 'all',
+    fetchPolicy: 'cache-first',
+    notifyOnNetworkStatusChange: false,
     onCompleted: (userData) => {
       setCurrentUserProfile(userData?.getUserbyUsername);
-      // Simplified for debugging - skip follow check for now
-      // if (data?.getUserbyUsername && userData?.getUserbyUsername) {
-      //   const targetProfileId = data.getUserbyUsername.profileid;
-      //   const isFollowingUser = userData.getUserbyUsername.following?.some(
-      //     f => f.profileid === targetProfileId
-      //   );
-      //   setIsFollowing(isFollowingUser || false);
-      // }
     }
   });
+
+  // Query to get drafts from backend with fallback handling
+  const { data: draftsData, loading: draftsLoading, error: draftsError, refetch: refetchDrafts } = useQuery(GET_DRAFTS_QUERY, {
+    variables: { profileid: data?.getUserbyUsername?.profileid },
+    skip: !data?.getUserbyUsername?.profileid || !isOwnProfile,
+    errorPolicy: 'all',
+    fetchPolicy: 'cache-and-network',
+    onCompleted: (draftData) => {
+      console.log('\n🔍 DRAFT DEBUG - Query Completed:');
+      console.log('- ProfileID used:', data?.getUserbyUsername?.profileid);
+      console.log('- Is own profile:', isOwnProfile);
+      console.log('- Drafts received:', draftData);
+      console.log('- Draft count:', draftData?.getDrafts?.length || 0);
+      console.log('- Active tab:', activeTab);
+      if (draftData?.getDrafts && draftData.getDrafts.length > 0) {
+        console.log('- First draft:', draftData.getDrafts[0]);
+      }
+    },
+    onError: (error) => {
+      console.error('\n❌ DRAFT DEBUG - Error loading drafts:');
+      console.error('- Error details:', error.message);
+      console.error('- GraphQL errors:', error.graphQLErrors);
+      console.error('- Network error:', error.networkError);
+      console.error('- ProfileID attempted:', data?.getUserbyUsername?.profileid);
+      console.error('- Is own profile:', isOwnProfile);
+    }
+  });
+
 
   const [toggleFollowMutation] = useMutation(TOGGLE_FOLLOW_USER, {
     onCompleted: () => {
@@ -102,22 +135,156 @@ export default function UserProfile() {
     console.log('Create memory functionality - to be implemented');
   };
 
-  // Get posts based on active tab
-  const getPosts = () => {
+  
+  // GraphQL mutations for draft management
+  const [deleteDraftMutation] = useMutation(DELETE_DRAFT_MUTATION, {
+    onCompleted: () => {
+      refetch(); // Refresh profile posts
+      refetchDrafts(); // Refresh draft list
+    },
+    onError: (error) => {
+      console.error('Error deleting draft:', error);
+      alert('Failed to delete draft. Please try again.');
+    }
+  });
+
+  const [publishDraftMutation] = useMutation(PUBLISH_DRAFT_MUTATION, {
+    onCompleted: (data) => {
+      console.log('✅ Draft published successfully:', data);
+      alert('🎉 Draft published successfully!');
+      refetch(); // Refresh to show new post
+      refetchDrafts(); // Refresh to remove from drafts
+    },
+    onError: (error) => {
+      console.error('❌ Full error publishing draft:', error);
+      console.error('- Error message:', error.message);
+      console.error('- GraphQL errors:', error.graphQLErrors);
+      console.error('- Network error:', error.networkError);
+      
+      let errorMsg = 'Unknown error';
+      if (error.graphQLErrors && error.graphQLErrors.length > 0) {
+        errorMsg = error.graphQLErrors[0].message;
+      } else if (error.networkError) {
+        errorMsg = error.networkError.message;
+      } else {
+        errorMsg = error.message;
+      }
+      
+      alert(`Failed to publish draft: ${errorMsg}`);
+    }
+  });
+
+  const deleteDraft = async (draftId) => {
+    if (!draftId) return;
+    
+    try {
+      await deleteDraftMutation({
+        variables: { draftid: draftId }
+      });
+    } catch (error) {
+      console.error('Error deleting draft:', error);
+      // Error handling is done in the mutation onError callback
+    }
+  };
+  
+  const editDraft = (draft) => {
+    console.log('✏️ Edit draft:', draft);
+    console.log('Draft data being passed:', JSON.stringify(draft, null, 2));
+    // Open CreatePostModal with draft data pre-filled
+    setShowEditDraftModal(true);
+    setCurrentDraft(draft);
+  };
+  
+  const [showEditDraftModal, setShowEditDraftModal] = useState(false);
+  const [currentDraft, setCurrentDraft] = useState(null);
+  
+  const publishDraft = async (draft) => {
+    console.log('📝 PUBLISH DEBUG - Draft received:', draft);
+    console.log('🔑 AUTH DEBUG - User context:', {
+      hasUser: !!user,
+      username: user?.username,
+      profileid: user?.profileid,
+      hasAccessToken: !!accessToken
+    });
+    
+    if (!draft.draftid) {
+      console.error('❌ No draftid provided:', draft);
+      alert('Cannot publish: Invalid draft');
+      return;
+    }
+
+    // Check if draft has media
+    const hasMedia = draft.postUrl && draft.postType;
+    console.log('🔍 Has media:', hasMedia, '| PostURL:', draft.postUrl, '| PostType:', draft.postType);
+    
+    const dialogMessage = hasMedia 
+      ? `Publish "${draft.title || 'Untitled'}" as a post?\n\n` +
+        `This draft includes ${draft.postType.toLowerCase()} media and will be published as a complete post.`
+      : `Publish "${draft.title || 'Untitled'}" as a text post?\n\n` +
+        `Note: This draft doesn't have media attached and will be published as a text-only post.`;
+
+    const shouldPublish = window.confirm(dialogMessage);
+    console.log('🤔 User confirmed publish:', shouldPublish);
+    
+    if (!shouldPublish) return;
+
+    try {
+      console.log('📤 Calling publishDraftMutation with variables:', {
+        draftid: draft.draftid
+      });
+      
+      const result = await publishDraftMutation({
+        variables: {
+          draftid: draft.draftid
+        }
+      });
+      
+      console.log('🎯 Mutation result:', result);
+    } catch (error) {
+      console.error('❌ Publish draft catch error:', error);
+    }
+  };
+
+  // Get posts based on active tab (using useMemo for proper reactivity)
+  const posts = useMemo(() => {
     const profileData = data?.getUserbyUsername;
-    if (!profileData) return [];
+    if (!profileData) {
+      console.log('\n🔍 POSTS DEBUG - No profile data available');
+      return [];
+    }
+    
+    console.log('\n🔍 POSTS DEBUG - Tab Selection:');
+    console.log('- Active tab:', activeTab);
+    console.log('- Is own profile:', isOwnProfile);
+    console.log('- Drafts data available:', !!draftsData);
+    console.log('- Drafts count:', draftsData?.getDrafts?.length || 0);
     
     switch (activeTab) {
       case 'uploads':
-        return profileData.post || [];
+        const uploads = profileData.post || [];
+        console.log('- Returning uploads:', uploads.length);
+        return uploads;
       case 'draft':
-        return isOwnProfile ? [] : [];
+        if (!isOwnProfile) {
+          console.log('- Not own profile, returning empty for drafts');
+          return [];
+        }
+        const drafts = draftsData?.getDrafts || [];
+        console.log('- Returning drafts:', drafts.length);
+        if (drafts.length > 0) {
+          console.log('- First draft details:', drafts[0]);
+        }
+        return drafts;
       case 'tagged':
-        return [];
+        const tagged = profileData.taggedPosts || [];
+        console.log('- Returning tagged posts:', tagged.length);
+        return tagged;
       default:
-        return profileData.post || [];
+        const defaultPosts = profileData.post || [];
+        console.log('- Returning default posts:', defaultPosts.length);
+        return defaultPosts;
     }
-  };
+  }, [data, activeTab, isOwnProfile, draftsData, draftsError]);
 
   if (loading || currentUserLoading) {
     return (
@@ -156,9 +323,7 @@ export default function UserProfile() {
   }
 
   return (
-    <div className={`max-w-4xl mx-auto transition-colors duration-300 ${
-      theme === 'dark' ? 'text-white' : 'text-gray-900'
-    }`}>
+    <div className="space-y-6">
       {/* Profile Header */}
       <ProfileHeader
         profile={profileData}
@@ -168,15 +333,8 @@ export default function UserProfile() {
         onMessage={handleMessage}
         onRestrict={handleRestrict}
         onBlock={handleBlock}
+        onRefresh={refetch}
         theme={theme}
-      />
-
-      {/* Memory Section */}
-      <MemorySection
-        memories={profileData.memories || []}
-        isOwnProfile={isOwnProfile}
-        theme={theme}
-        onCreateMemory={handleCreateMemory}
       />
 
       {/* Profile Tabs */}
@@ -189,12 +347,35 @@ export default function UserProfile() {
 
       {/* Profile Grid */}
       <ProfileGrid
-        posts={getPosts()}
+        posts={posts}
         activeTab={activeTab}
         loading={false}
         theme={theme}
         currentUser={currentUserProfile || profileData}
+        onEditDraft={editDraft}
+        onDeleteDraft={deleteDraft}
+        onPublishDraft={publishDraft}
       />
+      
+      {/* Edit Draft Modal */}
+      {showEditDraftModal && currentDraft && (
+        <CreatePostModal
+          isOpen={showEditDraftModal}
+          onClose={() => {
+            setShowEditDraftModal(false);
+            setCurrentDraft(null);
+          }}
+          theme={theme}
+          draftData={currentDraft}
+          onPostSuccess={() => {
+            setShowEditDraftModal(false);
+            setCurrentDraft(null);
+            // Remove the draft since it's now a post
+            deleteDraft(currentDraft.id || currentDraft.draftid);
+            refetch();
+          }}
+        />
+      )}
     </div>
   );
 }
