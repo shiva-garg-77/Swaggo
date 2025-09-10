@@ -1,9 +1,20 @@
 "use client";
 
-import { useContext, useMemo } from 'react';
+import { useContext, useMemo, createContext } from 'react';
 import { ApolloClient, InMemoryCache, createHttpLink, ApolloProvider, from } from '@apollo/client';
 import { setContext } from '@apollo/client/link/context';
 import { AuthContext } from './AuthProvider';
+
+// Load Apollo error messages in development
+if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+  import('@apollo/client/dev').then(({ loadDevMessages, loadErrorMessages }) => {
+    loadDevMessages();
+    loadErrorMessages();
+  });
+}
+
+// Create Apollo context to access client from components
+export const ApolloClientContext = createContext();
 
 export default function CustomApolloProvider({ children }) {
   const { accessToken } = useContext(AuthContext);
@@ -60,17 +71,57 @@ export default function CustomApolloProvider({ children }) {
 
     return new ApolloClient({
       link: from([authLink, httpLink]),
-      cache: new InMemoryCache(),
+      cache: new InMemoryCache({
+        typePolicies: {
+          Query: {
+            fields: {
+              getPosts: {
+                merge(existing, incoming) {
+                  return incoming;
+                }
+              },
+              getPostStats: {
+                merge(existing, incoming) {
+                  return incoming;
+                }
+              },
+              getProfile: {
+                merge(existing, incoming) {
+                  return incoming;
+                }
+              }
+            }
+          },
+          Profiles: {
+            keyFields: ['profileid']
+          },
+          Comments: {
+            keyFields: ['commentid']
+          },
+          CommentLikes: {
+            keyFields: ['profileid', 'commentid']
+          },
+          Likes: {
+            keyFields: ['profileid', 'postid']
+          }
+        }
+      }),
       defaultOptions: {
         watchQuery: {
           errorPolicy: 'all',
+          fetchPolicy: 'cache-and-network'
         },
         query: {
           errorPolicy: 'all',
+          fetchPolicy: 'cache-and-network'
         },
       },
     });
   }, [accessToken]);
 
-  return <ApolloProvider client={client}>{children}</ApolloProvider>;
+  return (
+    <ApolloClientContext.Provider value={client}>
+      <ApolloProvider client={client}>{children}</ApolloProvider>
+    </ApolloClientContext.Provider>
+  );
 }

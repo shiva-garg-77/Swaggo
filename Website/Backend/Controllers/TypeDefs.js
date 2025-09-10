@@ -16,6 +16,7 @@ type Comments {
     updatedAt:String
 }
 type Likes {
+    profileid:String!
     profile:Profiles!
     postid:String!
     commentid:String
@@ -72,6 +73,7 @@ type Memory {
     profile:Profiles!
     title:String!
     coverImage:String
+    postUrl:String
     stories:[Story!]!
     createdAt:String
     updatedAt:String
@@ -200,8 +202,8 @@ type Mutation {
     ):Posts
 
     # Memory Management
-    CreateMemory(profileid:String!,title:String!,coverImage:String):Memory
-    UpdateMemory(memoryid:String!,title:String,coverImage:String):Memory
+    CreateMemory(profileid:String!,title:String!,coverImage:String,postUrl:String):Memory
+    UpdateMemory(memoryid:String!,title:String,coverImage:String,postUrl:String):Memory
     DeleteMemory(memoryid:String!):Memory
     AddStoryToMemory(memoryid:String!,mediaUrl:String!,mediaType:String!):Memory
     RemoveStoryFromMemory(memoryid:String!,storyid:String!):Memory

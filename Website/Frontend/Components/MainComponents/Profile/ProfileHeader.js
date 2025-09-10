@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import CreatePostModal from '../Post/CreatePostModal';
+import HighlightsSection from './HighlightsSection';
 
 export default function ProfileHeader({ 
   profile, 
@@ -12,6 +13,8 @@ export default function ProfileHeader({
   onRestrict, 
   onBlock, 
   onRefresh,
+  onCreateMemory,
+  memoriesData,
   theme 
 }) {
   const [showMenu, setShowMenu] = useState(false);
@@ -210,6 +213,16 @@ export default function ProfileHeader({
           
         </div>
       </div>
+      
+      {/* Highlights Section */}
+      <HighlightsSection 
+        profileData={profile}
+        isOwnProfile={isOwnProfile}
+        onCreateMemory={onCreateMemory}
+        memoriesData={memoriesData || []}
+        theme={theme}
+        className="border-t border-gray-200 dark:border-gray-700 mt-4"
+      />
       
       {/* Create Post Modal */}
       {showCreatePost && (

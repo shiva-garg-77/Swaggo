@@ -110,6 +110,106 @@ export const GET_POST_STATS = gql`
   }
 `;
 
+// Get comments for a specific post with enhanced data
+export const GET_POST_COMMENTS = gql`
+  query GetPostComments($postid: String!) {
+    getCommentsByPost(postid: $postid) {
+      commentid
+      comment
+      likeCount
+      isLikedByUser
+      createdAt
+      updatedAt
+      profile {
+        profileid
+        username
+        profilePic
+        isVerified
+      }
+      replies {
+        commentid
+        comment
+        likeCount
+        isLikedByUser
+        createdAt
+        updatedAt
+        profile {
+          profileid
+          username
+          profilePic
+          isVerified
+        }
+      }
+    }
+  }
+`;
+
+// Enhanced post data query for modal/detailed view
+export const GET_POST_WITH_DETAILS = gql`
+  query GetPostWithDetails($postid: String!) {
+    getPostbyId(postid: $postid) {
+      postid
+      postUrl
+      title
+      Description
+      postType
+      location
+      tags
+      taggedPeople
+      allowComments
+      hideLikeCount
+      autoPlay
+      likeCount
+      commentCount
+      isLikedByUser
+      isSavedByUser
+      createdAt
+      updatedAt
+      profile {
+        profileid
+        username
+        name
+        profilePic
+        isVerified
+      }
+      like {
+        profileid
+        createdAt
+        profile {
+          username
+          profilePic
+        }
+      }
+      comments {
+        commentid
+        comment
+        likeCount
+        isLikedByUser
+        createdAt
+        profile {
+          profileid
+          username
+          profilePic
+          isVerified
+        }
+        replies {
+          commentid
+          comment
+          likeCount
+          isLikedByUser
+          createdAt
+          profile {
+            profileid
+            username
+            profilePic
+            isVerified
+          }
+        }
+      }
+    }
+  }
+`;
+
 export const GET_ALL_POSTS = gql`
   query GetAllPosts {
     getPosts {
@@ -153,6 +253,7 @@ export const GET_ALL_POSTS = gql`
         profile {
           username
           profilePic
+          isVerified
         }
         replies {
           commentid
@@ -163,6 +264,7 @@ export const GET_ALL_POSTS = gql`
           profile {
             username
             profilePic
+            isVerified
           }
         }
       }

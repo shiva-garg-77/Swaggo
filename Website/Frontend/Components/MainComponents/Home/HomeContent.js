@@ -3,8 +3,9 @@ import { useState } from 'react';
 import { useTheme } from '../../Helper/ThemeProvider';
 import { useQuery, useMutation } from '@apollo/client';
 import { useAuth } from '../../Helper/AuthProvider';
-import { GET_ALL_POSTS, TOGGLE_POST_LIKE, TOGGLE_SAVE_POST } from '../../../lib/graphql/simpleQueries';
-import PostModal from '../Post/PostModal';
+import { GET_ALL_POSTS, TOGGLE_POST_LIKE, TOGGLE_SAVE_POST } from '../../../lib/graphql/queries';
+import { triggerPostsRefetch } from '../../../lib/apollo/refetchHelper';
+import InstagramPostModal from '../Post/InstagramPostModal';
 
 export default function HomeContent() {
   const { theme } = useTheme();
@@ -100,33 +101,59 @@ export default function HomeContent() {
     setIsModalOpen(false);
   };
   
-  // Post action handlers
+  // Like handler with proper cache updates
   const handlePostLike = async (postId) => {
     if (!user?.profileid) {
       alert('Please login to like posts');
       return;
     }
     
-    console.log('🔄 Liking post:', postId, 'by user:', user.profileid);
-    
     try {
-      const result = await togglePostLike({
+      await togglePostLike({
         variables: {
           profileid: user.profileid,
           postid: postId
+        },
+        // Update cache without refetching to prevent scroll jump
+        update: (cache, { data: mutationResult }) => {
+          try {
+            // Read current posts data
+            const existingData = cache.readQuery({ query: GET_ALL_POSTS });
+            
+            if (existingData?.getPosts) {
+              const updatedPosts = existingData.getPosts.map(post => {
+                if ((post.id || post.postid) === postId) {
+                  const currentLiked = post.isLikedByUser;
+                  const currentLikeCount = post.likeCount || post.likes || 0;
+                  
+                  return {
+                    ...post,
+                    isLikedByUser: !currentLiked,
+                    likeCount: currentLiked ? currentLikeCount - 1 : currentLikeCount + 1
+                  };
+                }
+                return post;
+              });
+              
+              // Write updated data back to cache
+              cache.writeQuery({
+                query: GET_ALL_POSTS,
+                data: {
+                  ...existingData,
+                  getPosts: updatedPosts
+                }
+              });
+            }
+          } catch (cacheError) {
+            console.log('Cache update failed, will rely on refetch:', cacheError);
+          }
         }
       });
       
-      console.log('✅ Like toggle result:', result);
-      
-      // Refetch the posts to get updated like counts and states
-      await refetch();
-      
     } catch (error) {
-      console.error('❌ Error toggling post like:', error);
-      if (error.message?.includes('not logged in')) {
-        alert('Please login to like posts');
-      }
+      console.error('Like failed:', error);
+      // Don't refetch on error to avoid scroll jump
+      alert('Failed to like post. Please try again.');
     }
   };
   
@@ -143,13 +170,38 @@ export default function HomeContent() {
         variables: {
           profileid: user.profileid,
           postid: postId
+        },
+        // Update cache for save status without refetch
+        update: (cache, { data: mutationResult }) => {
+          try {
+            const existingData = cache.readQuery({ query: GET_ALL_POSTS });
+            
+            if (existingData?.getPosts) {
+              const updatedPosts = existingData.getPosts.map(post => {
+                if ((post.id || post.postid) === postId) {
+                  return {
+                    ...post,
+                    isSavedByUser: !post.isSavedByUser
+                  };
+                }
+                return post;
+              });
+              
+              cache.writeQuery({
+                query: GET_ALL_POSTS,
+                data: {
+                  ...existingData,
+                  getPosts: updatedPosts
+                }
+              });
+            }
+          } catch (cacheError) {
+            console.log('Save cache update failed:', cacheError);
+          }
         }
       });
       
       console.log('✅ Save toggle result:', result);
-      
-      // Refetch the posts to get updated save states
-      await refetch();
       
     } catch (error) {
       console.error('❌ Error toggling save post:', error);
@@ -199,11 +251,10 @@ export default function HomeContent() {
       </div>
 
       {/* Post Modal */}
-      <PostModal
+      <InstagramPostModal
         post={selectedPost}
         isOpen={isModalOpen}
         onClose={closePostModal}
-        theme={theme}
       />
     </>
   );
@@ -214,6 +265,9 @@ function PostCard({ post, theme, user, onImageClick, onLike, onSave }) {
   // Handle both real posts from database and fallback posts
   const isRealPost = !!post.postid;
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  // Simple state from server data
+  const likeCount = post.likeCount || post.likes || 0;
+  const isLiked = post.isLikedByUser || false;
   
   console.log('📋 Processing post:', post);
   
@@ -228,19 +282,19 @@ function PostCard({ post, theme, user, onImageClick, onLike, onSave }) {
     location: post.location || '',
     tags: post.tags || [],
     taggedPeople: post.taggedPeople || [],
-    likes: post.likeCount || post.likes || 0,
-    comments: post.commentCount || post.comments || 0,
     timeAgo: post.timeAgo || (post.createdAt ? new Date(post.createdAt).toLocaleDateString() : 'Recently'),
     isVerified: post.profile?.isVerified || post.isVerified || false,
     postType: post.postType || 'IMAGE',
-    isLikedByUser: post.isLikedByUser || false,
-    isSavedByUser: post.isSavedByUser || false,
     allowComments: post.allowComments !== false,
-    hideLikeCount: post.hideLikeCount || false,
-    autoPlay: post.autoPlay || false
+    hideLikeCount: post.hideLikeCount || false
   };
   
   console.log('🖼️ Post image URL:', postData.image);
+
+  const handleLikeClick = async () => {
+    if (!user?.profileid || !isRealPost) return;
+    await onLike?.(postData.id);
+  };
   
   // Skip rendering if no valid image URL
   if (!postData.image || postData.image === 'null' || postData.image === 'undefined') {
@@ -304,18 +358,24 @@ function PostCard({ post, theme, user, onImageClick, onLike, onSave }) {
       </div>
 
       {/* Post Media */}
-      <div className="relative cursor-pointer" onClick={onImageClick}>
+      <div className="relative cursor-pointer" 
+           onClick={onImageClick}
+           onDoubleClick={handleLikeClick}>
         {postData.postType === 'VIDEO' ? (
           <video
             src={postData.image}
             className="w-full h-64 lg:h-80 object-cover hover:brightness-95 transition-all duration-200"
-            autoPlay={postData.autoPlay}
-            loop={postData.autoPlay}
-            muted={postData.autoPlay}
+            autoPlay={postData.autoPlay !== false}
+            loop={true}
+            muted
             playsInline
-            preload="metadata"
+            preload="auto"
             onPlay={() => setIsVideoPlaying(true)}
             onPause={() => setIsVideoPlaying(false)}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              handleLikeClick();
+            }}
             onError={(e) => {
               console.error('❌ Video load error:', {
                 url: postData.image,
@@ -352,7 +412,10 @@ function PostCard({ post, theme, user, onImageClick, onLike, onSave }) {
             }}
           />
         ) : (
-          <div className="relative">
+          <div className="relative" onDoubleClick={(e) => {
+              e.stopPropagation();
+              handleLikeClick();
+            }}>
             <img
               src={postData.image}
               alt={postData.title || 'Post content'}
@@ -411,13 +474,13 @@ function PostCard({ post, theme, user, onImageClick, onLike, onSave }) {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-4">
             <button 
-              onClick={() => onLike && onLike(postData.id)}
+              onClick={handleLikeClick}
               disabled={!user?.profileid || !isRealPost}
               className={`p-1 hover:bg-opacity-10 hover:bg-red-500 rounded-full transition-all duration-200 ${
-                postData.isLikedByUser ? 'text-red-500 scale-110' : 'text-gray-500 hover:text-red-500'
+                isLiked ? 'text-red-500 scale-110' : 'text-gray-500 hover:text-red-500'
               } ${!user?.profileid || !isRealPost ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              <svg className={`w-6 h-6 ${postData.isLikedByUser ? 'fill-current' : ''}`} fill={postData.isLikedByUser ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+              <svg className={`w-6 h-6 ${isLiked ? 'fill-current' : ''}`} fill={isLiked ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
               </svg>
             </button>
@@ -456,7 +519,7 @@ function PostCard({ post, theme, user, onImageClick, onLike, onSave }) {
           <p className={`font-semibold mb-2 ${
             theme === 'dark' ? 'text-white' : 'text-gray-900'
           }`}>
-            {postData.likes.toLocaleString()} {postData.likes === 1 ? 'like' : 'likes'}
+            {likeCount.toLocaleString()} {likeCount === 1 ? 'like' : 'likes'}
           </p>
         )}
         

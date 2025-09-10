@@ -1,5 +1,7 @@
 "use client";
 import { createContext, useState, useEffect, useContext } from "react";
+import { ApolloClientContext } from './ApolloProvider';
+import { refreshCacheAfterAuth } from '../../lib/apollo/cacheUtils';
 
 
 export const AuthContext = createContext();
@@ -14,6 +16,9 @@ export const useAuth = () => {
 };
 
 export const AuthProvider = ({ children }) => {
+    // Get Apollo client from context (will be null initially)
+    const apolloClient = useContext(ApolloClientContext);
+    
     const [ErrorMsg, setErrorMsg] = useState(null);
     const [successMsg, setSuccessMsg] = useState(null);
     const [accessToken, setAccessToken] = useState(null);
@@ -68,6 +73,14 @@ export const AuthProvider = ({ children }) => {
         const userData = extractUserFromToken(accessToken);
         setUser(userData);
         
+        // Clear Apollo cache when user changes to prevent stale data
+        if (apolloClient) {
+            console.log('🗑️ Auto-clearing cache on user change...');
+            refreshCacheAfterAuth(apolloClient).catch(err => {
+                console.log('Auto cache clear failed:', err);
+            });
+        }
+        
         if (userData) {
             console.log('👤 User data set:', userData);
             if (userData.profileid) {
@@ -79,7 +92,7 @@ export const AuthProvider = ({ children }) => {
         } else {
             console.log('❌ No user data extracted from token');
         }
-    }, [accessToken]);
+    }, [accessToken, apolloClient]);
 
     // Try auto-login on mount
     useEffect(() => {
@@ -179,6 +192,14 @@ export const AuthProvider = ({ children }) => {
                 console.log('- setAccessToken called!');
                 setErrorMsg(null);
                 
+                // Clear Apollo cache to remove stale data like "test-profile-123"
+                if (apolloClient) {
+                    console.log('🗑️ Clearing Apollo cache after login...');
+                    refreshCacheAfterAuth(apolloClient).catch(err => {
+                        console.log('Cache clear failed but login proceeding:', err);
+                    });
+                }
+                
                 // Wait a moment and check if it was stored
                 setTimeout(() => {
                     console.log('- Current accessToken after 100ms:', accessToken || 'STILL NULL');
@@ -207,6 +228,14 @@ export const AuthProvider = ({ children }) => {
             setAccessToken(null);
             setUser(null); // Clear user data on logout
             setErrorMsg(null);
+            
+            // Clear Apollo cache to remove all stale user data
+            if (apolloClient) {
+                console.log('🗑️ Clearing Apollo cache after logout...');
+                refreshCacheAfterAuth(apolloClient).catch(err => {
+                    console.log('Cache clear failed after logout:', err);
+                });
+            }
             // Redirect will be handled by ProtectedRoute
         }
     };

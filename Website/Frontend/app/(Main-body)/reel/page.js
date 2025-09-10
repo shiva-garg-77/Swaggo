@@ -1,13 +1,12 @@
 import MainLayout from '../../../Components/Layout/MainLayout'
 import ProtectedRoute from '../../../Components/Helper/ProtectedRoute'
+import ReelsContent from '../../../Components/MainComponents/Reels/ReelsContent'
 
 export default function ReelPage() {
   return (
     <ProtectedRoute>
       <MainLayout>
-        <div className="text-center py-20">
-          <h1 className="text-4xl font-bold dark:text-white">Reel Page</h1>
-        </div>
+        <ReelsContent />
       </MainLayout>
     </ProtectedRoute>
   )

@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useEffect, useContext, useMemo } from 'react';
+import { useState, useEffect, useContext, useMemo, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from '../../Helper/ThemeProvider';
 import { AuthContext } from '../../Helper/AuthProvider';
 import { useQuery, useMutation } from '@apollo/client';
+import { ApolloClientContext } from '../../Helper/ApolloProvider';
+import { clearProfileCache, clearApolloCache } from '../../../lib/apollo/cacheUtils';
 import { 
   GET_USER_BY_USERNAME, 
   TOGGLE_FOLLOW_USER, 
@@ -14,16 +16,19 @@ import {
   PUBLISH_DRAFT_MUTATION,
   GET_DRAFTS_QUERY
 } from '../../../lib/graphql/profileQueries';
+import { GET_SIMPLE_PROFILE, GET_CURRENT_USER_PROFILE } from '../../../lib/graphql/fixedProfileQueries';
+import { GET_MEMORIES, CREATE_MEMORY } from '../../../lib/graphql/queries';
 import { GET_USER_SIMPLE, HELLO_QUERY } from '../../../lib/graphql/simpleQueries';
 import ProfileHeader from './ProfileHeader';
 import ProfileTabs from './ProfileTabs';
 import ProfileGrid from './ProfileGrid';
-import MemorySection from './MemorySection';
 import CreatePostModal from '../Post/CreatePostModal';
+import CreateMemoryModal from '../Memory/CreateMemoryModal';
 
 export default function UserProfile() {
   const { theme } = useTheme();
   const { accessToken, user } = useContext(AuthContext);
+  const apolloClient = useContext(ApolloClientContext);
   const router = useRouter();
   const searchParams = useSearchParams();
   
@@ -35,14 +40,37 @@ export default function UserProfile() {
   const [activeTab, setActiveTab] = useState('uploads');
   const [isFollowing, setIsFollowing] = useState(false);
   const [currentUserProfile, setCurrentUserProfile] = useState(null);
+  const [showCreateMemoryModal, setShowCreateMemoryModal] = useState(false);
 
-  // GraphQL queries - optimized to reduce multiple calls
-  const { data, loading, error, refetch } = useQuery(GET_USER_BY_USERNAME, {
-    variables: { username: profileUsername },
+  // Use simpler profile query to avoid schema mismatch issues
+  const queryToUse = isOwnProfile ? GET_CURRENT_USER_PROFILE : GET_SIMPLE_PROFILE;
+  const queryVariables = isOwnProfile ? {} : { username: profileUsername };
+  
+  const { data, loading, error, refetch } = useQuery(queryToUse, {
+    variables: queryVariables,
     skip: !accessToken,
     errorPolicy: 'all',
-    fetchPolicy: 'cache-first', // Use cache first to reduce network calls
-    notifyOnNetworkStatusChange: false, // Prevent extra renders
+    fetchPolicy: 'cache-and-network',
+    notifyOnNetworkStatusChange: true,
+    onCompleted: (userData) => {
+      if (userData?.getUserbyUsername) {
+        console.log('✅ Profile data loaded successfully:', {
+          username: userData.getUserbyUsername.username,
+          profileid: userData.getUserbyUsername.profileid,
+          postCount: userData.getUserbyUsername.post?.length || 0,
+          isOwnProfile: isOwnProfile
+        });
+      }
+    },
+    onError: (error) => {
+      console.error('🔴 Profile loading error:', {
+        message: error.message,
+        graphQLErrors: error.graphQLErrors,
+        networkError: error.networkError,
+        queryType: isOwnProfile ? 'current-user' : 'by-username',
+        variables: queryVariables
+      });
+    }
   });
 
   // Get current user's profile for follow status check
@@ -84,6 +112,23 @@ export default function UserProfile() {
     }
   });
 
+  // Query to get memories for this profile
+  const { data: memoriesData, loading: memoriesLoading, refetch: refetchMemories } = useQuery(GET_MEMORIES, {
+    variables: { profileid: data?.getUserbyUsername?.profileid },
+    skip: !data?.getUserbyUsername?.profileid,
+    errorPolicy: 'all',
+    fetchPolicy: 'cache-and-network',
+    onCompleted: (memoryData) => {
+      console.log('\n📸 MEMORY DEBUG - Query Completed:');
+      console.log('- Memory count:', memoryData?.getMemories?.length || 0);
+      if (memoryData?.getMemories && memoryData.getMemories.length > 0) {
+        console.log('- First memory:', memoryData.getMemories[0]);
+      }
+    },
+    onError: (error) => {
+      console.error('\n❌ MEMORY DEBUG - Error loading memories:', error.message);
+    }
+  });
 
   const [toggleFollowMutation] = useMutation(TOGGLE_FOLLOW_USER, {
     onCompleted: () => {
@@ -130,9 +175,44 @@ export default function UserProfile() {
     console.log('Block user functionality - to be implemented');
   };
 
+  // Create memory mutation
+  const [createMemoryMutation] = useMutation(CREATE_MEMORY, {
+    onCompleted: (data) => {
+      console.log('✅ Memory created successfully:', data);
+      alert('📸 Memory created successfully!');
+      refetchMemories(); // Refresh memories list
+      setShowCreateMemoryModal(false);
+    },
+    onError: (error) => {
+      console.error('❌ Error creating memory:', error);
+      alert(`Failed to create memory: ${error.message}`);
+    }
+  });
+
   // Handle create memory
   const handleCreateMemory = () => {
-    console.log('Create memory functionality - to be implemented');
+    setShowCreateMemoryModal(true);
+  };
+
+  // Create memory with title and optional cover image
+  const createMemory = async (title, coverImage = null) => {
+    if (!user?.profileid || !title.trim()) {
+      alert('Please provide a memory title');
+      return;
+    }
+
+    try {
+      await createMemoryMutation({
+        variables: {
+          profileid: user.profileid,
+          title: title.trim(),
+          coverImage: coverImage,
+          postUrl: null // Can be added later when stories are added
+        }
+      });
+    } catch (error) {
+      console.error('Error in createMemory:', error);
+    }
   };
 
   
@@ -152,8 +232,9 @@ export default function UserProfile() {
     onCompleted: (data) => {
       console.log('✅ Draft published successfully:', data);
       alert('🎉 Draft published successfully!');
-      refetch(); // Refresh to show new post
-      refetchDrafts(); // Refresh to remove from drafts
+      forceRefresh(); // Use the new force refresh function
+      // Dispatch global event for real-time updates
+      window.dispatchEvent(new CustomEvent('draftPublished'));
     },
     onError: (error) => {
       console.error('❌ Full error publishing draft:', error);
@@ -197,6 +278,39 @@ export default function UserProfile() {
   
   const [showEditDraftModal, setShowEditDraftModal] = useState(false);
   const [currentDraft, setCurrentDraft] = useState(null);
+  
+  // Add global refresh handler for real-time updates
+  const forceRefresh = useCallback(async () => {
+    console.log('🔄 Forcing profile refresh...');
+    
+    // Clear profile cache to fix type mismatches
+    if (apolloClient) {
+      console.log('🗑️ Clearing profile cache...');
+      clearProfileCache(apolloClient);
+    }
+    
+    await refetch();
+    await refetchDrafts();
+    await refetchMemories();
+    console.log('✅ Profile refresh complete');
+  }, [refetch, refetchDrafts, refetchMemories, apolloClient]);
+  
+  // Listen for global post creation events (if available)
+  useEffect(() => {
+    const handlePostCreated = () => {
+      console.log('📝 Post created event detected, refreshing profile...');
+      forceRefresh();
+    };
+    
+    // Add event listener for custom post creation events
+    window.addEventListener('postCreated', handlePostCreated);
+    window.addEventListener('draftPublished', handlePostCreated);
+    
+    return () => {
+      window.removeEventListener('postCreated', handlePostCreated);
+      window.removeEventListener('draftPublished', handlePostCreated);
+    };
+  }, [forceRefresh]);
   
   const publishDraft = async (draft) => {
     console.log('📝 PUBLISH DEBUG - Draft received:', draft);
@@ -295,17 +409,33 @@ export default function UserProfile() {
   }
 
   if (error) {
+    const handleClearCacheAndRetry = async () => {
+      if (apolloClient) {
+        console.log('🗑️ Clearing all cache and retrying...');
+        await clearApolloCache(apolloClient);
+      }
+      setTimeout(() => refetch(), 500);
+    };
+
     return (
       <div className="text-center py-20">
-        <p className={`text-lg ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
-          Error loading profile: {error.message}
+        <p className={`text-lg mb-4 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
+          Error loading profile: {error.message.includes('profileid') ? 'Profile data mismatch detected' : error.message}
         </p>
-        <button
-          onClick={() => refetch()}
-          className="mt-4 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white px-4 py-2 rounded-lg transition-all duration-300"
-        >
-          Try Again
-        </button>
+        <div className="space-x-4">
+          <button
+            onClick={() => refetch()}
+            className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white px-4 py-2 rounded-lg transition-all duration-300"
+          >
+            Try Again
+          </button>
+          <button
+            onClick={handleClearCacheAndRetry}
+            className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-4 py-2 rounded-lg transition-all duration-300"
+          >
+            Clear Cache & Retry
+          </button>
+        </div>
       </div>
     );
   }
@@ -334,6 +464,8 @@ export default function UserProfile() {
         onRestrict={handleRestrict}
         onBlock={handleBlock}
         onRefresh={refetch}
+        onCreateMemory={handleCreateMemory}
+        memoriesData={memoriesData?.getMemories || []}
         theme={theme}
       />
 
@@ -372,10 +504,20 @@ export default function UserProfile() {
             setCurrentDraft(null);
             // Remove the draft since it's now a post
             deleteDraft(currentDraft.id || currentDraft.draftid);
-            refetch();
+            forceRefresh(); // Use the new force refresh function
+            // Dispatch global event for other components that might need to update
+            window.dispatchEvent(new CustomEvent('postCreated'));
           }}
         />
       )}
+      
+      {/* Create Memory Modal */}
+      <CreateMemoryModal
+        isOpen={showCreateMemoryModal}
+        onClose={() => setShowCreateMemoryModal(false)}
+        onCreateMemory={createMemory}
+        theme={theme}
+      />
     </div>
   );
 }

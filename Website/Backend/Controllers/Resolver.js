@@ -700,7 +700,7 @@ const Resolvers = {
                 throw new Error(`Error updating comment: ${err.message}`);
             }
         },
-        TogglePostLike: async (_, { postid, profileid }, { user }) => {
+        TogglePostLike: async (_, { profileid, postid }, { user }) => {
             try {
                 // Check if user is authenticated
                 if (!user) {
@@ -745,7 +745,7 @@ const Resolvers = {
                 throw new Error(`Error toggling post like: ${err.message}`);
             }
         },
-        ToggleCommentLike: async (_, { commentid, profileid }, { user }) => {
+        ToggleCommentLike: async (_, { profileid, commentid }, { user }) => {
             try {
                 // Check if user is authenticated
                 if (!user) {
@@ -787,7 +787,7 @@ const Resolvers = {
                 throw new Error(`Error toggling comment like: ${err.message}`);
             }
         },
-        ToggleSavePost: async (_, { postid, profileid }) => {
+        ToggleSavePost: async (_, { profileid, postid }) => {
             try {
                 // Check if the user exists
                 const userProfile = await Profile.findOne({ profileid });
@@ -808,6 +808,7 @@ const Resolvers = {
                     const newSavedPost = new SavedPost({ postid, profileid });
                     await newSavedPost.save();
                 }
+                return post; // Return the post object
             } catch (err) {
                 throw new Error(`Error toggling save post: ${err.message}`);
             }
@@ -892,7 +893,7 @@ const Resolvers = {
         },
         
         // Memory Management
-        CreateMemory: async (_, { profileid, title, coverImage }) => {
+        CreateMemory: async (_, { profileid, title, coverImage, postUrl }) => {
             try {
                 const userProfile = await Profile.findOne({ profileid });
                 if (!userProfile) {
@@ -904,6 +905,7 @@ const Resolvers = {
                     profileid,
                     title,
                     coverImage,
+                    postUrl,
                     stories: []
                 });
                 
@@ -914,7 +916,7 @@ const Resolvers = {
             }
         },
         
-        UpdateMemory: async (_, { memoryid, title, coverImage }) => {
+        UpdateMemory: async (_, { memoryid, title, coverImage, postUrl }) => {
             try {
                 const memory = await Memory.findOne({ memoryid });
                 if (!memory) {
@@ -923,6 +925,7 @@ const Resolvers = {
                 
                 if (title) memory.title = title;
                 if (coverImage) memory.coverImage = coverImage;
+                if (postUrl !== undefined) memory.postUrl = postUrl; // Allow null to clear postUrl
                 memory.updatedAt = new Date();
                 
                 await memory.save();

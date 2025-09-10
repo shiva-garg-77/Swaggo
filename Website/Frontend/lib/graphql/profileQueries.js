@@ -336,6 +336,7 @@ export const TOGGLE_SAVE_POST = gql`
   mutation ToggleSavePost($profileid: String!, $postid: String!) {
     ToggleSavePost(profileid: $profileid, postid: $postid) {
       postid
+      title
     }
   }
 `;
@@ -357,6 +358,7 @@ export const GET_MEMORIES = gql`
       memoryid
       title
       coverImage
+      postUrl
       stories {
         storyid
         mediaUrl
@@ -369,13 +371,14 @@ export const GET_MEMORIES = gql`
   }
 `;
 
-// Create memory
+// Create memory - Fixed to handle optional parameters properly
 export const CREATE_MEMORY = gql`
-  mutation CreateMemory($profileid: String!, $title: String!, $coverImage: String) {
-    CreateMemory(profileid: $profileid, title: $title, coverImage: $coverImage) {
+  mutation CreateMemory($profileid: String!, $title: String!, $coverImage: String, $postUrl: String) {
+    CreateMemory(profileid: $profileid, title: $title, coverImage: $coverImage, postUrl: $postUrl) {
       memoryid
       title
       coverImage
+      postUrl
       stories {
         storyid
         mediaUrl
@@ -395,6 +398,7 @@ export const ADD_STORY_TO_MEMORY = gql`
       memoryid
       title
       coverImage
+      postUrl
       stories {
         storyid
         mediaUrl

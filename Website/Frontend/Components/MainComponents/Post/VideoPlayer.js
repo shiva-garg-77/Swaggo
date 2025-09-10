@@ -34,36 +34,35 @@ export default function VideoPlayer({
   // Intersection Observer for lazy loading and autoplay
   useEffect(() => {
     const video = videoRef.current;
-    if (!video) return;
+    if (!video || !autoPlay) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
-        entries.forEach(entry => {
-          setIsVisible(entry.isIntersecting);
-          
-          if (entry.isIntersecting && autoPlay) {
-            // Auto play when video comes into view
-            video.play().then(() => {
-              setIsPlaying(true);
-              onPlay?.();
-            }).catch(err => {
-              console.log('Autoplay prevented:', err);
-              setIsPlaying(false);
-            });
-          } else if (!entry.isIntersecting && !isModal) {
-            // Pause when video goes out of view (except in modal)
-            video.pause();
+        const entry = entries[0];
+        setIsVisible(entry.isIntersecting);
+        
+        if (entry.isIntersecting) {
+          // Auto play when video comes into view
+          video.play().then(() => {
+            setIsPlaying(true);
+            onPlay?.();
+          }).catch(err => {
+            console.log('Autoplay prevented:', err);
             setIsPlaying(false);
-            onPause?.();
-          }
-        });
+          });
+        } else if (!isModal) {
+          // Pause when video goes out of view (except in modal)
+          video.pause();
+          setIsPlaying(false);
+          onPause?.();
+        }
       },
-      { threshold: 0.5 }
+      { threshold: 0.3 }
     );
 
     observer.observe(video);
     return () => observer.disconnect();
-  }, [autoPlay, isModal, onPlay, onPause]);
+  }, [autoPlay, isModal]); // Removed onPlay, onPause to prevent loops
 
   // Handle video events
   const handlePlay = useCallback(() => {
@@ -87,18 +86,41 @@ export default function VideoPlayer({
     setIsLoading(false);
     const video = videoRef.current;
     if (video && autoPlay && isVisible) {
-      video.play().catch(() => {
-        setIsPlaying(false);
-      });
+      setTimeout(() => {
+        video.play().catch(() => {
+          setIsPlaying(false);
+        });
+      }, 100); // Small delay to ensure proper loading
     }
   }, [autoPlay, isVisible]);
 
   const handleError = useCallback((e) => {
-    console.error('Video error:', e);
+    console.error('Video error for:', src, e);
+    
+    // Try alternative URLs for localhost videos
+    if (src && src.includes('localhost')) {
+      const alternatives = [
+        src.replace('localhost:45799', 'localhost:3001'),
+        src.replace('localhost:3001', 'localhost:45799'),
+        src.replace(':45799', ':3001'),
+        src.replace(':3001', ':45799')
+      ];
+      
+      const currentSrc = e.target.src;
+      const nextUrl = alternatives.find(url => url !== currentSrc && url !== src);
+      
+      if (nextUrl && !e.target.dataset.retried) {
+        console.log('Trying alternative video URL:', nextUrl);
+        e.target.dataset.retried = 'true';
+        e.target.src = nextUrl;
+        return;
+      }
+    }
+    
     setHasError(true);
     setIsLoading(false);
     onError?.(e);
-  }, [onError]);
+  }, [src, onError]);
 
   // Toggle play/pause
   const togglePlayPause = useCallback(() => {

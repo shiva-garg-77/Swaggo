@@ -4,24 +4,48 @@ import { useState, useRef, useEffect } from 'react';
 import { useTheme } from '../../Helper/ThemeProvider';
 import { useMutation, useQuery } from '@apollo/client';
 import { useAuth } from '../../Helper/AuthProvider';
-import { TOGGLE_POST_LIKE, TOGGLE_COMMENT_LIKE, CREATE_COMMENT, CREATE_COMMENT_REPLY, TOGGLE_SAVE_POST, GET_POST_STATS } from '../../../lib/graphql/simpleQueries';
+import { gql } from '@apollo/client';
+import InstagramCommentSection from './InstagramCommentSection';
+
+// Define mutations inline to avoid import issues
+const TOGGLE_POST_LIKE = gql`
+  mutation TogglePostLike($profileid: String!, $postid: String!) {
+    TogglePostLike(profileid: $profileid, postid: $postid) {
+      profileid
+      postid
+      createdAt
+    }
+  }
+`;
+
+const TOGGLE_SAVE_POST = gql`
+  mutation ToggleSavePost($profileid: String!, $postid: String!) {
+    ToggleSavePost(profileid: $profileid, postid: $postid)
+  }
+`;
+
+const GET_POST_STATS = gql`
+  query GetPostStats($postid: String!) {
+    getPostStats(postid: $postid) {
+      postid
+      likeCount
+      commentCount
+      isLikedByCurrentUser
+      isSavedByCurrentUser
+    }
+  }
+`;
 
 export default function PostModal({ post, isOpen, onClose, theme: propTheme, showNavigation = false, onNext, onPrevious, hasNext = false, hasPrevious = false, currentIndex, totalCount }) {
   const { theme } = useTheme();
   const { user } = useAuth();
   const actualTheme = propTheme || theme;
-  const [commentText, setCommentText] = useState('');
-  const [replyText, setReplyText] = useState('');
-  const [replyingTo, setReplyingTo] = useState(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const modalRef = useRef(null);
   const videoRef = useRef(null);
 
-  // GraphQL Mutations
+  // GraphQL Mutations - Always call hooks at the top level
   const [togglePostLike] = useMutation(TOGGLE_POST_LIKE);
-  const [toggleCommentLike] = useMutation(TOGGLE_COMMENT_LIKE);
-  const [createComment] = useMutation(CREATE_COMMENT);
-  const [createCommentReply] = useMutation(CREATE_COMMENT_REPLY);
   const [toggleSavePost] = useMutation(TOGGLE_SAVE_POST);
 
   // Get current post stats
@@ -31,11 +55,16 @@ export default function PostModal({ post, isOpen, onClose, theme: propTheme, sho
     fetchPolicy: 'cache-and-network'
   });
 
+  // ALL STATE HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
+  const [isLikeAnimating, setIsLikeAnimating] = useState(false);
+  const [optimisticLiked, setOptimisticLiked] = useState(false);
+  const [optimisticCount, setOptimisticCount] = useState(0);
 
   // Multiple images support
   const postImages = Array.isArray(post?.postUrl) ? post.postUrl : [post?.postUrl].filter(Boolean);
   const hasMultipleImages = postImages.length > 1;
 
+  // ALL useEffect HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -81,13 +110,21 @@ export default function PostModal({ post, isOpen, onClose, theme: propTheme, sho
     }
   }, [isOpen, post?.postType, post?.autoPlay]);
 
+  // Update optimistic states when real data changes
+  const currentLikeCount = postStats?.getPostStats?.likeCount ?? post?.likeCount ?? 0;
+  const isLikedByUser = postStats?.getPostStats?.isLikedByCurrentUser ?? post?.isLikedByUser ?? false;
+  const isSavedByUser = postStats?.getPostStats?.isSavedByCurrentUser ?? post?.isSavedByUser ?? false;
+  
+  useEffect(() => {
+    setOptimisticLiked(isLikedByUser);
+    setOptimisticCount(currentLikeCount);
+  }, [isLikedByUser, currentLikeCount]);
+
+  // CONDITIONAL RETURN MUST COME AFTER ALL HOOKS
   if (!isOpen || !post) return null;
 
   const currentProfileId = user?.profileid;
-  const currentLikeCount = postStats?.getPostStats?.likeCount ?? post?.likeCount ?? 0;
   const currentCommentCount = postStats?.getPostStats?.commentCount ?? post?.commentCount ?? 0;
-  const isLikedByUser = postStats?.getPostStats?.isLikedByCurrentUser ?? post?.isLikedByUser ?? false;
-  const isSavedByUser = postStats?.getPostStats?.isSavedByCurrentUser ?? post?.isSavedByUser ?? false;
 
   const handleBackdropClick = (e) => {
     if (e.target === modalRef.current) {
@@ -96,20 +133,67 @@ export default function PostModal({ post, isOpen, onClose, theme: propTheme, sho
   };
 
   const handleLike = async () => {
-    if (!currentProfileId || !post?.postid) return;
+    console.log('🔄 LIKE BUTTON CLICKED!');
+    console.log('- Current user:', user?.username);
+    console.log('- Current profileId:', currentProfileId);
+    console.log('- Post ID:', post?.postid);
+    console.log('- Current like state:', optimisticLiked);
+    
+    if (!currentProfileId) {
+      console.error('❌ No current profile ID');
+      alert('Please log in to like posts');
+      return;
+    }
+    
+    if (!post?.postid) {
+      console.error('❌ No post ID');
+      alert('Post ID missing');
+      return;
+    }
+    
+    // Trigger animation
+    setIsLikeAnimating(true);
+    setTimeout(() => setIsLikeAnimating(false), 600);
+    
+    // Optimistic update
+    const newIsLiked = !optimisticLiked;
+    const newCount = newIsLiked ? optimisticCount + 1 : Math.max(0, optimisticCount - 1);
+    
+    console.log('- Optimistic update:', { newIsLiked, newCount });
+    setOptimisticLiked(newIsLiked);
+    setOptimisticCount(newCount);
     
     try {
-      await togglePostLike({
+      console.log('🔄 Calling togglePostLike mutation...');
+      const result = await togglePostLike({
         variables: {
           profileid: currentProfileId,
           postid: post.postid
         }
       });
       
-      // Refetch post stats to update UI
+      console.log('✅ Like mutation successful:', result);
+      
+      // Refetch post stats to get real data
+      console.log('🔄 Refetching post stats...');
       await refetchPostStats();
+      console.log('✅ Post stats refetched');
+      
     } catch (error) {
-      console.error('Error toggling post like:', error);
+      console.error('❌ LIKE ERROR DETAILS:', {
+        message: error.message,
+        graphQLErrors: error.graphQLErrors,
+        networkError: error.networkError,
+        variables: { profileid: currentProfileId, postid: post.postid }
+      });
+      
+      // Show user-friendly error
+      const errorMessage = error.graphQLErrors?.[0]?.message || error.networkError?.message || error.message;
+      alert(`Failed to like post: ${errorMessage}`);
+      
+      // Rollback on error
+      setOptimisticLiked(!newIsLiked);
+      setOptimisticCount(optimisticCount);
     }
   };
 
@@ -131,89 +215,6 @@ export default function PostModal({ post, isOpen, onClose, theme: propTheme, sho
     }
   };
 
-  const handleComment = async () => {
-    if (!commentText.trim() || !currentProfileId || !post?.postid) return;
-    
-    console.log('💬 Creating comment:', {
-      postId: post.postid,
-      userId: currentProfileId,
-      comment: commentText.trim()
-    });
-    
-    try {
-      const result = await createComment({
-        variables: {
-          postid: post.postid,
-          profileid: currentProfileId,
-          comment: commentText.trim()
-        }
-      });
-      
-      console.log('✅ Comment created:', result);
-      
-      setCommentText('');
-      
-      // Refetch post stats to update UI
-      await refetchPostStats();
-    } catch (error) {
-      console.error('❌ Error creating comment:', error);
-    }
-  };
-
-  const handleReply = async () => {
-    if (!replyText.trim() || !currentProfileId || !replyingTo) return;
-    
-    console.log('🔄 Creating reply:', {
-      commentId: replyingTo.commentid,
-      userId: currentProfileId,
-      reply: replyText.trim()
-    });
-    
-    try {
-      const result = await createCommentReply({
-        variables: {
-          commentid: replyingTo.commentid,
-          profileid: currentProfileId,
-          comment: replyText.trim()
-        }
-      });
-      
-      console.log('✅ Reply created:', result);
-      
-      setReplyText('');
-      setReplyingTo(null);
-      
-      // Refetch post stats to update UI
-      await refetchPostStats();
-    } catch (error) {
-      console.error('❌ Error creating reply:', error);
-    }
-  };
-
-  const handleCommentLike = async (commentid) => {
-    if (!currentProfileId || !commentid) return;
-    
-    console.log('❤️ Toggling comment like:', {
-      commentId: commentid,
-      userId: currentProfileId
-    });
-    
-    try {
-      const result = await toggleCommentLike({
-        variables: {
-          profileid: currentProfileId,
-          commentid: commentid
-        }
-      });
-      
-      console.log('✅ Comment like toggled:', result);
-      
-      // Refetch post stats to update UI
-      await refetchPostStats();
-    } catch (error) {
-      console.error('❌ Error toggling comment like:', error);
-    }
-  };
 
   const nextImage = () => {
     if (hasMultipleImages) {
@@ -553,108 +554,13 @@ export default function PostModal({ post, isOpen, onClose, theme: propTheme, sho
                 </div>
               )}
 
-              {/* Comments Section */}
-              <div className="space-y-4">
-                <h3 className={`font-semibold ${
-                  actualTheme === 'dark' ? 'text-white' : 'text-gray-900'
-                }`}>
-                  Comments ({currentCommentCount})
-                </h3>
-                
-                {/* Real Comments */}
-                <div className="space-y-3 max-h-96 overflow-y-auto">
-                  {(post?.comments || []).map((comment) => (
-                    <div key={comment.commentid} className="space-y-2">
-                      <div className="flex items-start space-x-3">
-                        <img
-                          src={comment.profile?.profilePic || '/default-profile.svg'}
-                          alt={comment.profile?.username}
-                          className="w-8 h-8 rounded-full"
-                        />
-                        <div className="flex-1">
-                          <p className={`text-sm ${
-                            actualTheme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                          }`}>
-                            <span className="font-semibold">{comment.profile?.username}</span>{' '}
-                            {comment.comment}
-                          </p>
-                          <div className="flex items-center space-x-3 mt-1">
-                            <p className={`text-xs ${
-                              actualTheme === 'dark' ? 'text-gray-500' : 'text-gray-500'
-                            }`}>
-                              {new Date(comment.createdAt).toLocaleDateString()}
-                            </p>
-                            <button
-                              onClick={() => handleCommentLike(comment.commentid)}
-                              className={`text-xs transition-colors ${
-                                comment.isLikedByUser 
-                                  ? 'text-red-500' 
-                                  : actualTheme === 'dark' ? 'text-gray-400 hover:text-red-400' : 'text-gray-600 hover:text-red-500'
-                              }`}
-                            >
-                              {comment.isLikedByUser ? '♥' : '♡'} {comment.likeCount > 0 && comment.likeCount}
-                            </button>
-                            <button
-                              onClick={() => setReplyingTo(comment)}
-                              className={`text-xs transition-colors ${
-                                actualTheme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'
-                              }`}
-                            >
-                              Reply
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {/* Replies */}
-                      {comment.replies?.length > 0 && (
-                        <div className="ml-11 space-y-2">
-                          {comment.replies.map((reply) => (
-                            <div key={reply.commentid} className="flex items-start space-x-3">
-                              <img
-                                src={reply.profile?.profilePic || '/default-profile.svg'}
-                                alt={reply.profile?.username}
-                                className="w-6 h-6 rounded-full"
-                              />
-                              <div className="flex-1">
-                                <p className={`text-sm ${
-                                  actualTheme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                                }`}>
-                                  <span className="font-semibold">{reply.profile?.username}</span>{' '}
-                                  {reply.comment}
-                                </p>
-                                <div className="flex items-center space-x-3 mt-1">
-                                  <p className={`text-xs ${
-                                    actualTheme === 'dark' ? 'text-gray-500' : 'text-gray-500'
-                                  }`}>
-                                    {new Date(reply.createdAt).toLocaleDateString()}
-                                  </p>
-                                  <button
-                                    onClick={() => handleCommentLike(reply.commentid)}
-                                    className={`text-xs transition-colors ${
-                                      reply.isLikedByUser 
-                                        ? 'text-red-500' 
-                                        : actualTheme === 'dark' ? 'text-gray-400 hover:text-red-400' : 'text-gray-600 hover:text-red-500'
-                                    }`}
-                                  >
-                                    {reply.isLikedByUser ? '♥' : '♡'} {reply.likeCount > 0 && reply.likeCount}
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )) || (
-                    <p className={`text-sm text-center py-8 ${
-                      actualTheme === 'dark' ? 'text-gray-500' : 'text-gray-400'
-                    }`}>
-                      No comments yet. Be the first to comment!
-                    </p>
-                  )}
-                </div>
-              </div>
+              {/* Comments Section - Professional Instagram Style */}
+              <InstagramCommentSection 
+                postId={post?.postid}
+                className=""
+                theme={actualTheme}
+                onCommentUpdate={refetchPostStats}
+              />
             </div>
 
             {/* Actions */}
@@ -669,15 +575,21 @@ export default function PostModal({ post, isOpen, onClose, theme: propTheme, sho
                   <button
                     onClick={handleLike}
                     disabled={!currentProfileId}
-                    className={`p-2.5 rounded-full transition-all duration-200 hover:scale-110 active:scale-95 ${
-                      isLikedByUser 
+                    className={`p-2.5 rounded-full transition-all duration-200 hover:scale-110 active:scale-95 relative ${
+                      optimisticLiked 
                         ? 'text-red-500 bg-red-50 dark:bg-red-900/20' 
                         : actualTheme === 'dark' 
                           ? 'text-gray-400 hover:text-red-400 hover:bg-red-900/10' 
                           : 'text-gray-600 hover:text-red-500 hover:bg-red-50'
                     } ${!currentProfileId ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
-                    <HeartIcon className={`w-7 h-7 ${isLikedByUser ? 'fill-current' : ''}`} />
+                    {/* Like Animation */}
+                    {isLikeAnimating && (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <HeartIcon className="w-9 h-9 text-red-500 fill-current animate-ping" />
+                      </div>
+                    )}
+                    <HeartIcon className={`w-7 h-7 ${optimisticLiked ? 'fill-current' : ''}`} />
                   </button>
                   
                   <button className={`p-2.5 rounded-full transition-all duration-200 hover:scale-110 active:scale-95 ${
@@ -722,95 +634,10 @@ export default function PostModal({ post, isOpen, onClose, theme: propTheme, sho
                 <p className={`font-semibold text-sm ${
                   actualTheme === 'dark' ? 'text-white' : 'text-gray-900'
                 }`}>
-                  <span className="text-lg">{currentLikeCount.toLocaleString()}</span> {currentLikeCount === 1 ? 'like' : 'likes'}
+                  <span className="text-lg">{optimisticCount.toLocaleString()}</span> {optimisticCount === 1 ? 'like' : 'likes'}
                 </p>
               </div>
 
-              {/* Reply Input (when replying to a comment) */}
-              {replyingTo && (
-                <div className="mb-3 p-3 bg-opacity-20 bg-blue-500 rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className={`text-sm ${
-                      actualTheme === 'dark' ? 'text-blue-300' : 'text-blue-700'
-                    }`}>
-                      Replying to <span className="font-semibold">{replyingTo.profile?.username}</span>
-                    </p>
-                    <button
-                      onClick={() => setReplyingTo(null)}
-                      className={`text-sm ${
-                        actualTheme === 'dark' ? 'text-blue-300 hover:text-blue-200' : 'text-blue-700 hover:text-blue-800'
-                      }`}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="text"
-                      value={replyText}
-                      onChange={(e) => setReplyText(e.target.value)}
-                      placeholder={`Reply to ${replyingTo.profile?.username}...`}
-                      className={`flex-1 px-4 py-2 rounded-full border focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                        actualTheme === 'dark'
-                          ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-400'
-                          : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'
-                      }`}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          handleReply();
-                        }
-                      }}
-                    />
-                    <button
-                      onClick={handleReply}
-                      disabled={!replyText.trim() || !currentProfileId}
-                      className={`px-4 py-2 rounded-full font-medium transition-colors ${
-                        replyText.trim() && currentProfileId
-                          ? 'bg-blue-500 text-white hover:bg-blue-600'
-                          : actualTheme === 'dark'
-                            ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                            : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                      }`}
-                    >
-                      Reply
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Comment Input */}
-              <div className="flex items-center space-x-2">
-                <input
-                  type="text"
-                  value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
-                  placeholder={currentProfileId ? "Add a comment..." : "Login to comment"}
-                  disabled={!currentProfileId}
-                  className={`flex-1 px-4 py-2 rounded-full border focus:outline-none focus:ring-2 focus:ring-red-500 ${
-                    actualTheme === 'dark'
-                      ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-400'
-                      : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'
-                  } ${!currentProfileId ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter') {
-                      handleComment();
-                    }
-                  }}
-                />
-                <button
-                  onClick={handleComment}
-                  disabled={!commentText.trim() || !currentProfileId}
-                  className={`px-4 py-2 rounded-full font-medium transition-colors ${
-                    commentText.trim() && currentProfileId
-                      ? 'bg-red-500 text-white hover:bg-red-600'
-                      : actualTheme === 'dark'
-                        ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                  }`}
-                >
-                  Post
-                </button>
-              </div>
             </div>
           </div>
         </div>

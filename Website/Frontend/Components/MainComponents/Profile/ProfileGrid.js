@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import PostModal from '../Post/PostModal';
+import InstagramPostModal from '../Post/InstagramPostModal';
 
 export default function ProfileGrid({ posts, activeTab, loading, theme, currentUser, onEditDraft, onDeleteDraft, onPublishDraft }) {
   const [selectedPostIndex, setSelectedPostIndex] = useState(null);
@@ -138,11 +138,10 @@ export default function ProfileGrid({ posts, activeTab, loading, theme, currentU
 
       {/* Post Modal */}
       {selectedPostIndex !== null && posts[selectedPostIndex] && (
-        <PostModal
+        <InstagramPostModal
           post={posts[selectedPostIndex]}
           isOpen={true}
           onClose={closePostModal}
-          theme={theme}
           showNavigation={true}
           onNext={() => navigatePost('next')}
           onPrevious={() => navigatePost('prev')}
@@ -206,8 +205,8 @@ function DraftGridItem({ draft, theme, onEdit, onDelete, onPublish }) {
             muted
             loop
             playsInline
-            autoPlay={draft.autoPlay !== undefined ? draft.autoPlay : true}
-            preload="metadata"
+            autoPlay
+            preload="auto"
             onError={(e) => {
               console.error('Draft video load error:', mediaUrl);
               console.error('Original URL:', draft.postUrl || draft.mediaUrl);
@@ -500,18 +499,36 @@ function PostGridItem({ post, onClick, theme }) {
       let attemptedUrls = []; // Track URLs we've already tried
       
       return (
-        <video
-          ref={videoRef}
-          src={mediaUrl}
-          className="w-full h-full object-cover"
-          muted
-          loop
-          playsInline
-          autoPlay
-          preload="metadata"
-          onError={(e) => {
-            console.error('Video load error for URL:', mediaUrl);
-            console.error('Original URL:', post.postUrl);
+          <video
+            ref={videoRef}
+            src={mediaUrl}
+            className="w-full h-full object-cover"
+            muted
+            loop
+            playsInline
+            autoPlay
+            preload="auto"
+            onError={(e) => {
+              console.error('Video load error for URL:', mediaUrl);
+              console.error('Original URL:', post.postUrl);
+              
+              // Try alternative URLs for localhost videos
+              const alternatives = [
+                mediaUrl.replace('localhost:45799', 'localhost:3001'),
+                mediaUrl.replace('localhost:3001', 'localhost:45799'),
+                mediaUrl.replace(':45799', ':3001'),
+                mediaUrl.replace(':3001', ':45799')
+              ];
+              
+              const currentSrc = e.target.src;
+              const nextUrl = alternatives.find(url => url !== currentSrc && url !== mediaUrl);
+              
+              if (nextUrl && !e.target.dataset.retried) {
+                console.log('Trying alternative profile video URL:', nextUrl);
+                e.target.dataset.retried = 'true';
+                e.target.src = nextUrl;
+                return;
+              }
             
             // Track attempted URLs to avoid infinite loops
             if (!attemptedUrls.includes(e.target.src)) {
@@ -519,11 +536,11 @@ function PostGridItem({ post, onClick, theme }) {
             }
             
             // Try backup URLs one by one
-            const nextUrl = backupUrls.find(url => !attemptedUrls.includes(url));
+            const nextBackupUrl = backupUrls.find(url => !attemptedUrls.includes(url));
             
-            if (nextUrl) {
-              attemptedUrls.push(nextUrl);
-              e.target.src = nextUrl;
+            if (nextBackupUrl) {
+              attemptedUrls.push(nextBackupUrl);
+              e.target.src = nextBackupUrl;
               return;
             }
             
@@ -545,24 +562,14 @@ function PostGridItem({ post, onClick, theme }) {
               parent.appendChild(errorDiv);
             }
           }}
-          onLoadedData={(e) => {
-            // Ensure video starts playing once loaded and is in view
-            const video = e.target;
-            video.currentTime = 0;
-            if (isInView) {
-              video.play().catch(() => {});
-            }
-          }}
-          onCanPlay={(e) => {
-            if (isInView) {
-              e.target.play().catch(() => {});
-            }
-          }}
-          onLoadedMetadata={(e) => {
-            if (isInView) {
-              e.target.play().catch(() => {});
-            }
-          }}
+            onLoadedData={(e) => {
+              // Ensure video starts playing once loaded
+              const video = e.target;
+              video.currentTime = 0;
+              setTimeout(() => {
+                video.play().catch(() => {});
+              }, 100);
+            }}
         />
       );
     } else if (isImage) {

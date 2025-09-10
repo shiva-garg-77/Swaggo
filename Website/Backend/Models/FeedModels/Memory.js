@@ -18,6 +18,10 @@ const MemorySchema = new mongoose.Schema({
         type: String,
         default: null
     },
+    postUrl: {
+        type: String,
+        default: null
+    },
     stories: [{
         storyid: {
             type: String,
