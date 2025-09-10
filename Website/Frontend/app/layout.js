@@ -51,7 +51,9 @@ export default function RootLayout({ children }) {
           <CustomApolloProvider>
             <ThemeProvider>
               <ThemeToggle />
-              {children}
+              <main>
+                {children}
+              </main>
             </ThemeProvider>
           </CustomApolloProvider>
         </AuthProvider>

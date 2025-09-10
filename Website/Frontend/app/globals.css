@@ -2,13 +2,34 @@
 
 @variant dark (.dark &);
 
-@source "./pages/**/*.{js,ts,jsx,tsx,mdx}";
 @source "./Components/**/*.{js,ts,jsx,tsx,mdx}";
 @source "./app/**/*.{js,ts,jsx,tsx,mdx}";
 
 /* Custom styles */
 body {
   transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Global scrollbar hiding */
+* {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+*::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari and Opera */
+}
+
+/* Specific elements that need scrollbars hidden */
+html, body {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  overflow-x: hidden; /* Prevent horizontal scroll */
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  display: none;
 }
 
 /* Custom animations */

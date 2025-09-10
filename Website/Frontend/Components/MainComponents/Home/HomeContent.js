@@ -377,13 +377,28 @@ function PostCard({ post, theme, user, onImageClick, onLike, onSave }) {
               handleLikeClick();
             }}
             onError={(e) => {
-              console.error('❌ Video load error:', {
-                url: postData.image,
+              // Create a safe error object for logging
+              const errorInfo = {
+                url: postData.image || 'No URL provided',
                 error: e.type || 'Unknown error',
+                timestamp: new Date().toISOString(),
                 networkState: e.target?.networkState || 'Unknown',
                 readyState: e.target?.readyState || 'Unknown',
-                timestamp: new Date().toISOString()
-              });
+                videoWidth: e.target?.videoWidth || 0,
+                videoHeight: e.target?.videoHeight || 0
+              };
+              
+              // Log individual properties to avoid serialization issues
+              console.group('❌ Video Load Error');
+              console.error('URL:', errorInfo.url);
+              console.error('Error type:', errorInfo.error);
+              console.error('Timestamp:', errorInfo.timestamp);
+              console.error('Network state:', errorInfo.networkState);
+              console.error('Ready state:', errorInfo.readyState);
+              if (errorInfo.videoWidth === 0 && errorInfo.videoHeight === 0) {
+                console.error('Issue: Video dimensions are 0x0 - likely a broken or invalid video URL');
+              }
+              console.groupEnd();
               
               // Hide broken video
               e.target.style.display = 'none';
@@ -421,14 +436,28 @@ function PostCard({ post, theme, user, onImageClick, onLike, onSave }) {
               alt={postData.title || 'Post content'}
               className="w-full h-64 lg:h-80 object-cover hover:brightness-95 transition-all duration-200"
               onError={(e) => {
-                const errorDetails = {
-                  url: postData.image,
-                  error: e.type,
+                // Create a safe error object for logging
+                const errorInfo = {
+                  url: postData.image || 'No URL provided',
+                  error: e.type || 'Unknown error',
                   timestamp: new Date().toISOString(),
-                  networkState: e.target.networkState,
-                  readyState: e.target.readyState
+                  networkState: e.target?.networkState || 'Unknown',
+                  readyState: e.target?.readyState || 'Unknown',
+                  naturalWidth: e.target?.naturalWidth || 0,
+                  naturalHeight: e.target?.naturalHeight || 0
                 };
-                console.error('❌ Image load error:', errorDetails);
+                
+                // Log individual properties to avoid serialization issues
+                console.group('❌ Image Load Error');
+                console.error('URL:', errorInfo.url);
+                console.error('Error type:', errorInfo.error);
+                console.error('Timestamp:', errorInfo.timestamp);
+                console.error('Network state:', errorInfo.networkState);
+                console.error('Ready state:', errorInfo.readyState);
+                if (errorInfo.naturalWidth === 0 && errorInfo.naturalHeight === 0) {
+                  console.error('Issue: Image dimensions are 0x0 - likely a broken or invalid image URL');
+                }
+                console.groupEnd();
                 
                 // Replace with enhanced error placeholder
                 e.target.style.display = 'none';
