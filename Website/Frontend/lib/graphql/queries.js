@@ -222,6 +222,21 @@ export const ADD_STORY_TO_MEMORY = gql`
 `;
 
 // ============ SIMPLE QUERIES ============
+export const DELETE_POST = gql`
+  mutation DeletePost($postid: String!) {
+    DeletePost(postid: $postid) {
+      postid
+      title
+      postUrl
+      postType
+      profile {
+        profileid
+        username
+      }
+    }
+  }
+`;
+
 export const HELLO_QUERY = gql`
   query Hello {
     hello

@@ -6,6 +6,7 @@ import { useAuth } from '../../Helper/AuthProvider';
 import { GET_ALL_POSTS, TOGGLE_POST_LIKE, TOGGLE_SAVE_POST } from '../../../lib/graphql/queries';
 import { triggerPostsRefetch } from '../../../lib/apollo/refetchHelper';
 import InstagramPostModal from '../Post/InstagramPostModal';
+import InstagramPost from '../Post/InstagramPost';
 
 export default function HomeContent() {
   const { theme } = useTheme();
@@ -211,6 +212,13 @@ export default function HomeContent() {
     }
   };
   
+  // Handle post deletion
+  const handlePostDeleted = (deletedPostId) => {
+    console.log('🗑️ Post deleted:', deletedPostId);
+    // Refetch posts to update the UI
+    refetch().catch(console.error);
+  };
+  
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -237,14 +245,13 @@ export default function HomeContent() {
           </div>
         ) : (
           posts.map((post) => (
-            <PostCard 
+            <InstagramPost 
               key={post.id || post.postid} 
               post={post} 
-              theme={theme} 
-              user={user}
-              onImageClick={() => openPostModal(post)}
-              onLike={handlePostLike}
-              onSave={handlePostSave}
+              theme={theme}
+              onCommentClick={() => openPostModal(post)}
+              onPostDeleted={handlePostDeleted}
+              className="mb-4 lg:mb-6"
             />
           ))
         )}

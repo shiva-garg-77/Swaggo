@@ -6,6 +6,17 @@ import { useMutation, useQuery } from '@apollo/client';
 import { gql } from '@apollo/client';
 
 // GraphQL mutations
+const DELETE_POST = gql`
+  mutation DeletePost($postid: String!) {
+    DeletePost(postid: $postid) {
+      postid
+      title
+      postUrl
+      postType
+    }
+  }
+`;
+
 const TOGGLE_POST_LIKE = gql`
   mutation TogglePostLike($profileid: String!, $postid: String!) {
     TogglePostLike(profileid: $profileid, postid: $postid) {
@@ -54,7 +65,8 @@ export default function InstagramPost({
   post, 
   theme = "light",
   onCommentClick,
-  className = "" 
+  className = "",
+  onPostDeleted // Callback when post is deleted
 }) {
   const { user } = useAuth();
   const [newComment, setNewComment] = useState('');
@@ -63,9 +75,13 @@ export default function InstagramPost({
   const [likeAnimation, setLikeAnimation] = useState(false);
   const [optimisticLiked, setOptimisticLiked] = useState(false);
   const [optimisticCount, setOptimisticCount] = useState(0);
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const inputRef = useRef(null);
 
   // GraphQL hooks
+  const [deletePost] = useMutation(DELETE_POST);
   const [togglePostLike] = useMutation(TOGGLE_POST_LIKE);
   const [toggleSavePost] = useMutation(TOGGLE_SAVE_POST);
   const [createComment] = useMutation(CREATE_COMMENT);
@@ -161,6 +177,45 @@ export default function InstagramPost({
     }
   };
 
+  // Handle delete
+  const handleDeletePost = async () => {
+    if (!user?.profileid || !post?.postid) {
+      alert('Unable to delete post. Please try again.');
+      return;
+    }
+
+    // Check if user owns the post
+    if (user.profileid !== post.profile?.profileid) {
+      alert('You can only delete your own posts.');
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      await deletePost({
+        variables: {
+          postid: post.postid
+        }
+      });
+      
+      // Call the callback to notify parent component
+      if (onPostDeleted) {
+        onPostDeleted(post.postid);
+      }
+      
+      // Show success message
+      alert('Post deleted successfully!');
+    } catch (error) {
+      console.error('Error deleting post:', error);
+      const errorMessage = error.graphQLErrors?.[0]?.message || error.message || 'Failed to delete post';
+      alert(`Failed to delete post: ${errorMessage}`);
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
+      setShowOptionsMenu(false);
+    }
+  };
+
   // Handle share
   const handleShare = () => {
     const postUrl = `${window.location.origin}/post/${post.postid}`;
@@ -224,11 +279,86 @@ export default function InstagramPost({
           </div>
         </div>
         
-        <button className={`p-1 ${theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}>
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-          </svg>
-        </button>
+        <div className="relative">
+          <button 
+            onClick={() => setShowOptionsMenu(!showOptionsMenu)}
+            className={`p-1 ${theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+            </svg>
+          </button>
+          
+          {/* Options Dropdown */}
+          {showOptionsMenu && (
+            <>
+              <div 
+                className="fixed inset-0 z-10" 
+                onClick={() => setShowOptionsMenu(false)}
+              ></div>
+              <div className={`absolute right-0 top-8 z-20 py-2 w-48 rounded-lg shadow-lg border ${
+                theme === 'dark' 
+                  ? 'bg-gray-800 border-gray-700' 
+                  : 'bg-white border-gray-200'
+              }`}>
+                {/* Only show delete option if user owns the post */}
+                {user?.profileid === post.profile?.profileid && (
+                  <button
+                    onClick={() => {
+                      setShowOptionsMenu(false);
+                      setShowDeleteConfirm(true);
+                    }}
+                    className={`w-full text-left px-4 py-2 text-sm hover:bg-red-50 hover:text-red-600 flex items-center ${
+                      theme === 'dark' 
+                        ? 'text-gray-300 hover:bg-red-900/20 hover:text-red-400' 
+                        : 'text-gray-700'
+                    }`}
+                  >
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Delete Post
+                  </button>
+                )}
+                
+                <button
+                  onClick={() => {
+                    setShowOptionsMenu(false);
+                    handleShare();
+                  }}
+                  className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center ${
+                    theme === 'dark' 
+                      ? 'text-gray-300 hover:bg-gray-700 hover:text-white' 
+                      : 'text-gray-700 hover:text-gray-900'
+                  }`}
+                >
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
+                  </svg>
+                  Share Post
+                </button>
+                
+                <button
+                  onClick={() => {
+                    setShowOptionsMenu(false);
+                    navigator.clipboard.writeText(`${window.location.origin}/post/${post.postid}`);
+                    alert('Link copied to clipboard!');
+                  }}
+                  className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center ${
+                    theme === 'dark' 
+                      ? 'text-gray-300 hover:bg-gray-700 hover:text-white' 
+                      : 'text-gray-700 hover:text-gray-900'
+                  }`}
+                >
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  Copy Link
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Post Media */}
@@ -387,6 +517,54 @@ export default function InstagramPost({
           )}
         </form>
       </div>
+      
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className={`p-6 rounded-lg max-w-sm w-full mx-4 ${
+            theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
+          }`}>
+            <h3 className="text-lg font-semibold mb-4">Delete Post?</h3>
+            <p className={`text-sm mb-6 ${
+              theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+            }`}>
+              Are you sure you want to delete this post? This action cannot be undone.
+            </p>
+            <div className="flex space-x-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={isDeleting}
+                className={`flex-1 px-4 py-2 rounded-lg border transition-colors ${
+                  theme === 'dark'
+                    ? 'border-gray-600 text-gray-300 hover:bg-gray-700'
+                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                } ${isDeleting ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeletePost}
+                disabled={isDeleting}
+                className={`flex-1 px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white transition-colors flex items-center justify-center ${
+                  isDeleting ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                {isDeleting ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
