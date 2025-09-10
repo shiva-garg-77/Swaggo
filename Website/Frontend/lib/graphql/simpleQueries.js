@@ -21,6 +21,17 @@ export const GET_USER_SIMPLE = gql`
   }
 `;
 
+export const DELETE_POST = gql`
+  mutation DeletePost($postid: String!) {
+    DeletePost(postid: $postid) {
+      postid
+      title
+      postUrl
+      postType
+    }
+  }
+`;
+
 export const HELLO_QUERY = gql`
   query Hello {
     hello
