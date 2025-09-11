@@ -9,6 +9,7 @@ type Comments {
     userto:Profiles
     commenttoid:String
     comment:String!
+    mentions:[Mentions!]
     replies:[Comments!]
     likeCount:Int!
     isLikedByUser:Boolean!
@@ -45,19 +46,21 @@ type Posts {
     postUrl:String!
     like:[Likes!]
     comments:[Comments!]
+    mentions:[Mentions!]
     likeCount:Int!
     commentCount:Int!
     isLikedByUser:Boolean!
     isSavedByUser:Boolean!
     title:String
     Description:String
-    postType:String! # IMAGE or VIDEO
+    postType:String! # IMAGE, VIDEO, or TEXT
     location:String
     taggedPeople:[String!]
     tags:[String!]
     allowComments:Boolean
     hideLikeCount:Boolean
     autoPlay:Boolean
+    isCloseFriendOnly:Boolean
     createdAt:String
     updatedAt:String
 }
@@ -78,6 +81,75 @@ type Memory {
     createdAt:String
     updatedAt:String
 }
+type BlockedAccount {
+    blockid:String!
+    profileid:String!
+    blockedprofileid:String!
+    profile:Profiles!
+    blockedProfile:Profiles!
+    reason:String
+    createdAt:String
+    updatedAt:String
+}
+type RestrictedAccount {
+    restrictid:String!
+    profileid:String!
+    restrictedprofileid:String!
+    profile:Profiles!
+    restrictedProfile:Profiles!
+    createdAt:String
+    updatedAt:String
+}
+type CloseFriends {
+    closefriendid:String!
+    profileid:String!
+    closeFriend:Profiles!
+    profile:Profiles!
+    status:String!
+    createdAt:String
+    updatedAt:String
+}
+type Mentions {
+    mentionid:String!
+    mentionedprofileid:String!
+    mentionerprofileid:String!
+    mentionedProfile:Profiles!
+    mentionerProfile:Profiles!
+    contexttype:String!
+    contextid:String!
+    isnotified:Boolean!
+    isread:Boolean!
+    createdAt:String
+    updatedAt:String
+}
+type UserSettings {
+    profileid:String!
+    allowMentions:Boolean!
+    mentionNotifications:Boolean!
+    tagNotifications:Boolean!
+    showTaggedPosts:Boolean!
+    isPrivate:Boolean!
+    allowMessages:String!
+    showActivity:Boolean!
+    twoFactor:Boolean!
+    notificationsEnabled:Boolean!
+    darkMode:Boolean!
+    createdAt:String
+    updatedAt:String
+}
+
+type AuthPayload {
+    token:String!
+    user:Profiles!
+}
+
+type User {
+    id:String!
+    username:String!
+    email:String!
+    profilePicture:String
+    profileid:String!
+}
 type Profiles {
     profileid:String!
     profilePic:String
@@ -88,11 +160,20 @@ type Profiles {
     bio:String
     followers:[Profiles!]
     following:[Profiles!]
+    followersCount:Int
+    followingCount:Int
+    postsCount:Int
+    closeFriends:[CloseFriends!]
+    closeFriendsOf:[CloseFriends!]
     post:[Posts!]
     drafts:[Drafts!]
     likedpost:[Posts!]
     savedpost:[Posts!]
     memories:[Memory!]
+    blockedAccounts:[BlockedAccount!]
+    restrictedAccounts:[RestrictedAccount!]
+    mentions:[Mentions!]
+    settings:UserSettings
     # tagpost:[Posts!]
 }
 type Query{
@@ -118,6 +199,26 @@ hello: String
     getLikesByPost(postid:String!):[Likes!]
     getLikesByComment(commentid:String!):[Likes!]
     getPostStats(postid:String!):PostStats
+    
+    # Block and Restrict Queries
+    getBlockedAccounts(profileid:String!):[BlockedAccount!]
+    getRestrictedAccounts(profileid:String!):[RestrictedAccount!]
+    isUserBlocked(profileid:String!,targetprofileid:String!):Boolean!
+    isUserRestricted(profileid:String!,targetprofileid:String!):Boolean!
+    
+    # Close Friends Queries
+    getCloseFriends(profileid:String!):[CloseFriends!]
+    isCloseFriend(profileid:String!,targetprofileid:String!):Boolean!
+    
+    # Mentions Queries
+    getMentions(profileid:String!):[Mentions!]
+    getMentionsByContext(contexttype:String!,contextid:String!):[Mentions!]
+    
+    # Search Users for mentions/tagging
+    searchUsers(query:String!,limit:Int):[Profiles!]
+    
+    # User Settings Queries
+    getUserSettings(profileid:String!):UserSettings
 }
 
 type PostStats {
@@ -134,10 +235,14 @@ type PostStats {
 
 type Mutation {   
     
+    # Authentication
+    login(email:String!,password:String!):AuthPayload
+    signup(username:String!,email:String!,password:String!):AuthPayload
+    
      # User Profiles
     CreateProfile(username:String!):Profiles
-    DeleteProfile(id:String!):Profiles
-    UpdateProfile(id:String!,New_username:String,profilesPic:String,name:String,bio:String):Profiles
+    DeleteProfile(profileid:String!):Profiles
+    UpdateProfile(profileid:String!,New_username:String,profilesPic:String,name:String,bio:String,isPrivate:Boolean,isVerified:Boolean):Profiles
     #Posting Post and updating it
     CreatePost(
         profileid:String!,
@@ -150,7 +255,8 @@ type Mutation {
         tags:[String!],
         allowComments:Boolean,
         hideLikeCount:Boolean,
-        autoPlay:Boolean
+        autoPlay:Boolean,
+        isCloseFriendOnly:Boolean
     ):Posts
     DeletePost(postid:String!):Posts
     UpdatePost(postid:String!,title:String,Description:String):Posts
@@ -207,6 +313,35 @@ type Mutation {
     DeleteMemory(memoryid:String!):Memory
     AddStoryToMemory(memoryid:String!,mediaUrl:String!,mediaType:String!):Memory
     RemoveStoryFromMemory(memoryid:String!,storyid:String!):Memory
+    
+    # Block and Restrict Mutations
+    BlockUser(profileid:String!,targetprofileid:String!,reason:String):BlockedAccount
+    UnblockUser(profileid:String!,targetprofileid:String!):BlockedAccount
+    RestrictUser(profileid:String!,targetprofileid:String!):RestrictedAccount
+    UnrestrictUser(profileid:String!,targetprofileid:String!):RestrictedAccount
+    
+    # Close Friends Mutations
+    AddCloseFriend(profileid:String!,targetprofileid:String!):CloseFriends
+    RemoveCloseFriend(profileid:String!,targetprofileid:String!):CloseFriends
+    
+    # Mentions Mutations
+    CreateMention(mentionedprofileid:String!,mentionerprofileid:String!,contexttype:String!,contextid:String!):Mentions
+    MarkMentionAsRead(mentionid:String!):Mentions
+    
+    # User Settings Mutations
+    UpdateUserSettings(
+        profileid:String!,
+        allowMentions:Boolean,
+        mentionNotifications:Boolean,
+        tagNotifications:Boolean,
+        showTaggedPosts:Boolean,
+        isPrivate:Boolean,
+        allowMessages:String,
+        showActivity:Boolean,
+        twoFactor:Boolean,
+        notificationsEnabled:Boolean,
+        darkMode:Boolean
+    ):UserSettings
 }
 
 

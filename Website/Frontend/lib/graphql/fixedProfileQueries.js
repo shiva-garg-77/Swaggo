@@ -27,6 +27,20 @@ export const GET_SIMPLE_PROFILE = gql`
         postType
         createdAt
       }
+      savedpost {
+        postid
+        postUrl
+        title
+        Description
+        postType
+        createdAt
+        profile {
+          profileid
+          username
+          profilePic
+          isVerified
+        }
+      }
     }
   }
 `;
@@ -49,6 +63,34 @@ export const GET_CURRENT_USER_PROFILE = gql`
         Description
         postType
         createdAt
+      }
+      savedpost {
+        postid
+        postUrl
+        title
+        Description
+        postType
+        createdAt
+        profile {
+          profileid
+          username
+          profilePic
+          isVerified
+        }
+      }
+      likedpost {
+        postid
+        postUrl
+        title
+        Description
+        postType
+        createdAt
+        profile {
+          profileid
+          username
+          profilePic
+          isVerified
+        }
       }
     }
   }

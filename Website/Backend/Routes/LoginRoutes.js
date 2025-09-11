@@ -1,6 +1,6 @@
 import express from 'express'
 import {signupApi,loginApi,Mailverification,Mailsender,forgetPassword,resetpassword,RefreshkarRahatoken,logoutApi} from '../Controllers/LoginApi.js'
-import { signupApiValidator,loginApivalidation,EmailValidator } from '../Helper/LoginValidator.js'
+import { signupApiValidator, loginApiValidation, EmailValidator } from '../Helper/LoginValidator.js'
 
 const router=express.Router()
 
@@ -8,7 +8,7 @@ const router=express.Router()
 // Un-Authorized Routes     -----      REST API
 
 router.post('/signup',signupApiValidator,signupApi)
-router.post('/login',loginApivalidation,loginApi)
+router.post('/login',loginApiValidation,loginApi)
 router.post('/send-mail',EmailValidator,Mailsender)
 router.get('/mail-verification',Mailverification)
 router.post('/forget-password',EmailValidator,forgetPassword)

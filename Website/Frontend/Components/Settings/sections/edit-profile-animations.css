@@ -1,0 +1,437 @@
+/* Edit Profile Component Custom Animations and Styles */
+
+/* Scrollbar hide utility */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* Internet Explorer 10+ */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Safari and Chrome */
+}
+
+/* Custom keyframes for slide-in animations */
+@keyframes slide-in-from-right {
+  0% {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-from-left {
+  0% {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-from-top {
+  0% {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes zoom-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(168, 85, 247, 0);
+  }
+}
+
+@keyframes gradient-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* Animation utility classes */
+.animate-in {
+  animation-fill-mode: both;
+}
+
+.slide-in-from-right-4 {
+  animation: slide-in-from-right 0.5s ease-out;
+}
+
+.slide-in-from-left-2 {
+  animation: slide-in-from-left 0.3s ease-out;
+}
+
+.slide-in-from-top-2 {
+  animation: slide-in-from-top 0.3s ease-out;
+}
+
+.zoom-in-50 {
+  animation: zoom-in 0.3s ease-out;
+}
+
+/* Enhanced backdrop blur effect */
+.backdrop-blur-lg {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+/* Gradient text effect for headings */
+.gradient-text {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Enhanced button hover effects */
+.btn-gradient {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background-size: 200% 200%;
+  transition: all 0.3s ease;
+}
+
+.btn-gradient:hover {
+  animation: gradient-shift 2s ease infinite;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
+}
+
+/* Custom toggle switch styling */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: 0.4s;
+  border-radius: 24px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: 0.4s;
+  border-radius: 50%;
+}
+
+input:checked + .slider {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px #667eea;
+}
+
+input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+/* Interest tag hover effects */
+.interest-tag {
+  position: relative;
+  overflow: hidden;
+}
+
+.interest-tag::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.interest-tag:hover::before {
+  left: 100%;
+}
+
+/* Enhanced form input focus effects */
+.form-input-enhanced {
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.form-input-enhanced:focus {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+
+/* Image upload hover effects */
+.upload-hover {
+  position: relative;
+  overflow: hidden;
+}
+
+.upload-hover::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(168, 85, 247, 0.1);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.upload-hover:hover::after {
+  opacity: 1;
+}
+
+/* Password strength indicator animation */
+.password-strength-bar {
+  transition: width 0.5s ease, background-color 0.5s ease;
+}
+
+/* Toast notification slide-in effect */
+.toast-notification {
+  transform: translateX(100%);
+  transition: transform 0.3s ease-in-out;
+}
+
+.toast-notification.show {
+  transform: translateX(0);
+}
+
+/* OTP input focus effects */
+.otp-input {
+  transition: all 0.2s ease;
+}
+
+.otp-input:focus {
+  transform: scale(1.1);
+  box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.2);
+}
+
+/* Floating label effect */
+.floating-label {
+  position: relative;
+}
+
+.floating-label input:focus + label,
+.floating-label input:not(:placeholder-shown) + label {
+  top: -8px;
+  left: 12px;
+  font-size: 0.75rem;
+  color: #667eea;
+  background: white;
+  padding: 0 4px;
+}
+
+.floating-label label {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  transition: all 0.2s ease;
+  pointer-events: none;
+}
+
+/* Profile card hover effect */
+.profile-card {
+  transition: all 0.3s ease;
+}
+
+.profile-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+}
+
+/* Tab navigation active indicator */
+.tab-indicator {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  transition: all 0.3s ease;
+  border-radius: 3px 3px 0 0;
+}
+
+/* Loading spinner custom styling */
+.loading-spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Glass morphism effect for cards */
+.glass-card {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+}
+
+/* Dark mode specific enhancements */
+@media (prefers-color-scheme: dark) {
+  .glass-card {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  .floating-label input:focus + label,
+  .floating-label input:not(:placeholder-shown) + label {
+    background: #1f2937;
+    color: #9ca3af;
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .mobile-full {
+    width: 100%;
+  }
+  
+  .mobile-stack {
+    flex-direction: column;
+  }
+  
+  .mobile-center {
+    text-align: center;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .btn-gradient {
+    background: #000;
+    color: #fff;
+    border: 2px solid #fff;
+  }
+  
+  .form-input-enhanced {
+    border: 2px solid #000;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Custom checkbox styling for interests */
+.interest-checkbox {
+  appearance: none;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.interest-checkbox + .interest-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 16px;
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.interest-checkbox:checked + .interest-label {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: #667eea;
+  color: white;
+  transform: scale(1.05);
+  box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+/* Profile picture upload button pulse effect */
+.profile-upload-btn {
+  animation: pulse-glow 2s infinite;
+}
+
+/* Save button success animation */
+.save-success {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  animation: pulse-glow 0.6s ease-out;
+}
+
+/* Error state styling */
+.error-shake {
+  animation: shake 0.5s ease-in-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+/* Success checkmark animation */
+.success-checkmark {
+  animation: draw-check 0.5s ease-out;
+}
+
+@keyframes draw-check {
+  0% {
+    stroke-dasharray: 16;
+    stroke-dashoffset: 16;
+  }
+  100% {
+    stroke-dasharray: 16;
+    stroke-dashoffset: 0;
+  }
+}

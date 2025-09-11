@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect, useContext, useRef } from 'react';
-import { useMutation } from '@apollo/client';
+import { useMutation, useLazyQuery } from '@apollo/client';
 import { useTheme } from '../../Helper/ThemeProvider';
 import { AuthContext } from '../../Helper/AuthProvider';
-import { CREATE_POST_MUTATION, CREATE_DRAFT_MUTATION, UPDATE_DRAFT_MUTATION } from '../../../lib/graphql/profileQueries';
+import { CREATE_POST_MUTATION, CREATE_DRAFT_MUTATION, UPDATE_DRAFT_MUTATION, SEARCH_USERS } from '../../../lib/graphql/profileQueries';
 
 export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onPostSuccess, draftData }) {
   const { theme: contextTheme } = useTheme();
@@ -37,11 +37,50 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
   const [allowComments, setAllowComments] = useState(true);
   const [hideLikeCount, setHideLikeCount] = useState(false);
   const [autoPlay, setAutoPlay] = useState(false);
+  const [isCloseFriendOnly, setIsCloseFriendOnly] = useState(false);
   const [tagInput, setTagInput] = useState('');
   const [peopleInput, setPeopleInput] = useState('');
+  const [userSearchResults, setUserSearchResults] = useState([]);
+  const [showUserSearch, setShowUserSearch] = useState(false);
   
   // Upload state
-  const [isUploading, setIsUploading] = useState(false);
+  // Upload loading state removed
+  
+  // Add user search functionality
+  const [searchUsers, { data: searchUsersData }] = useLazyQuery(SEARCH_USERS);
+  
+  // Effect to handle user search results
+  useEffect(() => {
+    if (searchUsersData?.searchUsers) {
+      setUserSearchResults(searchUsersData.searchUsers.filter(
+        user => !taggedPeople.includes(user.username) && user.profileid !== user?.profileid
+      ));
+    }
+  }, [searchUsersData, taggedPeople, user?.profileid]);
+  
+  // Handle people input change with search
+  const handlePeopleInputChange = (e) => {
+    const query = e.target.value;
+    setPeopleInput(query);
+    
+    if (query.length > 1) {
+      searchUsers({ variables: { query } });
+      setShowUserSearch(true);
+    } else {
+      setShowUserSearch(false);
+      setUserSearchResults([]);
+    }
+  };
+  
+  // Add user from search results
+  const addUserFromSearch = (user) => {
+    if (!taggedPeople.includes(user.username)) {
+      setTaggedPeople([...taggedPeople, user.username]);
+    }
+    setPeopleInput('');
+    setShowUserSearch(false);
+    setUserSearchResults([]);
+  };
   
   // Populate form when editing a draft
   useEffect(() => {
@@ -184,8 +223,11 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
     setAllowComments(true);
     setHideLikeCount(false);
     setAutoPlay(false);
+    setIsCloseFriendOnly(false);
     setTagInput('');
     setPeopleInput('');
+    setUserSearchResults([]);
+    setShowUserSearch(false);
     setFilter('none');
     setBrightness(100);
     setContrast(100);
@@ -309,7 +351,7 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
       return;
     }
 
-    setIsUploading(true);
+    // Upload loading removed
     
     try {
       console.log('📤 Starting post creation...');
@@ -365,7 +407,9 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
         tags: tags.length > 0 ? tags : null,
         taggedPeople: taggedPeople.length > 0 ? taggedPeople : null,
         allowComments,
-        hideLikeCount
+        hideLikeCount,
+        autoPlay,
+        isCloseFriendOnly
       };
       
       console.log('📨 Creating post with data:', postData);
@@ -383,14 +427,14 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
     } catch (error) {
       console.error('❌ Error uploading post:', error);
       alert('❌ Failed to create post. Please try again.');
-      setIsUploading(false);
+      // Upload loading removed
     }
   };
 
   const [showSaveDialog, setShowSaveDialog] = useState(false);
 
   const handleClose = () => {
-    if (!isUploading) {
+    if (true) {
       // If editing a draft and there are changes, auto-save instead of showing dialog
       if (draftData && (title || caption || location || tags.length > 0)) {
         handleSaveAsDraft();
@@ -441,7 +485,7 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
     if (selectedFile && fileType) {
       try {
         console.log('📤 Uploading media for draft...');
-        setIsUploading(true);
+        // Upload loading removed
         
         // Apply filters to the file before uploading if needed
         let fileToUpload = selectedFile;
@@ -472,7 +516,7 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
         postUrl = null;
         postType = 'TEXT';
       } finally {
-        setIsUploading(false);
+        // Upload loading removed
       }
     }
 
@@ -621,12 +665,11 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
             {currentStep > 1 && (
               <button
                 onClick={prevStep}
-                disabled={isUploading}
                 className={`p-2 rounded-full transition-colors ${
                   theme === 'dark' 
                     ? 'text-gray-400 hover:text-white hover:bg-gray-800' 
                     : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                } ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                }`}
               >
                 <ArrowLeftIcon className="w-5 h-5" />
               </button>
@@ -656,7 +699,6 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
             {currentStep === 2 && selectedFile && (
               <button
                 onClick={nextStep}
-                disabled={isUploading}
                 className="px-4 py-2 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition-colors"
               >
                 Next
@@ -665,19 +707,19 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
             {currentStep === 3 && (
               <button
                 onClick={handlePost}
-                disabled={isUploading || (!selectedFile && !draftData)}
+                disabled={(!selectedFile && !draftData)}
                 className={`px-6 py-2 rounded-lg font-medium transition-all ${
-                  isUploading || (!selectedFile && !draftData)
+                  (!selectedFile && !draftData)
                     ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
                     : 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white hover:shadow-lg'
                 }`}
               >
-                {isUploading ? '📤 Sharing...' : draftData ? '🚀 Publish Draft' : '🚀 Share Post'}
+                {draftData ? '🚀 Publish Draft' : '🚀 Share Post'}
               </button>
             )}
             <div className="flex items-center gap-2">
               {/* Show Save as Draft button if we have content to save or are editing a draft */}
-              {(selectedFile || title || caption || draftData) && !isUploading && (
+              {(selectedFile || title || caption || draftData) && (
                 <button
                   onClick={() => {
                     console.log('💾 Save as Draft clicked');
@@ -696,12 +738,11 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
               )}
               <button
                 onClick={handleClose}
-                disabled={isUploading}
                 className={`p-2 rounded-full transition-colors ${
                   theme === 'dark' 
                     ? 'text-gray-400 hover:text-white hover:bg-gray-800' 
                     : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                } ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                }`}
               >
                 <CloseIcon className="w-6 h-6" />
               </button>
@@ -1072,7 +1113,6 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
                           ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400'
                           : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'
                       }`}
-                      disabled={isUploading}
                     />
                     <button
                       onClick={addTag}
@@ -1092,7 +1132,6 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
                         <button
                           onClick={() => removeTag(tag)}
                           className="ml-1 hover:text-red-200"
-                          disabled={isUploading}
                         >
                           ×
                         </button>
@@ -1108,27 +1147,44 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
                   }`}>
                     👥 Tag People
                   </label>
-                  <div className="flex space-x-2 mb-2">
-                    <input
-                      type="text"
-                      value={peopleInput}
-                      onChange={(e) => setPeopleInput(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && addTaggedPerson()}
-                      placeholder="Username..."
-                      className={`flex-1 px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors ${
-                        theme === 'dark'
-                          ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400'
-                          : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'
-                      }`}
-                      disabled={isUploading}
-                    />
-                    <button
-                      onClick={addTaggedPerson}
-                      className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
-                      disabled={isUploading}
-                    >
-                      Tag
-                    </button>
+                  <div className="mb-2 relative">
+                    <div className="flex space-x-2">
+                      <input
+                        type="text"
+                        value={peopleInput}
+                        onChange={handlePeopleInputChange}
+                        onKeyPress={(e) => e.key === 'Enter' && addTaggedPerson()}
+                        placeholder="Search username..."
+                        className={`flex-1 px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-red-500 transition-colors ${
+                          theme === 'dark'
+                            ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400'
+                            : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'
+                        }`}
+                      />
+                      <button
+                        onClick={addTaggedPerson}
+                        className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                      >
+                        Tag
+                      </button>
+                    </div>
+                    {showUserSearch && userSearchResults.length > 0 && (
+                      <div className={`absolute z-10 mt-2 w-full rounded-lg border ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} max-h-48 overflow-y-auto shadow-lg`}>
+                        {userSearchResults.map((u) => (
+                          <button
+                            key={u.profileid}
+                            onClick={() => addUserFromSearch(u)}
+                            className={`w-full px-3 py-2 text-left flex items-center space-x-3 hover:${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-50'}`}
+                          >
+                            <img src={u.profilePic || '/default-profile.svg'} alt={u.username} className="w-8 h-8 rounded-full object-cover" />
+                            <div>
+                              <p className={theme === 'dark' ? 'text-white' : 'text-gray-900'}>{u.username}</p>
+                              {u.name && <p className="text-xs text-gray-500">{u.name}</p>}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {taggedPeople.map((person, index) => (
@@ -1140,7 +1196,6 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
                         <button
                           onClick={() => removeTaggedPerson(person)}
                           className="ml-1 hover:text-blue-200"
-                          disabled={isUploading}
                         >
                           ×
                         </button>
@@ -1206,7 +1261,6 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
                         className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                           autoPlay ? 'bg-red-500' : theme === 'dark' ? 'bg-gray-600' : 'bg-gray-300'
                         }`}
-                        disabled={isUploading}
                       >
                         <span
                           className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
@@ -1216,6 +1270,33 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
                       </button>
                     </div>
                   )}
+                  
+                  {/* Close Friends Only */}
+                  <div className="flex items-center justify-between">
+                    <label className={`text-sm font-medium flex items-center space-x-2 ${
+                      theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                    }`}>
+                      <span>⭐ Share to Close Friends Only</span>
+                      {isCloseFriendOnly && (
+                        <span className="text-xs px-2 py-1 rounded-full bg-green-500 text-white">
+                          Close Friends
+                        </span>
+                      )}
+                    </label>
+                    <button
+                      onClick={() => setIsCloseFriendOnly(!isCloseFriendOnly)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        isCloseFriendOnly ? 'bg-green-500' : theme === 'dark' ? 'bg-gray-600' : 'bg-gray-300'
+                      }`}
+                      disabled={isUploading}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          isCloseFriendOnly ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

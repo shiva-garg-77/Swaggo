@@ -4,11 +4,10 @@ import { useState, useContext, useEffect } from 'react';
 import Link from 'next/link';
 import { useTheme } from '../Helper/ThemeProvider';
 import { AuthContext  } from '../Helper/AuthProvider';
-import SplashScreen from '../Helper/SplashScreen';
 
 export default function Login() {
   const { theme } = useTheme();
-  const { login, accessToken, ErrorMsg, loading, clearError } = useContext(AuthContext);
+  const { login, accessToken, ErrorMsg, clearError, initialized } = useContext(AuthContext);
   const router = useRouter();
   const [formData, setFormData] = useState({
     emailorUsername: '',
@@ -16,12 +15,12 @@ export default function Login() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Handle redirect on successful login
+  // Handle redirect on successful login (only after initialization)
   useEffect(() => {
-    if (accessToken && !loading) {
+    if (initialized && accessToken) {
       router.push('/home');
     }
-  }, [accessToken, loading, router]);
+  }, [initialized, accessToken, router]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -59,18 +58,14 @@ export default function Login() {
     }
   };
 
-  if (loading) return <SplashScreen />;
-  
-  // If user is already logged in and loading is complete, redirect to home
-  useEffect(() => {
-    if (!loading && accessToken) {
-      router.push('/home');
-    }
-  }, [loading, accessToken, router]);
-  
+  // Show nothing until initialized
+  if (!initialized) {
+    return null;
+  }
+
   // Don't render login form if user is already authenticated
-  if (!loading && accessToken) {
-    return <SplashScreen />; // Show splash while redirecting
+  if (accessToken) {
+    return null; // Will redirect via useEffect
   }
 
   return (
@@ -94,7 +89,7 @@ export default function Login() {
         {/* Login Form */}
         <form onSubmit={handleSubmit} className="w-full">
           <div className="mb-5 text-left">
-            <label htmlFor="email and username" className="block text-gray-700 dark:text-gray-200 font-medium mb-2 text-sm transition-colors duration-300">
+            <label htmlFor="emailorUsername" className="block text-gray-700 dark:text-gray-200 font-medium mb-2 text-sm transition-colors duration-300">
               Username or Email
             </label>
             <input

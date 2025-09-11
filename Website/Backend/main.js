@@ -13,6 +13,7 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import fs from 'fs';
 dotenv.config({ path: '.env.local' });
 
 const app = express();
@@ -33,8 +34,98 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// Static folder for uploaded files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Custom video and file streaming endpoint with better control
+app.get('/uploads/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const filePath = path.join(__dirname, 'uploads', filename);
+  
+  // Check if file exists
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+  
+  const stat = fs.statSync(filePath);
+  const fileSize = stat.size;
+  const range = req.headers.range;
+  
+  // Set proper MIME type based on extension
+  const ext = path.extname(filename).toLowerCase();
+  let contentType = 'application/octet-stream';
+  let isVideo = false;
+  
+  switch (ext) {
+    case '.mp4':
+      contentType = 'video/mp4';
+      isVideo = true;
+      break;
+    case '.webm':
+      contentType = 'video/webm';
+      isVideo = true;
+      break;
+    case '.ogg':
+      contentType = 'video/ogg';
+      isVideo = true;
+      break;
+    case '.avi':
+      contentType = 'video/x-msvideo';
+      isVideo = true;
+      break;
+    case '.mov':
+      contentType = 'video/quicktime';
+      isVideo = true;
+      break;
+    case '.jpg':
+    case '.jpeg':
+      contentType = 'image/jpeg';
+      break;
+    case '.png':
+      contentType = 'image/png';
+      break;
+    case '.gif':
+      contentType = 'image/gif';
+      break;
+    case '.webp':
+      contentType = 'image/webp';
+      break;
+    case '.svg':
+      contentType = 'image/svg+xml';
+      break;
+    default:
+      contentType = 'application/octet-stream';
+  }
+  
+  if (range) {
+    // Handle range requests for video streaming
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const chunkSize = (end - start) + 1;
+    const file = fs.createReadStream(filePath, { start, end });
+    
+    res.writeHead(206, {
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': chunkSize,
+      'Content-Type': contentType,
+      'Access-Control-Allow-Origin': req.headers.origin || '*',
+      'Access-Control-Allow-Credentials': 'true'
+    });
+    
+    file.pipe(res);
+  } else {
+    // Send full file
+    res.writeHead(200, {
+      'Content-Length': fileSize,
+      'Content-Type': contentType,
+      'Accept-Ranges': 'bytes',
+      'Access-Control-Allow-Origin': req.headers.origin || '*',
+      'Access-Control-Allow-Credentials': 'true',
+      'Cache-Control': 'public, max-age=31536000' // 1 year cache
+    });
+    
+    fs.createReadStream(filePath).pipe(res);
+  }
+});
 
 // === Multer Setup ===
 
@@ -86,7 +177,6 @@ app.get('/debug/file/:filename', (req, res) => {
   const filename = req.params.filename;
   const filePath = path.join(__dirname, 'uploads', filename);
   
-  const fs = require('fs');
   const exists = fs.existsSync(filePath);
   
   res.json({

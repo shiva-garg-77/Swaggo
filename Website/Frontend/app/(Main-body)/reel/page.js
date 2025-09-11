@@ -1,13 +1,12 @@
-import MainLayout from '../../../Components/Layout/MainLayout'
-import ProtectedRoute from '../../../Components/Helper/ProtectedRoute'
-import ReelsContent from '../../../Components/MainComponents/Reels/ReelsContent'
+import { lazy, Suspense } from 'react'
+
+// Lazy load ReelsContent for better performance
+const ReelsContent = lazy(() => import('../../../Components/MainComponents/Reels/ReelsContent'))
 
 export default function ReelPage() {
   return (
-    <ProtectedRoute>
-      <MainLayout>
-        <ReelsContent />
-      </MainLayout>
-    </ProtectedRoute>
+    <Suspense fallback={null}>
+      <ReelsContent />
+    </Suspense>
   )
 }

@@ -7,7 +7,7 @@ import Link from 'next/link';
 
 export default function Signup() {
   const { theme } = useTheme();
-  const { signup, ErrorMsg, successMsg, authLoading, clearMessages, clearError, accessToken } = useContext(AuthContext);
+  const { signup, ErrorMsg, successMsg, clearMessages, clearError, accessToken } = useContext(AuthContext);
 
   const router = useRouter();
   const [formData, setFormData] = useState({
@@ -209,13 +209,9 @@ export default function Signup() {
 
           <button
             type="submit"
-            disabled={authLoading}
-            className={`bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold py-3 px-9 rounded-3xl transition-all duration-300 mb-5 ${authLoading
-                ? 'opacity-50 cursor-not-allowed'
-                : 'cursor-pointer hover:transform hover:-translate-y-1 hover:shadow-2xl hover:shadow-red-500/30'
-              }`}
+            className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold py-3 px-9 rounded-3xl transition-all duration-300 mb-5 cursor-pointer hover:transform hover:-translate-y-1 hover:shadow-2xl hover:shadow-red-500/30"
           >
-            {authLoading ? 'Creating Account...' : 'Sign Up'}
+            Sign Up
           </button>
         </form>
 

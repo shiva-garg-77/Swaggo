@@ -2,27 +2,26 @@
 import { useContext, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { AuthContext } from './AuthProvider';
-import SplashScreen from './SplashScreen';
 
 export default function ProtectedRoute({ children }) {
-  const { accessToken, loading } = useContext(AuthContext);
+  const { accessToken, initialized } = useContext(AuthContext);
   const router = useRouter();
 
   useEffect(() => {
-    // If loading is complete and no access token, redirect to login
-    if (!loading && !accessToken) {
+    // Only redirect if initialized and no access token
+    if (initialized && !accessToken) {
       router.push('/');
     }
-  }, [loading, accessToken, router]);
+  }, [initialized, accessToken, router]);
 
-  // Show splash screen while loading
-  if (loading) {
-    return <SplashScreen />;
+  // Show nothing until initialized
+  if (!initialized) {
+    return null;
   }
 
-  // If no token after loading, show splash while redirecting
+  // If initialized but no token, show nothing (will redirect)
   if (!accessToken) {
-    return <SplashScreen />;
+    return null;
   }
 
   // User is authenticated, show the protected content

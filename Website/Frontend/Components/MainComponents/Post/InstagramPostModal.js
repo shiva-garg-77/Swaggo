@@ -445,8 +445,8 @@ export default function InstagramPostModal({
             <video
               src={post.postUrl}
               className="w-full h-full object-contain max-w-none"
-              controls
               autoPlay
+              loop
               muted
               playsInline
               style={{ maxHeight: '90vh' }}

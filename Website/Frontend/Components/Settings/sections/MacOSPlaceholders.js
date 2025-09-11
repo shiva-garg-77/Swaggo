@@ -1,5 +1,8 @@
 // Placeholder components for macOS-style sections
 
+import SavedPosts from './SavedPosts'
+import LikedPosts from './LikedPosts'
+
 export function MacOSAccountSettings({ onBack }) {
   return (
     <div className="p-6 bg-gray-50/50 dark:bg-gray-900/50 h-full">
@@ -57,17 +60,8 @@ export function MacOSRestrictedAccounts({ onBack }) {
 }
 
 export function MacOSCloseFriends({ onBack }) {
-  return (
-    <div className="p-6 bg-gray-50/50 dark:bg-gray-900/50 h-full">
-      <div className="max-w-2xl mx-auto">
-        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-lg rounded-2xl p-6 border border-gray-200/50 dark:border-gray-700/50"
-             style={{ boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' }}>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Close Friends</h2>
-          <p className="text-gray-600 dark:text-gray-400">Close friends management will be implemented here.</p>
-        </div>
-      </div>
-    </div>
-  )
+  // This is now replaced by the real implementation in MacOSSettingsModal
+  return null
 }
 
 export function MacOSBlockedAccounts({ onBack }) {
@@ -85,45 +79,16 @@ export function MacOSBlockedAccounts({ onBack }) {
 }
 
 export function MacOSSavedPosts({ onBack }) {
-  return (
-    <div className="p-6 bg-gray-50/50 dark:bg-gray-900/50 h-full">
-      <div className="max-w-2xl mx-auto">
-        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-lg rounded-2xl p-6 border border-gray-200/50 dark:border-gray-700/50"
-             style={{ boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' }}>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Saved Posts</h2>
-          <p className="text-gray-600 dark:text-gray-400">Saved posts organization will be implemented here.</p>
-        </div>
-      </div>
-    </div>
-  )
+  return <SavedPosts onBack={onBack} isModal={true} />
 }
 
 export function MacOSLikedPosts({ onBack }) {
-  return (
-    <div className="p-6 bg-gray-50/50 dark:bg-gray-900/50 h-full">
-      <div className="max-w-2xl mx-auto">
-        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-lg rounded-2xl p-6 border border-gray-200/50 dark:border-gray-700/50"
-             style={{ boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' }}>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Liked Posts</h2>
-          <p className="text-gray-600 dark:text-gray-400">Liked posts management will be implemented here.</p>
-        </div>
-      </div>
-    </div>
-  )
+  return <LikedPosts onBack={onBack} isModal={true} />
 }
 
 export function MacOSTagsMentions({ onBack }) {
-  return (
-    <div className="p-6 bg-gray-50/50 dark:bg-gray-900/50 h-full">
-      <div className="max-w-2xl mx-auto">
-        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-lg rounded-2xl p-6 border border-gray-200/50 dark:border-gray-700/50"
-             style={{ boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' }}>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Tags & Mentions</h2>
-          <p className="text-gray-600 dark:text-gray-400">Tags and mentions management will be implemented here.</p>
-        </div>
-      </div>
-    </div>
-  )
+  // This is now replaced by the real implementation in MacOSSettingsModal
+  return null
 }
 
 export function MacOSPrivacyPolicy({ onBack }) {

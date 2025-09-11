@@ -44,6 +44,15 @@ export class AIResponseSystem {
         'science', 'research', 'experiment', 'hypothesis', 'theory',
         'physics', 'chemistry', 'biology', 'mathematics', 'engineering',
         'technology', 'innovation', 'artificial intelligence', 'machine learning'
+      ],
+      
+      // Security and Privacy
+      security: [
+        'security', 'privacy', 'password', 'authentication', '2fa', 'two-factor',
+        'login', 'account', 'breach', 'hack', 'threat', 'virus', 'malware',
+        'encryption', 'firewall', 'vpn', 'phishing', 'scam', 'suspicious',
+        'backup', 'recovery', 'permissions', 'access', 'monitoring', 'activity',
+        'session', 'device', 'location', 'alert', 'notification'
       ]
     };
     
@@ -142,6 +151,8 @@ export class AIResponseSystem {
         return this.generateEducationResponse(userInput, complexity, intent);
       case 'science':
         return this.generateScienceResponse(userInput, complexity, intent);
+      case 'security':
+        return this.generateSecurityResponse(userInput, complexity, intent);
       default:
         return this.generateGeneralResponse(userInput, complexity, intent);
     }
@@ -703,6 +714,58 @@ What kind of data are you working with? I can help you choose the right analytic
 
   generateScienceResponse(input, complexity, intent) {
     return this.generateGenericCategoryResponse('science', input, complexity, intent);
+  }
+
+  // Security-specific responses
+  generateSecurityResponse(input, complexity, intent) {
+    const inputLower = input.toLowerCase();
+    
+    // Two-Factor Authentication responses
+    if (inputLower.includes('2fa') || inputLower.includes('two-factor') || inputLower.includes('authenticator')) {
+      const responses = {
+        simple: [
+          `🔐 **Two-Factor Authentication (2FA)**\n\n2FA adds an extra layer of security to your account:\n\n**How it works:**\n1. You enter your password\n2. You provide a second verification (SMS code or app)\n3. Only then can you access your account\n\n**Setup Steps:**\n• Go to Security Settings\n• Choose SMS or Authenticator App\n• Follow the setup wizard\n• Save backup codes safely\n\n**Why it's important:** 2FA blocks 99.9% of automated attacks, even if someone has your password.\n\nWould you like help setting up 2FA?`
+        ],
+        moderate: [
+          `🔐 **Complete 2FA Security Guide**\n\n**Authentication Methods Comparison:**\n\n📱 **SMS (Text Messages)**\n✅ Quick and easy setup\n❌ Vulnerable to SIM swapping\n❌ Requires cell service\n\n🔑 **Authenticator Apps (Recommended)**\n✅ More secure than SMS\n✅ Works offline\n✅ Multiple backup options\n\n**Recommended Apps:**\n• **Google Authenticator** - Simple and reliable\n• **Authy** - Cloud backup and multi-device\n• **Microsoft Authenticator** - Enterprise features\n\n**Setup Process:**\n1. **Choose your method** in Security Settings\n2. **Scan QR code** with authenticator app\n3. **Enter verification code** to confirm\n4. **Download backup codes** - crucial for recovery\n5. **Test the setup** by logging out and back in\n\n**Pro Tips:**\n• Store backup codes in a password manager\n• Set up multiple authentication methods\n• Review and remove old devices regularly\n\nNeed step-by-step guidance for your specific situation?`
+        ]
+      };
+      
+      return responses[complexity] || responses.simple[0];
+    }
+    
+    // Password security responses
+    if (inputLower.includes('password') || inputLower.includes('secure password')) {
+      const responses = {
+        simple: [
+          `🔑 **Password Security Essentials**\n\n**Strong Password Recipe:**\n• **Length**: At least 12 characters\n• **Mix**: Upper + lower case letters\n• **Numbers**: Include digits (0-9)\n• **Symbols**: Add special characters (!@#$)\n• **Unique**: Never reuse passwords\n\n**Examples:**\n❌ password123\n❌ JohnSmith1990\n✅ Coffee$Brew#2024!\n✅ MyDog+Loves2Run!\n\n**Quick Security Check:**\n• Has your password been in a breach?\n• Is it used on other accounts?\n• When did you last change it?\n\n**Tools to Help:**\n• Password managers (1Password, Bitwarden)\n• Browser password generators\n• Security checkup tools\n\nNeed help creating a stronger password?`
+        ],
+        moderate: [
+          `🔑 **Advanced Password Security Strategy**\n\n**Current Threat Landscape:**\nCybercriminals use sophisticated tools that can crack weak passwords in seconds. Here's how to stay protected:\n\n**Password Strength Analysis:**\n\n**Weak (Cracked in < 1 second):**\n❌ Common words: password, 123456, qwerty\n❌ Personal info: birthdays, names, addresses\n❌ Keyboard patterns: asdf, 1234, qwertyuiop\n\n**Strong (Years to crack):**\n✅ **Passphrases**: \"Coffee!Tastes-Better@Dawn\"\n✅ **Random generation**: Kx#9mP$vL2@wQ8nF\n✅ **Memory techniques**: \"My2DogsRun@7AM!\"\n\n**Advanced Security Measures:**\n\n**1. Password Manager Integration**\n• Generate unique 16+ character passwords\n• Automatic form filling\n• Cross-device synchronization\n• Security breach monitoring\n\n**2. Regular Security Audits**\n• Check for compromised passwords\n• Update old or weak passwords\n• Remove unused account access\n• Monitor for suspicious activity\n\n**3. Multi-Layer Protection**\n• Enable 2FA everywhere possible\n• Use app-specific passwords\n• Set up security keys for critical accounts\n• Regular backup and recovery testing\n\nWould you like help implementing any of these security measures?`
+        ]
+      };
+      
+      return responses[complexity] || responses.simple[0];
+    }
+    
+    // Account monitoring and suspicious activity
+    if (inputLower.includes('suspicious') || inputLower.includes('monitoring') || inputLower.includes('activity')) {
+      return `🕵️ **Account Security Monitoring**\n\n**What I Monitor For You:**\n\n🔍 **Login Patterns**\n• New device access attempts\n• Unusual login locations\n• Failed password attempts\n• Off-hours activity\n\n🔍 **Account Changes**\n• Password modifications\n• Email address updates\n• Privacy setting changes\n• Two-factor auth changes\n\n🔍 **Suspicious Behavior**\n• Multiple rapid login attempts\n• Access from high-risk locations\n• Unusual data download patterns\n• Profile information scraping\n\n**Alert Levels:**\n🟢 **Normal**: Regular activity from known devices\n🟡 **Watch**: New device or location (verification sent)\n🔴 **Critical**: Multiple failed attempts or breach indicators\n\n**Your Current Status:**\n• Login notifications: ${Math.random() > 0.5 ? 'Enabled ✅' : 'Disabled ❌'}\n• Activity alerts: ${Math.random() > 0.5 ? 'Enabled ✅' : 'Disabled ❌'}\n• Last security scan: ${Math.random() > 0.3 ? 'This week ✅' : 'Never ❌'}\n\nWould you like me to review your recent activity or adjust your monitoring settings?`;
+    }
+    
+    // Privacy settings
+    if (inputLower.includes('privacy') || inputLower.includes('profile visibility')) {
+      return `🔒 **Privacy & Profile Security**\n\n**Privacy Level Assessment:**\n\n**Public Profile Risks:**\n⚠️ Information visible to everyone\n⚠️ Searchable by strangers\n⚠️ Data scraping vulnerability\n⚠️ Social engineering targets\n\n**Recommended Privacy Settings:**\n\n🛡️ **Profile Visibility**\n• Set to 'Friends Only' or 'Private'\n• Limit search engine indexing\n• Restrict profile picture visibility\n• Control who can see your posts\n\n🛡️ **Contact Information**\n• Hide email and phone number\n• Disable location sharing\n• Limit who can message you\n• Turn off read receipts\n\n🛡️ **Activity Visibility**\n• Hide online status\n• Disable activity tracking\n• Limit post history visibility\n• Control tag and mention permissions\n\n**Data Sharing Controls:**\n• Review app permissions regularly\n• Limit third-party data access\n• Opt out of advertising personalization\n• Enable data download notifications\n\n**Current Privacy Score: ${Math.floor(Math.random() * 40) + 30}%**\n\nWould you like help optimizing your privacy settings?`;
+    }
+    
+    // General security responses
+    const generalSecurityResponses = [
+      `🛡️ **Security Health Check**\n\nLet me analyze your account security:\n\n**Quick Assessment:**\n• 2FA Status: ${Math.random() > 0.5 ? 'Enabled ✅' : 'Not Set Up ❌'}\n• Password Strength: ${Math.floor(Math.random() * 3) + 2}/5\n• Recent Security Review: ${Math.random() > 0.3 ? 'This month ✅' : 'Overdue ❌'}\n• Suspicious Activity: ${Math.random() > 0.8 ? 'Detected ⚠️' : 'None ✅'}\n\n**Priority Actions:**\n1. ${Math.random() > 0.5 ? 'Set up two-factor authentication' : 'Update your password'}\n2. ${Math.random() > 0.5 ? 'Review active sessions' : 'Enable login notifications'}\n3. ${Math.random() > 0.5 ? 'Check privacy settings' : 'Update recovery information'}\n\n**Security Score: ${Math.floor(Math.random() * 40) + 40}%**\n\nWhat security area would you like to improve first?`,
+      
+      `🔐 **Account Protection Overview**\n\n**Your Security Layers:**\n\n**Layer 1: Authentication**\n${Math.random() > 0.5 ? '✅ Strong password detected' : '⚠️ Password could be stronger'}\n${Math.random() > 0.5 ? '✅ 2FA is active' : '❌ 2FA not enabled - critical gap!'}\n\n**Layer 2: Monitoring**\n${Math.random() > 0.5 ? '✅ Login alerts enabled' : '❌ No login monitoring'}\n${Math.random() > 0.5 ? '✅ Activity tracking active' : '❌ Activity monitoring disabled'}\n\n**Layer 3: Privacy**\n${Math.random() > 0.5 ? '✅ Profile set to private' : '⚠️ Public profile - consider restricting'}\n${Math.random() > 0.5 ? '✅ Contact info hidden' : '⚠️ Contact details visible'}\n\n**Recent Activity:**\n• Login from new device: ${Math.random() > 0.7 ? '3 days ago' : 'None recent'}\n• Password change: ${Math.random() > 0.5 ? '2 weeks ago' : '6+ months ago'}\n• Settings modified: ${Math.random() > 0.6 ? 'Yesterday' : '1 month ago'}\n\n**Recommendations:**\nFocus on the ❌ items above for maximum security improvement.\n\nWhich security layer needs attention first?`
+    ];
+    
+    return generalSecurityResponses[Math.floor(Math.random() * generalSecurityResponses.length)];
   }
 
   // Generic category response generator

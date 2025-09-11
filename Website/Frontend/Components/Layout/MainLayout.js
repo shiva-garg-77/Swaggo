@@ -1,16 +1,29 @@
 "use client";
-import { useContext, useState } from 'react';
+import { useContext, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useTheme } from '../Helper/ThemeProvider';
 import { AuthContext } from '../Helper/AuthProvider';
 import ThemeToggle from '../Helper/ThemeToggle';
+import { useOptimizedNavigation, RoutePreloader } from '../Helper/RouteOptimizer';
+import { RouteTransitionContainer, RouteTransitionIndicator } from '../Helper/RouteTransition';
+import { usePerformanceMonitor, PerformanceDebugger, PerformanceMetrics } from '../Helper/PerformanceMonitor';
+import { CacheProvider } from '../Helper/CacheOptimizer';
 
 export default function MainLayout({ children }) {
   const { theme } = useTheme();
   const { logout } = useContext(AuthContext);
   const router = useRouter();
   const pathname = usePathname();
-  const [activeTab, setActiveTab] = useState(() => {
+  const { navigateWithPreload, prefetchRoute, prefetchMainRoutes } = useOptimizedNavigation();
+  const { measureRender, measureAsync } = usePerformanceMonitor(pathname);
+  
+  // Prefetch main routes on mount
+  useEffect(() => {
+    prefetchMainRoutes();
+  }, [prefetchMainRoutes]);
+  
+  // Simple active tab computation
+  const activeTab = (() => {
     if (pathname === '/home') return 'home';
     if (pathname === '/create') return 'create';
     if (pathname === '/message') return 'message';
@@ -18,18 +31,21 @@ export default function MainLayout({ children }) {
     if (pathname === '/reel') return 'reel';
     if (pathname === '/bonus') return 'bonus';
     if (pathname === '/game') return 'games';
-    if (pathname === '/setting') return 'setting';
     return 'home';
-  });
+  })();
 
   const handleLogout = async () => {
     await logout();
     router.push('/');
   };
 
-  const handleNavigation = (route, tabName) => {
-    setActiveTab(tabName);
-    router.push(route);
+  const handleNavigation = async (route) => {
+    await navigateWithPreload(route);
+  };
+
+  const handleNavHover = (route) => {
+    // Prefetch on hover for instant navigation
+    prefetchRoute(route, true);
   };
 
   const navItems = [
@@ -44,9 +60,24 @@ export default function MainLayout({ children }) {
   ];
 
   return (
-    <div className={`min-h-screen h-screen flex transition-colors duration-300 overflow-hidden ${
-      theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'
-    }`}>
+    <CacheProvider enableStats={process.env.NODE_ENV === 'development'}>
+      {/* Performance Monitoring */}
+      <PerformanceDebugger enabled={process.env.NODE_ENV === 'development'} />
+      <PerformanceMetrics show={process.env.NODE_ENV === 'development'} />
+      
+      {/* Route Preloader */}
+      <RoutePreloader 
+        routes={['/home', '/Profile', '/create', '/reel', '/message', '/bonus', '/game']} 
+        priority={['/home', '/Profile']}
+        delay={1000}
+      />
+      
+      {/* Route Transition Indicator */}
+      <RouteTransitionIndicator />
+      
+      <div className={`min-h-screen h-screen flex transition-colors duration-300 overflow-hidden ${
+        theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'
+      }`}>
       {/* Desktop Sidebar - Fixed */}
       <aside className={`hidden lg:flex flex-col w-64 transition-colors duration-300 ${
         theme === 'dark' ? 'bg-gray-900' : 'bg-white'
@@ -69,7 +100,8 @@ export default function MainLayout({ children }) {
                 icon={item.icon}
                 text={item.label}
                 isActive={activeTab === item.id}
-                onClick={() => handleNavigation(item.route, item.id)}
+                onClick={() => handleNavigation(item.route)}
+                onMouseEnter={() => handleNavHover(item.route)}
                 theme={theme}
               />
             ))}
@@ -97,40 +129,17 @@ export default function MainLayout({ children }) {
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden h-full">
         {/* Desktop Layout */}
         <div className="hidden lg:block flex-1">
-          {/* Desktop Header Bar - Only show search on home page */}
-          {pathname === '/home' && (
-            <header className={`p-4 shadow-sm transition-colors duration-300 ${
-              theme === 'dark' ? 'bg-gray-900 shadow-gray-800/20' : 'bg-white shadow-gray-200/50'
-            }`}>
-              <div className="max-w-md mx-auto">
-                <div className={`relative rounded-full transition-colors duration-300 ${
-                  theme === 'dark' ? 'bg-gray-800' : 'bg-gray-100'
-                }`}>
-                  <input
-                    type="text"
-                    placeholder="Search..."
-                    className={`w-full px-4 py-2.5 pl-10 rounded-full bg-transparent focus:outline-none focus:ring-2 focus:ring-red-500 transition-all duration-300 ${
-                      theme === 'dark' 
-                        ? 'placeholder-gray-400 text-white' 
-                        : 'placeholder-gray-500 text-gray-900'
-                    }`}
-                  />
-                  <div className="absolute left-3 top-1/2 transform -translate-y-1/2">
-                    <SearchIcon className="w-4 h-4" />
-                  </div>
-                </div>
-              </div>
-            </header>
-          )}
           
-          {/* Desktop Main Content - Scrollable with shadow separation */}
+            {/* Desktop Main Content - Scrollable with shadow separation */}
           <div className="flex h-full">
             {/* Content Area */}
             <main className="flex-1 overflow-y-auto scrollbar-hide">
               <div className={`mx-auto p-6 ${
                 pathname === '/Profile' ? 'max-w-4xl' : 'max-w-2xl'
               }`}>
-                {children}
+                <RouteTransitionContainer>
+                  {children}
+                </RouteTransitionContainer>
               </div>
             </main>
             
@@ -177,7 +186,9 @@ export default function MainLayout({ children }) {
           {/* Mobile Content - Scrollable */}
           <main className="flex-1 overflow-y-auto scrollbar-hide" style={{ WebkitOverflowScrolling: 'touch' }}>
             <div className="p-4 space-y-4">
-              {children}
+              <RouteTransitionContainer>
+                {children}
+              </RouteTransitionContainer>
             </div>
           </main>
           
@@ -186,25 +197,27 @@ export default function MainLayout({ children }) {
             theme === 'dark' ? 'bg-gray-900 shadow-gray-800/20' : 'bg-white shadow-gray-200/50'
           }`}>
             <div className="flex items-center justify-around">
-              <MobileNavButton icon={<HomeIcon />} isActive={activeTab === 'home'} onClick={() => handleNavigation('/home', 'home')} theme={theme} />
-              <MobileNavButton icon={<SearchIcon />} isActive={activeTab === 'search'} onClick={() => handleNavigation('/search', 'search')} theme={theme} />
-              <MobileNavButton icon={<CreateIcon />} isActive={activeTab === 'create'} onClick={() => handleNavigation('/create', 'create')} theme={theme} />
-              <MobileNavButton icon={<HeartIcon />} isActive={activeTab === 'activity'} onClick={() => handleNavigation('/activity', 'activity')} theme={theme} />
-              <MobileNavButton icon={<UserIcon />} isActive={activeTab === 'profile'} onClick={() => handleNavigation('/profile', 'profile')} theme={theme} />
+              <MobileNavButton icon={<HomeIcon />} isActive={activeTab === 'home'} onClick={() => handleNavigation('/home')} theme={theme} />
+              <MobileNavButton icon={<SearchIcon />} isActive={activeTab === 'search'} onClick={() => handleNavigation('/search')} theme={theme} />
+              <MobileNavButton icon={<CreateIcon />} isActive={activeTab === 'create'} onClick={() => handleNavigation('/create')} theme={theme} />
+              <MobileNavButton icon={<HeartIcon />} isActive={activeTab === 'activity'} onClick={() => handleNavigation('/activity')} theme={theme} />
+              <MobileNavButton icon={<UserIcon />} isActive={activeTab === 'profile'} onClick={() => handleNavigation('/Profile')} theme={theme} />
             </div>
           </nav>
         </div>
       </div>
     </div>
+    </CacheProvider>
   );
 }
 
-// Navigation Item Component
-function NavItem({ icon, text, isActive, onClick, theme }) {
+// Navigation Item Component with enhanced interactions
+function NavItem({ icon, text, isActive, onClick, onMouseEnter, theme }) {
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center space-x-4 px-4 py-3 rounded-xl transition-all duration-200 text-left ${
+      onMouseEnter={onMouseEnter}
+      className={`w-full flex items-center space-x-4 px-4 py-3 rounded-xl transition-all duration-200 text-left transform hover:scale-[1.02] ${
         isActive 
           ? 'bg-gradient-to-r from-red-500 to-red-600 text-white shadow-lg' 
           : (theme === 'dark'

@@ -15,6 +15,7 @@ export const GET_ALL_POSTS = gql`
       allowComments
       hideLikeCount
       autoPlay
+      isCloseFriendOnly
       likeCount
       commentCount
       isLikedByUser
@@ -129,6 +130,23 @@ export const TOGGLE_COMMENT_LIKE = gql`
 `;
 
 // ============ PROFILE ============
+export const SEARCH_USERS = gql`
+  query SearchUsers($query: String!, $limit: Int) {
+    searchUsers(query: $query, limit: $limit) {
+      profileid
+      username
+      name
+      profilePic
+      isVerified
+      isPrivate
+      bio
+      followersCount
+      followingCount
+      postsCount
+    }
+  }
+`;
+
 export const GET_USER_BY_USERNAME = gql`
   query GetUserByUsername($username: String) {
     getUserbyUsername(username: $username) {
@@ -160,6 +178,38 @@ export const GET_USER_BY_USERNAME = gql`
         isLikedByUser
         isSavedByUser
         createdAt
+      }
+      likedpost {
+        postid
+        postUrl
+        title
+        Description
+        postType
+        likeCount
+        commentCount
+        createdAt
+        profile {
+          profileid
+          username
+          profilePic
+          isVerified
+        }
+      }
+      savedpost {
+        postid
+        postUrl
+        title
+        Description
+        postType
+        likeCount
+        commentCount
+        createdAt
+        profile {
+          profileid
+          username
+          profilePic
+          isVerified
+        }
       }
     }
   }

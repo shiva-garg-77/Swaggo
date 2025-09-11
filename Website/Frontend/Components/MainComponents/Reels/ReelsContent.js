@@ -32,6 +32,7 @@ import {
   TOGGLE_SAVE_POST,
   TOGGLE_FOLLOW_USER 
 } from '../../../lib/graphql/queries';
+import { BLOCK_USER, RESTRICT_USER } from '../../../lib/graphql/profileQueries';
 
 const ReelsContent = () => {
   const { theme } = useTheme();
@@ -58,6 +59,8 @@ const ReelsContent = () => {
   const [toggleLike] = useMutation(TOGGLE_POST_LIKE);
   const [toggleSave] = useMutation(TOGGLE_SAVE_POST);
   const [toggleFollow] = useMutation(TOGGLE_FOLLOW_USER);
+  const [blockUser] = useMutation(BLOCK_USER);
+  const [restrictUser] = useMutation(RESTRICT_USER);
 
   // Filter only video posts for reels
   const videoReels = data?.getPosts?.filter(post => 
@@ -199,6 +202,53 @@ const ReelsContent = () => {
     setShowShare(true);
   };
 
+  // Handle block user from reel
+  const handleBlockFromReel = async (reel) => {
+    if (!user?.profileid || !reel?.profile?.profileid) return;
+    
+    const confirmed = confirm(`Are you sure you want to block ${reel.profile.username}?`);
+    if (!confirmed) return;
+    
+    try {
+      await blockUser({
+        variables: {
+          profileid: user.profileid,
+          targetprofileid: reel.profile.profileid,
+          reason: 'Blocked from reel'
+        }
+      });
+      alert(`${reel.profile.username} has been blocked.`);
+      setShowMoreOptions(false);
+      refetch(); // Refresh reels to remove blocked user's content
+    } catch (error) {
+      console.error('Error blocking user:', error);
+      alert('Failed to block user. Please try again.');
+    }
+  };
+
+  // Handle restrict user from reel
+  const handleRestrictFromReel = async (reel) => {
+    if (!user?.profileid || !reel?.profile?.profileid) return;
+    
+    const confirmed = confirm(`Are you sure you want to restrict ${reel.profile.username}?`);
+    if (!confirmed) return;
+    
+    try {
+      await restrictUser({
+        variables: {
+          profileid: user.profileid,
+          targetprofileid: reel.profile.profileid
+        }
+      });
+      alert(`${reel.profile.username} has been restricted.`);
+      setShowMoreOptions(false);
+      refetch(); // Refresh to apply any content filtering
+    } catch (error) {
+      console.error('Error restricting user:', error);
+      alert('Failed to restrict user. Please try again.');
+    }
+  };
+
   // Navigate reels
   const nextReel = () => {
     if (currentIndex < videoReels.length - 1) {
@@ -242,13 +292,7 @@ const ReelsContent = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentIndex, videoReels.length, isMuted, showComments]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500"></div>
-      </div>
-    );
-  }
+  // Loading state removed
 
   if (error) {
     return (
@@ -603,6 +647,8 @@ const ReelsContent = () => {
         reel={currentReel}
         theme={theme}
         user={user}
+        onBlockUser={handleBlockFromReel}
+        onRestrictUser={handleRestrictFromReel}
       />
     </div>
   );

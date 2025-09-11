@@ -34,7 +34,7 @@ const VerifyToken = async (req, res, next) => {
           const refresh_token = refreshTokenMatch[1];
 
           // Verify refresh token
-          const decoded = jwt.verify(refresh_token, process.env.ACCESS_TOKEN_SECRET);
+          const decoded = jwt.verify(refresh_token, process.env.REFRESH_TOKEN_SECRET || process.env.ACCESS_TOKEN_SECRET);
 
           // Check if refresh token exists in database
           const tokenExists = await RefreshTokens.findOne({ 

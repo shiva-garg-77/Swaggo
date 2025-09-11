@@ -17,7 +17,7 @@ import {
 import { TOGGLE_FOLLOW_USER } from '../../../lib/graphql/queries';
 import { useState } from 'react';
 
-export default function MoreOptionsModal({ isOpen, onClose, reel, theme, user }) {
+export default function MoreOptionsModal({ isOpen, onClose, reel, theme, user, onBlockUser, onRestrictUser }) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [message, setMessage] = useState(null);
   const [toggleFollow] = useMutation(TOGGLE_FOLLOW_USER);
@@ -45,6 +45,13 @@ export default function MoreOptionsModal({ isOpen, onClose, reel, theme, user })
       icon: <EyeOff className="w-5 h-5" />,
       color: 'text-gray-500',
       action: () => handleNotInterested()
+    },
+    {
+      id: 'restrict',
+      label: `Restrict @${reel.profile?.username}`,
+      icon: <EyeOff className="w-5 h-5" />,
+      color: 'text-orange-500',
+      action: () => handleRestrict()
     },
     {
       id: 'block',
@@ -112,35 +119,38 @@ export default function MoreOptionsModal({ isOpen, onClose, reel, theme, user })
     setIsProcessing(false);
   };
 
+  const handleRestrict = async () => {
+    if (!user?.profileid) {
+      showMessage('Please log in to restrict users.', 'error');
+      return;
+    }
+    
+    setIsProcessing(true);
+    try {
+      await onRestrictUser(reel);
+      showMessage(`@${reel.profile?.username} has been restricted.`, 'success');
+      setTimeout(() => onClose(), 2000);
+    } catch (error) {
+      showMessage('Failed to restrict user. Please try again.', 'error');
+    }
+    setIsProcessing(false);
+  };
+
   const handleBlock = async () => {
     if (!user?.profileid) {
       showMessage('Please log in to block users.', 'error');
       return;
     }
     
-    if (window.confirm(`Are you sure you want to block @${reel.profile?.username}? You won't see their content anymore.`)) {
-      setIsProcessing(true);
-      try {
-        // First unfollow if following, then simulate blocking
-        if (reel.profile?.isFollowedByUser) {
-          await toggleFollow({
-            variables: {
-              profileid: user.profileid,
-              followid: reel.profile.profileid
-            }
-          });
-        }
-        
-        // Simulate blocking API call
-        await new Promise(resolve => setTimeout(resolve, 1200));
-        showMessage(`@${reel.profile?.username} has been blocked successfully.`, 'success');
-        setTimeout(() => onClose(), 2000);
-      } catch (error) {
-        console.error('Error blocking user:', error);
-        showMessage('Failed to block user. Please try again.', 'error');
-      }
-      setIsProcessing(false);
+    setIsProcessing(true);
+    try {
+      await onBlockUser(reel);
+      showMessage(`@${reel.profile?.username} has been blocked successfully.`, 'success');
+      setTimeout(() => onClose(), 2000);
+    } catch (error) {
+      showMessage('Failed to block user. Please try again.', 'error');
     }
+    setIsProcessing(false);
   };
 
   const handleDownload = async () => {

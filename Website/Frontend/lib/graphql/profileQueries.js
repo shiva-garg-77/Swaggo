@@ -301,6 +301,7 @@ export const CREATE_POST_MUTATION = gql`
     $allowComments: Boolean
     $hideLikeCount: Boolean
     $autoPlay: Boolean
+    $isCloseFriendOnly: Boolean
   ) {
     CreatePost(
       profileid: $profileid
@@ -314,6 +315,7 @@ export const CREATE_POST_MUTATION = gql`
       allowComments: $allowComments
       hideLikeCount: $hideLikeCount
       autoPlay: $autoPlay
+      isCloseFriendOnly: $isCloseFriendOnly
     ) {
       postid
       postUrl
@@ -326,6 +328,7 @@ export const CREATE_POST_MUTATION = gql`
       allowComments
       hideLikeCount
       autoPlay
+      isCloseFriendOnly
       createdAt
     }
   }
@@ -405,6 +408,340 @@ export const ADD_STORY_TO_MEMORY = gql`
         mediaType
         createdAt
       }
+      updatedAt
+    }
+  }
+`;
+
+// Block and Restrict User Queries
+export const GET_BLOCKED_ACCOUNTS = gql`
+  query GetBlockedAccounts($profileid: String!) {
+    getBlockedAccounts(profileid: $profileid) {
+      blockid
+      blockedprofileid
+      reason
+      createdAt
+      blockedProfile {
+        profileid
+        username
+        name
+        profilePic
+        isVerified
+      }
+    }
+  }
+`;
+
+export const GET_RESTRICTED_ACCOUNTS = gql`
+  query GetRestrictedAccounts($profileid: String!) {
+    getRestrictedAccounts(profileid: $profileid) {
+      restrictid
+      restrictedprofileid
+      createdAt
+      restrictedProfile {
+        profileid
+        username
+        name
+        profilePic
+        isVerified
+      }
+    }
+  }
+`;
+
+// Check if user is blocked or restricted
+export const IS_USER_BLOCKED = gql`
+  query IsUserBlocked($profileid: String!, $targetprofileid: String!) {
+    isUserBlocked(profileid: $profileid, targetprofileid: $targetprofileid)
+  }
+`;
+
+export const IS_USER_RESTRICTED = gql`
+  query IsUserRestricted($profileid: String!, $targetprofileid: String!) {
+    isUserRestricted(profileid: $profileid, targetprofileid: $targetprofileid)
+  }
+`;
+
+// Block and Restrict User Mutations
+export const BLOCK_USER = gql`
+  mutation BlockUser($profileid: String!, $targetprofileid: String!, $reason: String) {
+    BlockUser(profileid: $profileid, targetprofileid: $targetprofileid, reason: $reason) {
+      blockid
+      profileid
+      blockedprofileid
+      reason
+      createdAt
+      blockedProfile {
+        profileid
+        username
+        name
+        profilePic
+      }
+    }
+  }
+`;
+
+export const UNBLOCK_USER = gql`
+  mutation UnblockUser($profileid: String!, $targetprofileid: String!) {
+    UnblockUser(profileid: $profileid, targetprofileid: $targetprofileid) {
+      blockid
+      profileid
+      blockedprofileid
+    }
+  }
+`;
+
+export const RESTRICT_USER = gql`
+  mutation RestrictUser($profileid: String!, $targetprofileid: String!) {
+    RestrictUser(profileid: $profileid, targetprofileid: $targetprofileid) {
+      restrictid
+      profileid
+      restrictedprofileid
+      createdAt
+      restrictedProfile {
+        profileid
+        username
+        name
+        profilePic
+      }
+    }
+  }
+`;
+
+export const UNRESTRICT_USER = gql`
+  mutation UnrestrictUser($profileid: String!, $targetprofileid: String!) {
+    UnrestrictUser(profileid: $profileid, targetprofileid: $targetprofileid) {
+      restrictid
+      profileid
+      restrictedprofileid
+    }
+  }
+`;
+
+// Close Friends Queries
+export const GET_CLOSE_FRIENDS = gql`
+  query GetCloseFriends($profileid: String!) {
+    getCloseFriends(profileid: $profileid) {
+      closefriendid
+      profileid
+      status
+      createdAt
+      updatedAt
+      closeFriend {
+        profileid
+        username
+        name
+        profilePic
+        isVerified
+      }
+    }
+  }
+`;
+
+export const IS_CLOSE_FRIEND = gql`
+  query IsCloseFriend($profileid: String!, $targetprofileid: String!) {
+    isCloseFriend(profileid: $profileid, targetprofileid: $targetprofileid)
+  }
+`;
+
+// Close Friends Mutations
+export const ADD_CLOSE_FRIEND = gql`
+  mutation AddCloseFriend($profileid: String!, $targetprofileid: String!) {
+    AddCloseFriend(profileid: $profileid, targetprofileid: $targetprofileid) {
+      closefriendid
+      profileid
+      status
+      createdAt
+      closeFriend {
+        profileid
+        username
+        name
+        profilePic
+        isVerified
+      }
+    }
+  }
+`;
+
+export const REMOVE_CLOSE_FRIEND = gql`
+  mutation RemoveCloseFriend($profileid: String!, $targetprofileid: String!) {
+    RemoveCloseFriend(profileid: $profileid, targetprofileid: $targetprofileid) {
+      closefriendid
+      profileid
+      status
+    }
+  }
+`;
+
+// Mentions Queries
+export const GET_MENTIONS = gql`
+  query GetMentions($profileid: String!) {
+    getMentions(profileid: $profileid) {
+      mentionid
+      mentionedprofileid
+      mentionerprofileid
+      contexttype
+      contextid
+      isnotified
+      isread
+      createdAt
+      updatedAt
+      mentionedProfile {
+        profileid
+        username
+        name
+        profilePic
+      }
+      mentionerProfile {
+        profileid
+        username
+        name
+        profilePic
+      }
+    }
+  }
+`;
+
+export const GET_MENTIONS_BY_CONTEXT = gql`
+  query GetMentionsByContext($contexttype: String!, $contextid: String!) {
+    getMentionsByContext(contexttype: $contexttype, contextid: $contextid) {
+      mentionid
+      mentionedprofileid
+      mentionerprofileid
+      contexttype
+      contextid
+      isnotified
+      isread
+      createdAt
+      mentionedProfile {
+        profileid
+        username
+        name
+        profilePic
+      }
+      mentionerProfile {
+        profileid
+        username
+        name
+        profilePic
+      }
+    }
+  }
+`;
+
+// Search Users for tagging/mentioning
+export const SEARCH_USERS = gql`
+  query SearchUsers($query: String!) {
+    searchUsers(query: $query) {
+      profileid
+      username
+      name
+      profilePic
+      isVerified
+    }
+  }
+`;
+
+// Mentions Mutations
+export const CREATE_MENTION = gql`
+  mutation CreateMention(
+    $mentionedprofileid: String!
+    $mentionerprofileid: String!
+    $contexttype: String!
+    $contextid: String!
+  ) {
+    CreateMention(
+      mentionedprofileid: $mentionedprofileid
+      mentionerprofileid: $mentionerprofileid
+      contexttype: $contexttype
+      contextid: $contextid
+    ) {
+      mentionid
+      mentionedprofileid
+      mentionerprofileid
+      contexttype
+      contextid
+      isnotified
+      isread
+      createdAt
+      mentionedProfile {
+        profileid
+        username
+        name
+        profilePic
+      }
+    }
+  }
+`;
+
+export const MARK_MENTION_AS_READ = gql`
+  mutation MarkMentionAsRead($mentionid: String!) {
+    MarkMentionAsRead(mentionid: $mentionid) {
+      mentionid
+      isread
+    }
+  }
+`;
+
+// User Settings Operations
+export const GET_USER_SETTINGS = gql`
+  query GetUserSettings($profileid: String!) {
+    getUserSettings(profileid: $profileid) {
+      profileid
+      allowMentions
+      mentionNotifications
+      tagNotifications
+      showTaggedPosts
+      isPrivate
+      allowMessages
+      showActivity
+      twoFactor
+      notificationsEnabled
+      darkMode
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const UPDATE_USER_SETTINGS = gql`
+  mutation UpdateUserSettings(
+    $profileid: String!
+    $allowMentions: Boolean
+    $mentionNotifications: Boolean
+    $tagNotifications: Boolean
+    $showTaggedPosts: Boolean
+    $isPrivate: Boolean
+    $allowMessages: String
+    $showActivity: Boolean
+    $twoFactor: Boolean
+    $notificationsEnabled: Boolean
+    $darkMode: Boolean
+  ) {
+    UpdateUserSettings(
+      profileid: $profileid
+      allowMentions: $allowMentions
+      mentionNotifications: $mentionNotifications
+      tagNotifications: $tagNotifications
+      showTaggedPosts: $showTaggedPosts
+      isPrivate: $isPrivate
+      allowMessages: $allowMessages
+      showActivity: $showActivity
+      twoFactor: $twoFactor
+      notificationsEnabled: $notificationsEnabled
+      darkMode: $darkMode
+    ) {
+      profileid
+      allowMentions
+      mentionNotifications
+      tagNotifications
+      showTaggedPosts
+      isPrivate
+      allowMessages
+      showActivity
+      twoFactor
+      notificationsEnabled
+      darkMode
       updatedAt
     }
   }

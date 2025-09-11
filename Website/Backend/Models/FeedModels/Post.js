@@ -12,6 +12,7 @@ const PostSchema = new mongoose.Schema({
     allowComments: { type: Boolean, default: true },
     hideLikeCount: { type: Boolean, default: false },
     autoPlay: { type: Boolean, default: false },
+    isCloseFriendOnly: { type: Boolean, default: false },
 }, {
     timestamps: true
 })

@@ -23,8 +23,7 @@ export const AuthProvider = ({ children }) => {
     const [successMsg, setSuccessMsg] = useState(null);
     const [accessToken, setAccessToken] = useState(null);
     const [user, setUser] = useState(null); // Add user state for profile data
-    const [loading, setLoading] = useState(true);
-    const [authLoading, setAuthLoading] = useState(false);
+    const [initialized, setInitialized] = useState(false); // Track if auth state is initialized
 
     // Helper function to decode JWT and extract user info
     const extractUserFromToken = (token) => {
@@ -44,61 +43,79 @@ export const AuthProvider = ({ children }) => {
             );
             
             const payload = JSON.parse(jsonPayload);
-            console.log('🔍 Extracted user payload from token:', payload);
-            console.log('📝 Profile ID in token payload:', payload.profileid || '❌ NOT PRESENT');
-            console.log('👤 Username:', payload.username);
-            console.log('🆔 User ID:', payload.id || payload._id);
+            
+            // Only log in development
+            if (process.env.NODE_ENV === 'development') {
+                console.log('🔍 Extracted user payload from token:', payload);
+                console.log('📝 Profile ID in token payload:', payload.profileid || '❌ NOT PRESENT');
+                console.log('👤 Username:', payload.username);
+                console.log('🆔 User ID:', payload.id || payload._id);
+            }
             
             const userData = {
                 id: payload.id || payload._id,
                 username: payload.username,
                 email: payload.email,
-                profileid: payload.profileid, // This should now be present from backend
+                profileid: payload.profileid,
                 profilePic: payload.profilePic,
                 name: payload.name,
                 dateOfBirth: payload.dateOfBirth
             };
             
-            console.log('✅ Final user data object:', userData);
+            if (process.env.NODE_ENV === 'development') {
+                console.log('✅ Final user data object:', userData);
+            }
             return userData;
         } catch (error) {
-            console.error('Error extracting user from token:', error);
+            if (process.env.NODE_ENV === 'development') {
+                console.error('Error extracting user from token:', error);
+            }
             return null;
         }
     };
 
     // Update user data whenever accessToken changes
     useEffect(() => {
-        console.log('\n🔄 Processing access token change...');
+        if (process.env.NODE_ENV === 'development') {
+            console.log('\n🔄 Processing access token change...');
+        }
         const userData = extractUserFromToken(accessToken);
         setUser(userData);
         
         // Clear Apollo cache when user changes to prevent stale data
         if (apolloClient) {
-            console.log('🗑️ Auto-clearing cache on user change...');
+            if (process.env.NODE_ENV === 'development') {
+                console.log('🗑️ Auto-clearing cache on user change...');
+            }
             refreshCacheAfterAuth(apolloClient).catch(err => {
-                console.log('Auto cache clear failed:', err);
+                if (process.env.NODE_ENV === 'development') {
+                    console.log('Auto cache clear failed:', err);
+                }
             });
         }
         
-        if (userData) {
-            console.log('👤 User data set:', userData);
-            if (userData.profileid) {
-                console.log('✅ Profile ID available for GraphQL mutations:', userData.profileid);
+        if (process.env.NODE_ENV === 'development') {
+            if (userData) {
+                console.log('👤 User data set:', userData);
+                if (userData.profileid) {
+                    console.log('✅ Profile ID available for GraphQL mutations:', userData.profileid);
+                } else {
+                    console.log('⚠️ Profile ID missing from token! This may cause post creation issues.');
+                    console.log('🔧 Check if backend is including profileid in JWT token generation.');
+                }
             } else {
-                console.log('⚠️ Profile ID missing from token! This may cause post creation issues.');
-                console.log('🔧 Check if backend is including profileid in JWT token generation.');
+                console.log('❌ No user data extracted from token');
             }
-        } else {
-            console.log('❌ No user data extracted from token');
         }
     }, [accessToken, apolloClient]);
 
-    // Try auto-login on mount
+    // Try auto-login on mount with optimized performance
     useEffect(() => {
         const refresh = async () => {
             try {
-                console.log('Attempting refresh token to:', `http://localhost:${process.env.NEXT_PUBLIC_PORT}/api/refresh-token`);
+                if (process.env.NODE_ENV === 'development') {
+                    console.log('Attempting refresh token to:', `http://localhost:${process.env.NEXT_PUBLIC_PORT}/api/refresh-token`);
+                }
                 
                 const DataResult = await fetch(`http://localhost:${process.env.NEXT_PUBLIC_PORT}/api/refresh-token`, {
                     method: 'GET',
@@ -106,45 +123,60 @@ export const AuthProvider = ({ children }) => {
                     cache: 'no-store',
                 });
                 
-                console.log('Refresh token response status:', DataResult.status);
-                console.log('Refresh token response ok:', DataResult.ok);
+                if (process.env.NODE_ENV === 'development') {
+                    console.log('Refresh token response status:', DataResult.status);
+                    console.log('Refresh token response ok:', DataResult.ok);
+                }
                 
                 if (!DataResult.ok) {
-                    console.log("Refresh token failed with status:", DataResult.status);
+                    if (process.env.NODE_ENV === 'development') {
+                        console.log("Refresh token failed with status:", DataResult.status);
+                    }
                     setAccessToken(null);
                     return;
                 }
                 
                 const res = await DataResult.json();
-                console.log('🔄 Refresh token response data:', res);
                 
                 if (res.success && res.accessToken) {
-                    console.log('✅ Refresh token successful! Setting access token...');
-                    console.log('Token preview:', `${res.accessToken.substring(0, 20)}...`);
-                    
-                    // Try to decode and check if profileid is present
-                    const testUser = extractUserFromToken(res.accessToken);
-                    if (testUser?.profileid) {
-                        console.log('✅ Profile ID found in refreshed token:', testUser.profileid);
-                    } else {
-                        console.log('⚠️ Profile ID missing in refreshed token!');
+                    if (process.env.NODE_ENV === 'development') {
+                        console.log('✅ Refresh token successful! Setting access token...');
+                        console.log('Token preview:', `${res.accessToken.substring(0, 20)}...`);
+                        
+                        // Try to decode and check if profileid is present
+                        const testUser = extractUserFromToken(res.accessToken);
+                        if (testUser?.profileid) {
+                            console.log('✅ Profile ID found in refreshed token:', testUser.profileid);
+                        } else {
+                            console.log('⚠️ Profile ID missing in refreshed token!');
+                        }
                     }
                     
                     setAccessToken(res.accessToken);
-                    console.log("Auto-login successful with token:", `${res.accessToken.substring(0, 20)}...`);
+                    
+                    if (process.env.NODE_ENV === 'development') {
+                        console.log("Auto-login successful with token:", `${res.accessToken.substring(0, 20)}...`);
+                    }
                 } else {
-                    console.log('❌ Refresh token failed:', res.msg);
-                    console.log("Full refresh response:", res);
+                    if (process.env.NODE_ENV === 'development') {
+                        console.log('❌ Refresh token failed:', res.msg);
+                        console.log("Full refresh response:", res);
+                    }
                     setAccessToken(null);
                 }
             } catch (err) {
-                console.error("Refresh token network error:", err);
+                if (process.env.NODE_ENV === 'development') {
+                    console.error("Refresh token network error:", err);
+                }
                 setAccessToken(null);
             } finally {
-                setLoading(false);
+                setInitialized(true); // Mark as initialized after first auth check
             }
         };
-        refresh();
+        
+        // Add small delay to prevent rapid successive calls
+        const timer = setTimeout(refresh, 100);
+        return () => clearTimeout(timer);
     }, []);
 
     const login = async (info) => {
@@ -244,7 +276,7 @@ export const AuthProvider = ({ children }) => {
         // Clear any previous messages
         setErrorMsg(null);
         setSuccessMsg(null);
-        setAuthLoading(true);
+        // Auth loading removed
         
         try {
             const result = await fetch(`http://localhost:${process.env.NEXT_PUBLIC_PORT}/api/signup`, {
@@ -273,14 +305,14 @@ export const AuthProvider = ({ children }) => {
             console.error("Signup error:", error);
             return { success: false, message: "Network error. Please try again." };
         } finally {
-            setAuthLoading(false);
+            // Auth loading removed
         }
     };
 
     const forgetPassword = async (email) => {
         setErrorMsg(null);
         setSuccessMsg(null);
-        setAuthLoading(true);
+        // Auth loading removed
         
         try {
             const result = await fetch(`http://localhost:${process.env.NEXT_PUBLIC_PORT}/api/forget-password`, {
@@ -307,14 +339,14 @@ export const AuthProvider = ({ children }) => {
             console.error("Forget password error:", error);
             return { success: false, message: "Network error. Please try again." };
         } finally {
-            setAuthLoading(false);
+            // Auth loading removed
         }
     };
 
     const resetPassword = async (passwordData, token) => {
         setErrorMsg(null);
         setSuccessMsg(null);
-        setAuthLoading(true);
+        // Auth loading removed
         
         try {
             const result = await fetch(`http://localhost:${process.env.NEXT_PUBLIC_PORT}/api/reset-password`, {
@@ -348,7 +380,7 @@ export const AuthProvider = ({ children }) => {
             console.error("Reset password error:", error);
             return { success: false, message: "Network error. Please try again." };
         } finally {
-            setAuthLoading(false);
+            // Auth loading removed
         }
     };
 
@@ -393,6 +425,7 @@ export const AuthProvider = ({ children }) => {
         <AuthContext.Provider value={{ 
             accessToken,
             user, // Add user data to context
+            initialized, // Add initialized state
             login, 
             signup,
             forgetPassword,
@@ -400,8 +433,6 @@ export const AuthProvider = ({ children }) => {
             logout, 
             ErrorMsg, 
             successMsg,
-            loading, 
-            authLoading,
             clearError,
             clearSuccess,
             clearMessages,

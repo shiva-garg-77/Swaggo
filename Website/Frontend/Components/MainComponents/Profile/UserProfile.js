@@ -14,7 +14,11 @@ import {
   TOGGLE_SAVE_POST,
   DELETE_DRAFT_MUTATION,
   PUBLISH_DRAFT_MUTATION,
-  GET_DRAFTS_QUERY
+  GET_DRAFTS_QUERY,
+  BLOCK_USER,
+  RESTRICT_USER,
+  IS_USER_BLOCKED,
+  IS_USER_RESTRICTED
 } from '../../../lib/graphql/profileQueries';
 import { GET_SIMPLE_PROFILE, GET_CURRENT_USER_PROFILE } from '../../../lib/graphql/fixedProfileQueries';
 import { GET_MEMORIES, CREATE_MEMORY } from '../../../lib/graphql/queries';
@@ -50,10 +54,10 @@ export default function UserProfile() {
     variables: queryVariables,
     skip: !accessToken,
     errorPolicy: 'all',
-    fetchPolicy: 'cache-and-network',
-    notifyOnNetworkStatusChange: true,
+    fetchPolicy: 'cache-first', // Use cache first for faster loading
+    notifyOnNetworkStatusChange: false, // Reduce re-renders
     onCompleted: (userData) => {
-      if (userData?.getUserbyUsername) {
+      if (process.env.NODE_ENV === 'development' && userData?.getUserbyUsername) {
         console.log('✅ Profile data loaded successfully:', {
           username: userData.getUserbyUsername.username,
           profileid: userData.getUserbyUsername.profileid,
@@ -63,13 +67,15 @@ export default function UserProfile() {
       }
     },
     onError: (error) => {
-      console.error('🔴 Profile loading error:', {
-        message: error.message,
-        graphQLErrors: error.graphQLErrors,
-        networkError: error.networkError,
-        queryType: isOwnProfile ? 'current-user' : 'by-username',
-        variables: queryVariables
-      });
+      if (process.env.NODE_ENV === 'development') {
+        console.error('🔴 Profile loading error:', {
+          message: error.message,
+          graphQLErrors: error.graphQLErrors,
+          networkError: error.networkError,
+          queryType: isOwnProfile ? 'current-user' : 'by-username',
+          variables: queryVariables
+        });
+      }
     }
   });
 
@@ -78,19 +84,19 @@ export default function UserProfile() {
     variables: { username: null }, // null will return current user's profile
     skip: !accessToken || isOwnProfile,
     errorPolicy: 'all',
-    fetchPolicy: 'cache-first',
+    fetchPolicy: 'cache-only', // Use cache-only for even faster loading
     notifyOnNetworkStatusChange: false,
     onCompleted: (userData) => {
       setCurrentUserProfile(userData?.getUserbyUsername);
     }
   });
 
-  // Query to get drafts from backend with fallback handling
+  // Query to get drafts from backend
   const { data: draftsData, loading: draftsLoading, error: draftsError, refetch: refetchDrafts } = useQuery(GET_DRAFTS_QUERY, {
     variables: { profileid: data?.getUserbyUsername?.profileid },
     skip: !data?.getUserbyUsername?.profileid || !isOwnProfile,
     errorPolicy: 'all',
-    fetchPolicy: 'cache-and-network',
+    fetchPolicy: 'cache-first',
     onCompleted: (draftData) => {
       console.log('\n🔍 DRAFT DEBUG - Query Completed:');
       console.log('- ProfileID used:', data?.getUserbyUsername?.profileid);
@@ -117,7 +123,7 @@ export default function UserProfile() {
     variables: { profileid: data?.getUserbyUsername?.profileid },
     skip: !data?.getUserbyUsername?.profileid,
     errorPolicy: 'all',
-    fetchPolicy: 'cache-and-network',
+    fetchPolicy: 'cache-first',
     onCompleted: (memoryData) => {
       console.log('\n📸 MEMORY DEBUG - Query Completed:');
       console.log('- Memory count:', memoryData?.getMemories?.length || 0);
@@ -163,16 +169,86 @@ export default function UserProfile() {
     router.push(`/message?user=${data.getUserbyUsername.username}`);
   };
 
-  // Handle restrict user (placeholder)
+  // Add block/restrict mutations and queries
+  const [blockUser] = useMutation(BLOCK_USER);
+  const [restrictUser] = useMutation(RESTRICT_USER);
+  
+  // Defer block/restrict status queries for better initial performance
+  const { data: blockStatusData } = useQuery(IS_USER_BLOCKED, {
+    variables: { 
+      profileid: currentUserProfile?.profileid, 
+      targetprofileid: data?.getUserbyUsername?.profileid 
+    },
+    skip: true, // Skip initially, can be enabled later when needed
+    fetchPolicy: 'cache-first'
+  });
+  
+  const { data: restrictStatusData } = useQuery(IS_USER_RESTRICTED, {
+    variables: { 
+      profileid: currentUserProfile?.profileid, 
+      targetprofileid: data?.getUserbyUsername?.profileid 
+    },
+    skip: true, // Skip initially, can be enabled later when needed
+    fetchPolicy: 'cache-first'
+  });
+  
+  const isUserBlocked = blockStatusData?.isUserBlocked || false;
+  const isUserRestricted = restrictStatusData?.isUserRestricted || false;
+
+  // Handle restrict user
   const handleRestrict = async () => {
-    if (isOwnProfile) return;
-    console.log('Restrict user functionality - to be implemented');
+    if (isOwnProfile || !currentUserProfile || !data?.getUserbyUsername) return;
+    
+    if (isUserRestricted) {
+      alert('This user is already restricted.');
+      return;
+    }
+    
+    const confirmed = confirm(`Are you sure you want to restrict ${data.getUserbyUsername.username}?`);
+    if (!confirmed) return;
+    
+    try {
+      await restrictUser({
+        variables: {
+          profileid: currentUserProfile.profileid,
+          targetprofileid: data.getUserbyUsername.profileid
+        }
+      });
+      alert('User has been restricted.');
+    } catch (error) {
+      console.error('Error restricting user:', error);
+      alert('Failed to restrict user. Please try again.');
+    }
   };
 
-  // Handle block user (placeholder)
+  // Handle block user
   const handleBlock = async () => {
-    if (isOwnProfile) return;
-    console.log('Block user functionality - to be implemented');
+    if (isOwnProfile || !currentUserProfile || !data?.getUserbyUsername) return;
+    
+    if (isUserBlocked) {
+      alert('This user is already blocked.');
+      return;
+    }
+    
+    const reason = prompt(`Why are you blocking ${data.getUserbyUsername.username}? (Optional)`);
+    const confirmed = confirm(`Are you sure you want to block ${data.getUserbyUsername.username}?`);
+    if (!confirmed) return;
+    
+    try {
+      await blockUser({
+        variables: {
+          profileid: currentUserProfile.profileid,
+          targetprofileid: data.getUserbyUsername.profileid,
+          reason: reason || null
+        }
+      });
+      alert('User has been blocked.');
+      // Optionally redirect away from blocked user's profile
+      router.push('/');
+    } catch (error) {
+      console.error('Error blocking user:', error);
+      alert('Failed to block user. Please try again.');
+    }
   };
 
   // Create memory mutation

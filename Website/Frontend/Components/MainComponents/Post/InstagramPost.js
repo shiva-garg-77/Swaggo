@@ -4,6 +4,7 @@ import { useState, useRef } from 'react';
 import { useAuth } from '../../Helper/AuthProvider';
 import { useMutation, useQuery } from '@apollo/client';
 import { gql } from '@apollo/client';
+import { BLOCK_USER, RESTRICT_USER } from '../../../lib/graphql/profileQueries';
 
 // GraphQL mutations
 const DELETE_POST = gql`
@@ -29,7 +30,12 @@ const TOGGLE_POST_LIKE = gql`
 
 const TOGGLE_SAVE_POST = gql`
   mutation ToggleSavePost($profileid: String!, $postid: String!) {
-    ToggleSavePost(profileid: $profileid, postid: $postid)
+    ToggleSavePost(profileid: $profileid, postid: $postid) {
+      postid
+      title
+      Description
+      postType
+    }
   }
 `;
 
@@ -85,6 +91,8 @@ export default function InstagramPost({
   const [togglePostLike] = useMutation(TOGGLE_POST_LIKE);
   const [toggleSavePost] = useMutation(TOGGLE_SAVE_POST);
   const [createComment] = useMutation(CREATE_COMMENT);
+  const [blockUser] = useMutation(BLOCK_USER);
+  const [restrictUser] = useMutation(RESTRICT_USER);
   
   const { data: postStats, refetch: refetchStats } = useQuery(GET_POST_STATS, {
     variables: { postid: post?.postid },
@@ -213,6 +221,51 @@ export default function InstagramPost({
       setIsDeleting(false);
       setShowDeleteConfirm(false);
       setShowOptionsMenu(false);
+    }
+  };
+
+  // Handle block user from post
+  const handleBlockFromPost = async () => {
+    if (!user?.profileid || !post?.profile?.profileid) return;
+    
+    const confirmed = confirm(`Are you sure you want to block ${post.profile.username}?`);
+    if (!confirmed) return;
+    
+    try {
+      await blockUser({
+        variables: {
+          profileid: user.profileid,
+          targetprofileid: post.profile.profileid,
+          reason: 'Blocked from post'
+        }
+      });
+      alert(`${post.profile.username} has been blocked.`);
+      setShowOptionsMenu(false);
+    } catch (error) {
+      console.error('Error blocking user:', error);
+      alert('Failed to block user. Please try again.');
+    }
+  };
+
+  // Handle restrict user from post
+  const handleRestrictFromPost = async () => {
+    if (!user?.profileid || !post?.profile?.profileid) return;
+    
+    const confirmed = confirm(`Are you sure you want to restrict ${post.profile.username}?`);
+    if (!confirmed) return;
+    
+    try {
+      await restrictUser({
+        variables: {
+          profileid: user.profileid,
+          targetprofileid: post.profile.profileid
+        }
+      });
+      alert(`${post.profile.username} has been restricted.`);
+      setShowOptionsMenu(false);
+    } catch (error) {
+      console.error('Error restricting user:', error);
+      alert('Failed to restrict user. Please try again.');
     }
   };
 
@@ -355,6 +408,43 @@ export default function InstagramPost({
                   </svg>
                   Copy Link
                 </button>
+                
+                {/* Block/Restrict options - only show if not own post */}
+                {user?.profileid !== post.profile?.profileid && (
+                  <>
+                    <div className={`border-t my-1 ${
+                      theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
+                    }`}></div>
+                    
+                    <button
+                      onClick={handleRestrictFromPost}
+                      className={`w-full text-left px-4 py-2 text-sm hover:bg-orange-50 hover:text-orange-600 flex items-center ${
+                        theme === 'dark' 
+                          ? 'text-gray-300 hover:bg-orange-900/20 hover:text-orange-400' 
+                          : 'text-gray-700'
+                      }`}
+                    >
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728" />
+                      </svg>
+                      Restrict User
+                    </button>
+                    
+                    <button
+                      onClick={handleBlockFromPost}
+                      className={`w-full text-left px-4 py-2 text-sm hover:bg-red-50 hover:text-red-600 flex items-center ${
+                        theme === 'dark' 
+                          ? 'text-gray-300 hover:bg-red-900/20 hover:text-red-400' 
+                          : 'text-gray-700'
+                      }`}
+                    >
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-12.728 12.728m0-12.728l12.728 12.728" />
+                      </svg>
+                      Block User
+                    </button>
+                  </>
+                )}
               </div>
             </>
           )}
@@ -367,15 +457,50 @@ export default function InstagramPost({
           <video
             src={post.postUrl}
             className="w-full max-h-96 object-cover"
-            controls
+            autoPlay
+            loop
             muted
+            playsInline
+            preload="metadata"
+            onError={(e) => {
+              console.error('Video load error for URL:', post.postUrl);
+              e.target.style.display = 'none';
+              // Show fallback image or placeholder
+              const fallback = e.target.nextElementSibling;
+              if (fallback) fallback.style.display = 'block';
+            }}
+            onLoadStart={() => {
+              console.log('Video loading started:', post.postUrl);
+            }}
+            onLoadedData={() => {
+              console.log('Video loaded successfully:', post.postUrl);
+            }}
           />
         ) : (
           <img
             src={post.postUrl}
             alt={post.title}
             className="w-full max-h-96 object-cover"
+            onError={(e) => {
+              console.error('Image load error for URL:', post.postUrl);
+              e.target.src = '/placeholder-image.png'; // Fallback image
+            }}
           />
+        )}
+        
+        {/* Video fallback placeholder */}
+        {post.postType === 'VIDEO' && (
+          <div 
+            className="w-full max-h-96 bg-gray-200 flex items-center justify-center" 
+            style={{ display: 'none', minHeight: '200px' }}
+          >
+            <div className="text-center">
+              <svg className="w-16 h-16 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>Video unavailable</p>
+            </div>
+          </div>
         )}
       </div>
 

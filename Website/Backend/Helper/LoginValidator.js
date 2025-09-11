@@ -12,7 +12,7 @@ export const signupApiValidator = [
     check('username', "Enter your username").not().isEmpty()
 ]
 
-export const loginApivalidation = [
+export const loginApiValidation = [
      body('email')
     .if(body('username').not().exists()) // validate email only if username doesn't exist
     .notEmpty().withMessage('Email is required when username is not provided')

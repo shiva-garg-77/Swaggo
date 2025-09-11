@@ -506,71 +506,73 @@ function PostGridItem({ post, onClick, theme }) {
             muted
             loop
             playsInline
-            autoPlay
-            preload="auto"
+            preload="metadata"
+            crossOrigin="anonymous"
             onError={(e) => {
               console.error('Video load error for URL:', mediaUrl);
               console.error('Original URL:', post.postUrl);
+              console.error('Video error details:', {
+                error: e.target.error,
+                networkState: e.target.networkState,
+                readyState: e.target.readyState,
+                currentSrc: e.target.currentSrc
+              });
               
-              // Try alternative URLs for localhost videos
-              const alternatives = [
-                mediaUrl.replace('localhost:45799', 'localhost:3001'),
-                mediaUrl.replace('localhost:3001', 'localhost:45799'),
-                mediaUrl.replace(':45799', ':3001'),
-                mediaUrl.replace(':3001', ':45799')
-              ];
+              // Hide the failed video immediately
+              e.target.style.display = 'none';
               
-              const currentSrc = e.target.src;
-              const nextUrl = alternatives.find(url => url !== currentSrc && url !== mediaUrl);
-              
-              if (nextUrl && !e.target.dataset.retried) {
-                console.log('Trying alternative profile video URL:', nextUrl);
-                e.target.dataset.retried = 'true';
-                e.target.src = nextUrl;
-                return;
+              // Show fallback placeholder
+              const parent = e.target.parentElement;
+              if (parent && !parent.querySelector('.error-placeholder')) {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = `error-placeholder w-full h-full flex items-center justify-center ${
+                  theme === 'dark' ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-600'
+                }`;
+                errorDiv.innerHTML = `
+                  <div class="text-center p-4">
+                    <div class="text-3xl mb-3">📹</div>
+                    <div class="text-sm font-medium mb-1">Video Loading Failed</div>
+                    <div class="text-xs opacity-75">Backend may be offline</div>
+                    <div class="text-xs opacity-50 mt-2 max-w-xs break-all">${post.postUrl}</div>
+                  </div>
+                `;
+                parent.appendChild(errorDiv);
               }
-            
-            // Track attempted URLs to avoid infinite loops
-            if (!attemptedUrls.includes(e.target.src)) {
-              attemptedUrls.push(e.target.src);
-            }
-            
-            // Try backup URLs one by one
-            const nextBackupUrl = backupUrls.find(url => !attemptedUrls.includes(url));
-            
-            if (nextBackupUrl) {
-              attemptedUrls.push(nextBackupUrl);
-              e.target.src = nextBackupUrl;
-              return;
-            }
-            
-            // If all backup URLs fail, show error placeholder
-            e.target.style.display = 'none';
-            const parent = e.target.parentElement;
-            if (parent && !parent.querySelector('.error-placeholder')) {
-              const errorDiv = document.createElement('div');
-              errorDiv.className = `error-placeholder w-full h-full flex items-center justify-center ${
-                theme === 'dark' ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-500'
-              }`;
-              errorDiv.innerHTML = `
-                <div class="text-center">
-                  <div class="text-2xl mb-2">📹</div>
-                  <div class="text-xs">Video unavailable</div>
-                  <div class="text-xs text-gray-500 mt-1">Check backend server</div>
-                </div>
-              `;
-              parent.appendChild(errorDiv);
-            }
-          }}
+            }}
+            onLoadStart={() => {
+              console.log('Video loading started:', mediaUrl);
+            }}
+            onCanPlay={(e) => {
+              console.log('Video can play:', mediaUrl);
+              if (isInView) {
+                e.target.play().catch(err => {
+                  console.error('Autoplay failed:', err);
+                });
+              }
+            }}
             onLoadedData={(e) => {
+              console.log('Video loaded successfully:', mediaUrl);
               // Ensure video starts playing once loaded
               const video = e.target;
               video.currentTime = 0;
-              setTimeout(() => {
-                video.play().catch(() => {});
-              }, 100);
+              if (isInView) {
+                setTimeout(() => {
+                  video.play().catch(err => {
+                    console.error('Delayed play failed:', err);
+                  });
+                }, 100);
+              }
             }}
-        />
+            onStalled={() => {
+              console.warn('Video stalled:', mediaUrl);
+            }}
+            onSuspend={() => {
+              console.warn('Video suspended:', mediaUrl);
+            }}
+            onAbort={() => {
+              console.warn('Video aborted:', mediaUrl);
+            }}
+          />
       );
     } else if (isImage) {
       return (

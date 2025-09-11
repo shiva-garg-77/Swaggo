@@ -28,6 +28,8 @@ import ModalEditProfile from './sections/ModalEditProfile'
 import ModalAccountSettings from './sections/ModalAccountSettings'
 import EditProfile from './sections/EditProfile'
 import AccountSettings from './sections/AccountSettings'
+import EnhancedAccountSettings from './sections/EnhancedAccountSettings'
+import FullFeaturedEditProfile from './sections/FullFeaturedEditProfile'
 import MessageSettings from './sections/MessageSettings'
 import Transactions from './sections/Transactions'
 import RestrictedAccounts from './sections/RestrictedAccounts'
@@ -78,12 +80,12 @@ const settingsSections = [
   },
   {
     id: 'saved-posts',
-    title: 'Saved Post',
+    title: 'Saved Posts',
     icon: Bookmark,
   },
   {
     id: 'liked-posts',
-    title: 'Like Post',
+    title: 'Liked Posts',
     icon: Heart,
   },
   {
@@ -109,25 +111,25 @@ export default function SettingsModal({ isOpen, onClose }) {
   const renderSectionContent = () => {
     switch (activeSection) {
       case 'edit-profile':
-        return <ModalEditProfile />
+        return <FullFeaturedEditProfile />
       case 'account':
-        return <ModalAccountSettings />
+        return <EnhancedAccountSettings isModal={true} onBack={() => setActiveSection('edit-profile')} />
       case 'messages':
         return <MessageSettings isModal={true} />
       case 'transactions':
         return <Transactions isModal={true} />
       case 'restricted':
-        return <RestrictedAccounts isModal={true} />
+        return <RestrictedAccounts onBack={() => setActiveSection('edit-profile')} />
       case 'close-friends':
-        return <CloseFriends isModal={true} />
+        return <CloseFriends isModal={true} onBack={() => setActiveSection('edit-profile')} />
       case 'blocked':
-        return <BlockedAccounts isModal={true} />
+        return <BlockedAccounts onBack={() => setActiveSection('edit-profile')} />
       case 'saved-posts':
         return <SavedPosts isModal={true} />
       case 'liked-posts':
         return <LikedPosts isModal={true} />
       case 'tags-mentions':
-        return <TagsMentions isModal={true} />
+        return <TagsMentions isModal={true} onBack={() => setActiveSection('edit-profile')} />
       case 'privacy-policy':
         return <PrivacyPolicy isModal={true} />
       case 'help-support':

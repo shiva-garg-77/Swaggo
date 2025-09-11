@@ -1,13 +1,12 @@
-import MainLayout from '../../../Components/Layout/MainLayout'
-import ProtectedRoute from '../../../Components/Helper/ProtectedRoute'
-import UserProfile from '../../../Components/MainComponents/Profile/UserProfile'
+import { lazy, Suspense } from 'react'
+
+// Lazy load UserProfile for better performance
+const UserProfile = lazy(() => import('../../../Components/MainComponents/Profile/UserProfile'))
 
 export default function ProfilePage() {
   return (
-    <ProtectedRoute>
-      <MainLayout>
-        <UserProfile />
-      </MainLayout>
-    </ProtectedRoute>
+    <Suspense fallback={null}>
+      <UserProfile />
+    </Suspense>
   )
 }

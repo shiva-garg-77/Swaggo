@@ -1,13 +1,12 @@
-import MainLayout from '../../../Components/Layout/MainLayout'
-import HomeContent from '../../../Components/MainComponents/Home/HomeContent'
-import ProtectedRoute from '../../../Components/Helper/ProtectedRoute'
+import { lazy, Suspense } from 'react'
+
+// Lazy load HomeContent for better performance
+const HomeContent = lazy(() => import('../../../Components/MainComponents/Home/HomeContent'))
 
 export default function HomePage() {
   return (
-    <ProtectedRoute>
-      <MainLayout>
-        <HomeContent />
-      </MainLayout>
-    </ProtectedRoute>
+    <Suspense fallback={null}>
+      <HomeContent />
+    </Suspense>
   )
 }

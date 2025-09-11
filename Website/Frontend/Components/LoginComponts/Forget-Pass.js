@@ -6,7 +6,7 @@ import { AuthContext } from '../Helper/AuthProvider';
 
 export default function ForgetPass() {
   const { theme } = useTheme();
-  const { forgetPassword, ErrorMsg, successMsg, authLoading, clearMessages, clearError } = useContext(AuthContext);
+  const { forgetPassword, ErrorMsg, successMsg, clearMessages, clearError } = useContext(AuthContext);
   const [formData, setFormData] = useState({
     email: '',
   });
@@ -112,14 +112,9 @@ export default function ForgetPass() {
 
           <button
             type="submit"
-            disabled={authLoading}
-            className={`bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold py-3 px-9 rounded-3xl transition-all duration-300 mb-5 ${
-              authLoading 
-              ? 'opacity-50 cursor-not-allowed' 
-              : 'cursor-pointer hover:transform hover:-translate-y-1 hover:shadow-2xl hover:shadow-red-500/30'
-              }`}
-              >
-            {authLoading ? 'Sending...' : 'Send Mail'}
+            className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold py-3 px-9 rounded-3xl transition-all duration-300 mb-5 cursor-pointer hover:transform hover:-translate-y-1 hover:shadow-2xl hover:shadow-red-500/30"
+          >
+            Send Mail
           </button>
         </form>
 

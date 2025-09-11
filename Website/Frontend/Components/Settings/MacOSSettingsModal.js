@@ -32,16 +32,17 @@ import {
 // Import enhanced section components
 import MacOSEditProfile from './sections/MacOSEditProfile'
 import HelpSupportSection from './sections/HelpSupportSection'
+import EnhancedAccountSettings from './sections/EnhancedAccountSettings'
+import BlockedAccountsEnhanced from '../../components/settings/BlockedAccountsEnhanced';
+import RestrictedAccountsEnhanced from '../../components/settings/RestrictedAccountsEnhanced';
+import CloseFriends from './sections/CloseFriends'
+import TagsMentions from './sections/TagsMentions'
 import {
   MacOSAccountSettings,
   MacOSMessageSettings,
   MacOSTransactions,
-  MacOSRestrictedAccounts,
-  MacOSCloseFriends,
-  MacOSBlockedAccounts,
   MacOSSavedPosts,
   MacOSLikedPosts,
-  MacOSTagsMentions,
   MacOSPrivacyPolicy,
   MacOSContactUs,
   MacOSThemeSettings,
@@ -231,23 +232,23 @@ export default function MacOSSettingsModal({ isOpen, onClose }) {
       case 'edit-profile':
         return <MacOSEditProfile {...props} />
       case 'account':
-        return <MacOSAccountSettings {...props} />
+        return <EnhancedAccountSettings isModal={true} {...props} />
       case 'messages':
         return <MacOSMessageSettings {...props} />
       case 'transactions':
         return <MacOSTransactions {...props} />
       case 'restricted':
-        return <MacOSRestrictedAccounts {...props} />
+        return <RestrictedAccountsEnhanced {...props} />
       case 'close-friends':
-        return <MacOSCloseFriends {...props} />
+        return <CloseFriends isModal={true} {...props} />
       case 'blocked':
-        return <MacOSBlockedAccounts {...props} />
+        return <BlockedAccountsEnhanced {...props} />
       case 'saved-posts':
         return <MacOSSavedPosts {...props} />
       case 'liked-posts':
         return <MacOSLikedPosts {...props} />
       case 'tags-mentions':
-        return <MacOSTagsMentions {...props} />
+        return <TagsMentions isModal={true} {...props} />
       case 'theme':
         return <MacOSThemeSettings {...props} />
       case 'accessibility':

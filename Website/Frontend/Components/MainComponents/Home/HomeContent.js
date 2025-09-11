@@ -7,89 +7,40 @@ import { GET_ALL_POSTS, TOGGLE_POST_LIKE, TOGGLE_SAVE_POST } from '../../../lib/
 import { triggerPostsRefetch } from '../../../lib/apollo/refetchHelper';
 import InstagramPostModal from '../Post/InstagramPostModal';
 import InstagramPost from '../Post/InstagramPost';
+import UserSearch from '../../Search/UserSearch';
 
 export default function HomeContent() {
   const { theme } = useTheme();
   const { user } = useAuth();
   const [selectedPost, setSelectedPost] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [showUserRecommendations, setShowUserRecommendations] = useState(true);
   
   // GraphQL Mutations
   const [togglePostLike] = useMutation(TOGGLE_POST_LIKE);
   const [toggleSavePost] = useMutation(TOGGLE_SAVE_POST);
   
   const { data, loading, error, refetch } = useQuery(GET_ALL_POSTS, {
-    errorPolicy: 'all', // Return partial data on error
-    fetchPolicy: 'cache-and-network', // Always try to fetch fresh data
-    onError: (error) => {
-      console.error('🔴 GraphQL Error:', error);
-      if (error.graphQLErrors) {
-        error.graphQLErrors.forEach((gqlError) => {
-          console.error('🔴 GraphQL Error Details:', gqlError);
-        });
-      }
-      if (error.networkError) {
-        console.error('🌐 Network Error:', error.networkError);
-      }
-    },
-    onCompleted: (data) => {
-      console.log('✅ Posts loaded successfully:', data?.getPosts?.length || 0, 'posts');
-    }
+    errorPolicy: 'all',
+    fetchPolicy: 'cache-first', // Fast cache, fallback to network
+    notifyOnNetworkStatusChange: false
   });
   
 
-  // Use only real posts from database
+  // Use posts from database with minimal filtering for performance
   const rawPosts = data?.getPosts || [];
   
-  // Filter out posts with invalid or missing image URLs
+  // Simple filter - only remove posts with truly empty URLs
   const posts = rawPosts.filter(post => {
     const imageUrl = post.postUrl || post.image;
-    
-    // Check for basic validity
-    if (!imageUrl || 
-        imageUrl === 'null' || 
-        imageUrl === 'undefined' || 
-        imageUrl.trim() === '') {
-      console.log('⚠️ Filtering out post with empty/null URL:', {
-        postId: post.postid || post.id,
-        imageUrl: imageUrl
-      });
-      return false;
-    }
-    
-    // Check for example/test URLs that don't exist  
-    const testUrls = [
-      'https://example.com',
-      'http://example.com',
-      'https://test.com',
-      'http://test.com',
-      'example.jpg',
-      'test.jpg',
-      'debug-test',
-      'placeholder'
-    ];
-    
-    const isTestUrl = testUrls.some(testUrl => 
-      imageUrl.toLowerCase().includes(testUrl.toLowerCase())
-    );
-    
-    if (isTestUrl) {
-      console.log('🧪 Filtering out test/example URL post:', {
-        postId: post.postid || post.id,
-        imageUrl: imageUrl,
-        reason: 'Contains test/example URL'
-      });
-      return false;
-    }
-    
-    return true;
+    return imageUrl && imageUrl.trim() && imageUrl !== 'null' && imageUrl !== 'undefined';
   });
   
-  console.log('📊 Posts stats:', {
-    total: rawPosts?.length || 0,
-    valid: posts?.length || 0,
-    filtered: (rawPosts?.length || 0) - (posts?.length || 0)
-  });
+  // Only log in development
+  if (process.env.NODE_ENV === 'development') {
+    console.log('📊 Posts loaded:', posts.length);
+  }
 
   // Modal handlers
   const openPostModal = (post) => {
@@ -219,9 +170,24 @@ export default function HomeContent() {
     refetch().catch(console.error);
   };
   
+  // Handle user selection from search
+  const handleUserSelect = (user) => {
+    setSelectedUser(user);
+    setShowUserRecommendations(false);
+    console.log('👤 User selected:', user);
+    // You can navigate to user profile or show their posts here
+    // For now, we'll just store the selected user
+  };
+  
+  // Clear search and show all posts again
+  const clearSearch = () => {
+    setSelectedUser(null);
+    setShowUserRecommendations(true);
+  };
+  
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
+      <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
       </div>
     );
@@ -235,6 +201,99 @@ export default function HomeContent() {
   return (
     <>
       <div className="space-y-4 lg:space-y-6">
+        <div className="mb-6">
+          <UserSearch
+            onUserSelect={handleUserSelect}
+            placeholder="Search users..."
+          />
+          {selectedUser && (
+            <div className="mt-4">
+              <div className="text-center mb-4">
+                <button
+                  onClick={clearSearch}
+                  className={`text-sm px-4 py-2 rounded-full transition-colors ${
+                    theme === 'dark' 
+                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' 
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}>
+                  Clear Search
+                </button>
+              </div>
+              <div className={`rounded-lg p-6 border ${
+                theme === 'dark' 
+                  ? 'bg-gray-800 border-gray-700' 
+                  : 'bg-white border-gray-200'
+              }`}>
+                <div className="flex items-start space-x-4">
+                  <img
+                    src={selectedUser.profilePic || '/default-profile.svg'}
+                    alt={selectedUser.username}
+                    className="w-12 h-12 rounded-full object-cover"
+                    onError={(e) => {
+                      e.target.src = '/default-profile.svg';
+                    }}
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-2">
+                      <h3 className={`font-semibold ${
+                        theme === 'dark' ? 'text-white' : 'text-gray-900'
+                      }`}>
+                        {selectedUser.username}
+                      </h3>
+                      {selectedUser.isVerified && (
+                        <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </div>
+                    <p className={`text-sm ${
+                      theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                    }`}>
+                      {selectedUser.name}
+                    </p>
+                    {selectedUser.bio && (
+                      <p className={`text-xs mt-1 ${
+                        theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                      }`}>
+                        {selectedUser.bio}
+                      </p>
+                    )}
+                    <div className={`flex items-center space-x-4 mt-2 text-xs ${
+                      theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+                    }`}>
+                      <span>{selectedUser.followersCount || 0} followers</span>
+                      <span>{selectedUser.followingCount || 0} following</span>
+                      <span>{selectedUser.postsCount || 0} posts</span>
+                    </div>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 hover:shadow-lg">
+                      Follow
+                    </button>
+                    <button className={`px-4 py-2 rounded-full border text-sm font-medium transition-all duration-300 ${
+                      theme === 'dark'
+                        ? 'border-gray-600 text-gray-300 hover:bg-gray-700'
+                        : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                    }`}>
+                      Message
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {showUserRecommendations && (
+            <div className={`text-center py-4 mt-4 ${
+              theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+            }`}>
+              <p className="text-sm">
+                🔍 Start typing to search for users
+              </p>
+            </div>
+          )}
+        </div>
+
         {/* Posts Feed */}
         {posts.length === 0 ? (
           <div className={`text-center py-20 ${
