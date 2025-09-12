@@ -25,4 +25,4 @@ ShareSchema.index({ shareType: 1 });
 ShareSchema.index({ createdAt: -1 });
 ShareSchema.index({ postid: 1, createdAt: -1 });
 
-export default mongoose.model("Share", ShareSchema);
+export default mongoose.models.Share || mongoose.model("Share", ShareSchema);

@@ -7,4 +7,4 @@ const FollowingSchema=new mongoose.Schema({
 })
 
 
-export default mongoose.model("Following",FollowingSchema)
+export default mongoose.models.Following || mongoose.model("Following", FollowingSchema)

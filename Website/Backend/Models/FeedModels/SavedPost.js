@@ -7,4 +7,4 @@ const SavedPostSchema=new mongoose.Schema({
 })
 
 
-export default mongoose.model("SavedPost",SavedPostSchema)
+export default mongoose.models.SavedPost || mongoose.model("SavedPost", SavedPostSchema)

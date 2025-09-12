@@ -8,6 +8,7 @@ import { triggerPostsRefetch } from '../../../lib/apollo/refetchHelper';
 import InstagramPostModal from '../Post/InstagramPostModal';
 import InstagramPost from '../Post/InstagramPost';
 import UserSearch from '../../Search/UserSearch';
+import SuggestedMoments from './SuggestedReels';
 
 export default function HomeContent() {
   const { theme } = useTheme();
@@ -37,20 +38,33 @@ export default function HomeContent() {
     return imageUrl && imageUrl.trim() && imageUrl !== 'null' && imageUrl !== 'undefined';
   });
   
-  // Only log in development
-  if (process.env.NODE_ENV === 'development') {
-    console.log('📊 Posts loaded:', posts.length);
-  }
+  // Debug posts loading
+  console.log('📄 Posts debug:', {
+    rawPostsCount: rawPosts.length,
+    filteredPostsCount: posts.length,
+    loading,
+    hasError: !!error,
+    hasData: !!data,
+    samplePost: posts[0] ? { id: posts[0].id || posts[0].postid, postUrl: posts[0].postUrl } : 'No posts'
+  });
 
   // Modal handlers
   const openPostModal = (post) => {
+    console.log('🔴 openPostModal called with post:', post?.postid || post?.id);
+    console.log('🔴 User state:', { hasUser: !!user, profileId: user?.profileid, username: user?.username });
+    console.log('🔴 Full post data:', post);
     setSelectedPost(post);
     setIsModalOpen(true);
+    console.log('🔴 Modal state set - isModalOpen:', true, 'selectedPost:', post?.postid || post?.id);
+    // Prevent body scroll when modal is open
+    document.body.style.overflow = 'hidden';
   };
 
   const closePostModal = () => {
     setSelectedPost(null);
     setIsModalOpen(false);
+    // Restore body scroll
+    document.body.style.overflow = 'unset';
   };
   
   // Like handler with proper cache updates
@@ -294,6 +308,9 @@ export default function HomeContent() {
           )}
         </div>
 
+        {/* Suggested Moments - These will redirect to /reel page */}
+        <SuggestedMoments />
+
         {/* Posts Feed */}
         {posts.length === 0 ? (
           <div className={`text-center py-20 ${
@@ -303,20 +320,26 @@ export default function HomeContent() {
             <p className="text-sm">There are no posts to display at the moment.</p>
           </div>
         ) : (
-          posts.map((post) => (
-            <InstagramPost 
-              key={post.id || post.postid} 
-              post={post} 
-              theme={theme}
-              onCommentClick={() => openPostModal(post)}
-              onPostDeleted={handlePostDeleted}
-              className="mb-4 lg:mb-6"
-            />
-          ))
+          posts.map((post) => {
+            console.log('📄 Rendering InstagramPost with post:', { id: post.id || post.postid, hasOnCommentClick: true });
+            return (
+              <InstagramPost 
+                key={post.id || post.postid} 
+                post={post} 
+                theme={theme}
+                onCommentClick={() => {
+                  console.log('📄 onCommentClick handler created for post:', post.postid || post.id);
+                  openPostModal(post);
+                }}
+                onPostDeleted={handlePostDeleted}
+                className="mb-4 lg:mb-6"
+              />
+            );
+          })
         )}
       </div>
 
-      {/* Post Modal */}
+      {/* Post Modal - Using original InstagramPostModal */}
       <InstagramPostModal
         post={selectedPost}
         isOpen={isModalOpen}

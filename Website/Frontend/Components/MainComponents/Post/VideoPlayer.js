@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTheme } from '../../Helper/ThemeProvider';
+import { safeVideoPlay, safeVideoPause, toggleVideoPlayPause } from '../../../lib/videoUtils';
 
 export default function VideoPlayer({ 
   src, 
@@ -43,18 +44,23 @@ export default function VideoPlayer({
         
         if (entry.isIntersecting) {
           // Auto play when video comes into view
-          video.play().then(() => {
-            setIsPlaying(true);
-            onPlay?.();
-          }).catch(err => {
-            console.log('Autoplay prevented:', err);
-            setIsPlaying(false);
-          });
+          safeVideoPlay(
+            video,
+            () => {
+              setIsPlaying(true);
+              onPlay?.();
+            },
+            (error) => {
+              console.log('Autoplay prevented:', error.message);
+              setIsPlaying(false);
+            }
+          );
         } else if (!isModal) {
           // Pause when video goes out of view (except in modal)
-          video.pause();
-          setIsPlaying(false);
-          onPause?.();
+          safeVideoPause(video, () => {
+            setIsPlaying(false);
+            onPause?.();
+          });
         }
       },
       { threshold: 0.3 }
@@ -87,7 +93,7 @@ export default function VideoPlayer({
     const video = videoRef.current;
     if (video && autoPlay && isVisible) {
       setTimeout(() => {
-        video.play().catch(() => {
+        safeVideoPlay(video, null, () => {
           setIsPlaying(false);
         });
       }, 100); // Small delay to ensure proper loading
@@ -127,13 +133,12 @@ export default function VideoPlayer({
     const video = videoRef.current;
     if (!video) return;
 
-    if (isPlaying) {
-      video.pause();
-    } else {
-      video.play().catch(err => {
-        console.log('Play prevented:', err);
-      });
-    }
+    toggleVideoPlayPause(
+      video,
+      isPlaying,
+      () => setIsPlaying(true),
+      () => setIsPlaying(false)
+    );
   }, [isPlaying]);
 
   // Toggle mute

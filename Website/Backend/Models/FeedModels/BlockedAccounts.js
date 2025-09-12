@@ -12,4 +12,4 @@ const BlockedAccountSchema = new mongoose.Schema({
 // Create compound index to prevent duplicate blocks
 BlockedAccountSchema.index({ profileid: 1, blockedprofileid: 1 }, { unique: true });
 
-export default mongoose.model("BlockedAccount", BlockedAccountSchema);
+export default mongoose.models.BlockedAccount || mongoose.model("BlockedAccount", BlockedAccountSchema);

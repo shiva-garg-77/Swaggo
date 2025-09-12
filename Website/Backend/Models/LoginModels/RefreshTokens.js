@@ -5,4 +5,4 @@ const RefreshTokenSchema = new mongoose.Schema({
     Refreshtoken: { type: String, required: true }
 })
 
-export default mongoose.model("RefreshToken", RefreshTokenSchema);
+export default mongoose.models.RefreshToken || mongoose.model("RefreshToken", RefreshTokenSchema);

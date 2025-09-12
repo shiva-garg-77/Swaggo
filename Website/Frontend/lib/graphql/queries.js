@@ -52,50 +52,125 @@ export const TOGGLE_SAVE_POST = gql`
 `;
 
 // ============ COMMENTS ============
+// Query matching exact TypeDef structure
 export const GET_POST_COMMENTS = gql`
   query GetPostComments($postid: String!) {
     getCommentsByPost(postid: $postid) {
       commentid
+      postid
       comment
+      commenttoid
       likeCount
       isLikedByUser
       createdAt
+      updatedAt
       profile {
         profileid
         username
         profilePic
         isVerified
       }
+      userto {
+        profileid
+        username
+      }
+      mentions {
+        mentionid
+        mentionedprofileid
+        mentionerprofileid
+        contexttype
+        contextid
+        isnotified
+        isread
+        createdAt
+      }
       replies {
         commentid
+        postid
         comment
+        commenttoid
         likeCount
         isLikedByUser
         createdAt
+        updatedAt
         profile {
           profileid
           username
           profilePic
           isVerified
         }
+        userto {
+          profileid
+          username
+        }
       }
     }
   }
 `;
 
+// Mutation matching exact TypeDef structure with postid included
 export const CREATE_COMMENT = gql`
-  mutation CreateComment($postid: String!, $profileid: String!, $comment: String!) {
-    CreateComment(postid: $postid, profileid: $profileid, comment: $comment) {
+  mutation CreateComment(
+    $postid: String!, 
+    $profileid: String!, 
+    $comment: String!,
+    $usertoid: String,
+    $commenttoid: String
+  ) {
+    CreateComment(
+      postid: $postid, 
+      profileid: $profileid, 
+      comment: $comment,
+      usertoid: $usertoid,
+      commenttoid: $commenttoid
+    ) {
       commentid
+      postid
       comment
+      commenttoid
       likeCount
       isLikedByUser
       createdAt
+      updatedAt
       profile {
         profileid
         username
         profilePic
         isVerified
+      }
+      userto {
+        profileid
+        username
+      }
+      replies {
+        commentid
+        postid
+        comment
+        commenttoid
+        likeCount
+        isLikedByUser
+        createdAt
+        updatedAt
+        profile {
+          profileid
+          username
+          profilePic
+          isVerified
+        }
+        userto {
+          profileid
+          username
+        }
+      }
+      mentions {
+        mentionid
+        mentionedprofileid
+        mentionerprofileid
+        contexttype
+        contextid
+        isnotified
+        isread
+        createdAt
       }
     }
   }

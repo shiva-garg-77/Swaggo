@@ -43,24 +43,65 @@ export default function InstagramStyleCommentSection({
   const [toggleCommentLike] = useMutation(TOGGLE_COMMENT_LIKE);
   const [searchUsers] = useMutation(SEARCH_USERS);
 
-  // Group comments Instagram-style: main comments and their replies in sequence
+  // Group comments with improved threading support
   const groupedComments = useCallback(() => {
-    const mainComments = comments.filter(c => !c.isReply);
-    const replies = comments.filter(c => c.isReply);
+    // Try threaded approach first, fallback to flat structure
+    const commentMap = new Map();
+    const rootComments = [];
     
-    const grouped = [];
-    
-    mainComments.forEach(comment => {
-      grouped.push(comment);
-      // Add replies immediately after the main comment
-      const commentReplies = replies.filter(r => 
-        r.originalCommentId === comment.commentid
-      ).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-      
-      grouped.push(...commentReplies);
+    // Create comment map
+    comments.forEach(comment => {
+      commentMap.set(comment.commentid, {
+        ...comment,
+        children: [],
+        hasReplies: false
+      });
     });
     
-    return grouped;
+    // Build thread structure (if supported)
+    comments.forEach(comment => {
+      if (comment.parentCommentId && commentMap.has(comment.parentCommentId)) {
+        const parent = commentMap.get(comment.parentCommentId);
+        parent.children.push(commentMap.get(comment.commentid));
+        parent.hasReplies = true;
+      } else if (comment.originalCommentId && commentMap.has(comment.originalCommentId) && !comment.parentCommentId) {
+        // Legacy reply structure - treat as child of original comment
+        const original = commentMap.get(comment.originalCommentId);
+        original.children.push(commentMap.get(comment.commentid));
+        original.hasReplies = true;
+      } else if (!comment.isReply && !comment.parentCommentId) {
+        rootComments.push(commentMap.get(comment.commentid));
+      }
+    });
+    
+    // If no threaded structure found, fall back to flat grouping
+    if (rootComments.length === 0) {
+      const mainComments = comments.filter(c => !c.isReply);
+      const replies = comments.filter(c => c.isReply);
+      
+      const grouped = [];
+      mainComments.forEach(comment => {
+        const commentWithReplies = { ...comment, children: [], hasReplies: false };
+        grouped.push(commentWithReplies);
+        
+        // Add replies immediately after the main comment
+        const commentReplies = replies.filter(r => 
+          r.originalCommentId === comment.commentid
+        ).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+        
+        if (commentReplies.length > 0) {
+          commentWithReplies.hasReplies = true;
+          commentWithReplies.children = commentReplies.map(reply => ({ ...reply, children: [], hasReplies: false }));
+        }
+      });
+      
+      return grouped;
+    }
+    
+    // Sort root comments
+    rootComments.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    
+    return rootComments;
   }, [comments]);
 
   // Handle mention detection in input
@@ -128,11 +169,12 @@ export default function InstagramStyleCommentSection({
         comment: newComment.trim()
       };
 
-      // Add reply data if replying
+      // Add reply data if replying - support both threaded and flat structures
       if (replyingTo) {
+        commentData.parentCommentId = replyingTo.commentid;
         commentData.replyToUserId = replyingTo.profile.profileid;
         commentData.replyToUsername = replyingTo.profile.username;
-        commentData.originalCommentId = replyingTo.isReply ? replyingTo.originalCommentId : replyingTo.commentid;
+        commentData.originalCommentId = replyingTo.originalCommentId || replyingTo.commentid;
       }
 
       await createComment({
@@ -212,16 +254,13 @@ export default function InstagramStyleCommentSection({
 
   return (
     <div className={`${className} relative`}>
-      {/* Comments list - Instagram flat style */}
+      {/* Comments list - Enhanced threading style */}
       <div className="space-y-3 max-h-96 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
         {groupedComments().length > 0 ? (
           groupedComments().map((comment) => (
-            <div
-              key={comment.commentid}
-              className={`flex items-start space-x-3 ${
-                comment.isReply ? 'ml-8 opacity-95' : ''
-              } group hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors px-3 py-2 rounded-lg`}
-            >
+            <div key={comment.commentid}>
+              {/* Main Comment */}
+              <div className="flex items-start space-x-3 group hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors px-3 py-2 rounded-lg">
               <img
                 src={comment.profile?.profilePic || '/default-profile.svg'}
                 alt={comment.profile?.username || 'User'}
@@ -303,6 +342,105 @@ export default function InstagramStyleCommentSection({
                 </svg>
               </button>
             </div>
+            
+            {/* Threaded Replies */}
+            {comment.hasReplies && comment.children && comment.children.length > 0 && (
+              <div className="ml-8 mt-2 space-y-2 border-l-2 border-gray-200 dark:border-gray-700 pl-4">
+                {comment.children.slice(0, 3).map((reply) => (
+                  <div
+                    key={reply.commentid}
+                    className="flex items-start space-x-3 group hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors px-3 py-2 rounded-lg opacity-95"
+                  >
+                    <img
+                      src={reply.profile?.profilePic || '/default-profile.svg'}
+                      alt={reply.profile?.username || 'User'}
+                      className="w-6 h-6 rounded-full object-cover"
+                    />
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start flex-wrap">
+                        <span className={`font-semibold text-sm mr-2 ${
+                          actualTheme === 'dark' ? 'text-white' : 'text-gray-900'
+                        }`}>
+                          {reply.profile?.username || 'Unknown User'}
+                        </span>
+                        
+                        {reply.replyToUsername && (
+                          <span className="text-blue-500 text-sm mr-2">
+                            @{reply.replyToUsername}
+                          </span>
+                        )}
+                        
+                        <div className={`text-sm flex-1 break-words ${
+                          actualTheme === 'dark' ? 'text-gray-100' : 'text-gray-900'
+                        }`}>
+                          {renderCommentText(reply.comment, reply.mentionedUsers)}
+                        </div>
+                      </div>
+                      
+                      {/* Reply actions */}
+                      <div className="flex items-center space-x-4 mt-1">
+                        <span className={`text-xs ${
+                          actualTheme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                        }`}>
+                          {timeAgo(reply.createdAt)}
+                        </span>
+                        
+                        {reply.likeCount > 0 && (
+                          <span className={`text-xs font-medium ${
+                            actualTheme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+                          }`}>
+                            {reply.likeCount} {reply.likeCount === 1 ? 'like' : 'likes'}
+                          </span>
+                        )}
+                        
+                        <button
+                          onClick={() => handleReply(reply)}
+                          disabled={!user?.profileid}
+                          className={`text-xs font-medium transition-colors ${
+                            actualTheme === 'dark' 
+                              ? 'text-gray-400 hover:text-white' 
+                              : 'text-gray-500 hover:text-gray-700'
+                          } ${!user?.profileid ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          Reply
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {/* Like button for reply */}
+                    <button
+                      onClick={() => handleCommentLike(reply.commentid)}
+                      disabled={!user?.profileid}
+                      className={`p-1 transition-colors opacity-0 group-hover:opacity-100 ${
+                        reply.isLikedByUser ? 'opacity-100' : ''
+                      } ${!user?.profileid ? 'cursor-not-allowed' : ''}`}
+                    >
+                      <svg 
+                        className={`w-3 h-3 transition-colors ${
+                          reply.isLikedByUser 
+                            ? 'text-red-500 fill-current' 
+                            : actualTheme === 'dark' ? 'text-gray-400 hover:text-red-400' : 'text-gray-400 hover:text-red-500'
+                        }`} 
+                        fill={reply.isLikedByUser ? 'currentColor' : 'none'} 
+                        stroke="currentColor" 
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+                
+                {/* Show more replies if there are more than 3 */}
+                {comment.children.length > 3 && (
+                  <button className={`text-sm pl-9 text-blue-500 hover:text-blue-600 transition-colors`}>
+                    View {comment.children.length - 3} more replies
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
           ))
         ) : (
           <div className="flex flex-col items-center justify-center py-12">

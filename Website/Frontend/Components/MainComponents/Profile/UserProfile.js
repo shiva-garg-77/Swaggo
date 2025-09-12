@@ -36,9 +36,10 @@ export default function UserProfile() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
-  // Get username from URL params, if none provided, show current user's profile
+  // Get username or ID from URL params, if none provided, show current user's profile
   const profileUsername = searchParams.get('user');
-  const isOwnProfile = !profileUsername;
+  const profileId = searchParams.get('id');
+  const isOwnProfile = !profileUsername && !profileId;
   
   // State management
   const [activeTab, setActiveTab] = useState('uploads');
@@ -47,6 +48,7 @@ export default function UserProfile() {
   const [showCreateMemoryModal, setShowCreateMemoryModal] = useState(false);
 
   // Use simpler profile query to avoid schema mismatch issues
+  // If we have profileId, we need to search for the user first to get username
   const queryToUse = isOwnProfile ? GET_CURRENT_USER_PROFILE : GET_SIMPLE_PROFILE;
   const queryVariables = isOwnProfile ? {} : { username: profileUsername };
   
@@ -163,10 +165,14 @@ export default function UserProfile() {
     }
   };
 
-  // Handle message user
+  // Handle message user - navigate to message route
   const handleMessage = () => {
     if (isOwnProfile || !data?.getUserbyUsername) return;
-    router.push(`/message?user=${data.getUserbyUsername.username}`);
+    
+    console.log('💬 Navigating to message with user:', data.getUserbyUsername.username, data.getUserbyUsername.profileid);
+    
+    // Navigate to message route with the user info
+    router.push(`/message?user=${data.getUserbyUsername.username}&userId=${data.getUserbyUsername.profileid}`);
   };
 
   // Add block/restrict mutations and queries

@@ -21,4 +21,4 @@ MentionsSchema.index({ mentionedprofileid: 1 });
 MentionsSchema.index({ contexttype: 1, contextid: 1 });
 MentionsSchema.index({ createdAt: -1 });
 
-export default mongoose.model("Mentions", MentionsSchema);
+export default mongoose.models.Mentions || mongoose.model("Mentions", MentionsSchema);

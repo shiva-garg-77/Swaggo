@@ -44,7 +44,7 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
   const [showUserSearch, setShowUserSearch] = useState(false);
   
   // Upload state
-  // Upload loading state removed
+  const [isUploading, setIsUploading] = useState(false);
   
   // Add user search functionality
   const [searchUsers, { data: searchUsersData }] = useLazyQuery(SEARCH_USERS);

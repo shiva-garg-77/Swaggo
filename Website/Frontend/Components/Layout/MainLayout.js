@@ -4,23 +4,16 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useTheme } from '../Helper/ThemeProvider';
 import { AuthContext } from '../Helper/AuthProvider';
 import ThemeToggle from '../Helper/ThemeToggle';
-import { useOptimizedNavigation, RoutePreloader } from '../Helper/RouteOptimizer';
-import { RouteTransitionContainer, RouteTransitionIndicator } from '../Helper/RouteTransition';
-import { usePerformanceMonitor, PerformanceDebugger, PerformanceMetrics } from '../Helper/PerformanceMonitor';
-import { CacheProvider } from '../Helper/CacheOptimizer';
+import { useInvisibleSpeedBoost, InvisiblePreloader } from '../Helper/InvisibleSpeedBoost';
 
 export default function MainLayout({ children }) {
   const { theme } = useTheme();
   const { logout } = useContext(AuthContext);
   const router = useRouter();
   const pathname = usePathname();
-  const { navigateWithPreload, prefetchRoute, prefetchMainRoutes } = useOptimizedNavigation();
-  const { measureRender, measureAsync } = usePerformanceMonitor(pathname);
+  const { fastNavigate, preloadOnHover } = useInvisibleSpeedBoost();
   
-  // Prefetch main routes on mount
-  useEffect(() => {
-    prefetchMainRoutes();
-  }, [prefetchMainRoutes]);
+  // No heavy preloading needed - invisible speed boost handles it
   
   // Simple active tab computation
   const activeTab = (() => {
@@ -28,7 +21,7 @@ export default function MainLayout({ children }) {
     if (pathname === '/create') return 'create';
     if (pathname === '/message') return 'message';
     if (pathname === '/Profile') return 'profile';
-    if (pathname === '/reel') return 'reel';
+    if (pathname === '/reel') return 'moments';
     if (pathname === '/bonus') return 'bonus';
     if (pathname === '/game') return 'games';
     return 'home';
@@ -39,13 +32,12 @@ export default function MainLayout({ children }) {
     router.push('/');
   };
 
-  const handleNavigation = async (route) => {
-    await navigateWithPreload(route);
+  const handleNavigation = (route) => {
+    fastNavigate(route);
   };
 
   const handleNavHover = (route) => {
-    // Prefetch on hover for instant navigation
-    prefetchRoute(route, true);
+    preloadOnHover(route);
   };
 
   const navItems = [
@@ -53,27 +45,16 @@ export default function MainLayout({ children }) {
     { id: 'create', label: 'Create', route: '/create', icon: <CreateIcon /> },
     { id: 'message', label: 'Message', route: '/message', icon: <MessageIcon /> },
     { id: 'profile', label: 'Profile', route: '/Profile', icon: <UserIcon /> },
-    { id: 'reel', label: 'Reel', route: '/reel', icon: <ReelsIcon /> },
+    { id: 'dashboard', label: 'Dashboard', route: '/dashboard', icon: <DashboardIcon /> },
+    { id: 'moments', label: 'Moments', route: '/reel', icon: <MomentsIcon /> },
     { id: 'bonus', label: 'Bonus', route: '/bonus', icon: <BonusIcon /> },
     { id: 'games', label: 'Games', route: '/game', icon: <GamesIcon /> },
     { id: 'debug', label: 'Debug', route: '/debug', icon: <DebugIcon /> },
-  ];
-
+  ].filter(Boolean); // Safety filter
   return (
-    <CacheProvider enableStats={process.env.NODE_ENV === 'development'}>
-      {/* Performance Monitoring */}
-      <PerformanceDebugger enabled={process.env.NODE_ENV === 'development'} />
-      <PerformanceMetrics show={process.env.NODE_ENV === 'development'} />
-      
-      {/* Route Preloader */}
-      <RoutePreloader 
-        routes={['/home', '/Profile', '/create', '/reel', '/message', '/bonus', '/game']} 
-        priority={['/home', '/Profile']}
-        delay={1000}
-      />
-      
-      {/* Route Transition Indicator */}
-      <RouteTransitionIndicator />
+    <>
+      {/* Invisible background optimization - no UI changes */}
+      <InvisiblePreloader routes={['/home', '/Profile', '/create', '/reel', '/message', '/dashboard']} />
       
       <div className={`min-h-screen h-screen flex transition-colors duration-300 overflow-hidden ${
         theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'
@@ -137,9 +118,7 @@ export default function MainLayout({ children }) {
               <div className={`mx-auto p-6 ${
                 pathname === '/Profile' ? 'max-w-4xl' : 'max-w-2xl'
               }`}>
-                <RouteTransitionContainer>
-                  {children}
-                </RouteTransitionContainer>
+                {children}
               </div>
             </main>
             
@@ -186,9 +165,7 @@ export default function MainLayout({ children }) {
           {/* Mobile Content - Scrollable */}
           <main className="flex-1 overflow-y-auto scrollbar-hide" style={{ WebkitOverflowScrolling: 'touch' }}>
             <div className="p-4 space-y-4">
-              <RouteTransitionContainer>
-                {children}
-              </RouteTransitionContainer>
+              {children}
             </div>
           </main>
           
@@ -206,8 +183,9 @@ export default function MainLayout({ children }) {
           </nav>
         </div>
       </div>
+      
     </div>
-    </CacheProvider>
+    </>
   );
 }
 
@@ -298,7 +276,7 @@ function MessageIcon() {
   );
 }
 
-function ReelsIcon() {
+function MomentsIcon() {
   return (
     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -329,6 +307,15 @@ function GamesIcon() {
     </svg>
   );
 }
+
+function DashboardIcon() {
+  return (
+    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+    </svg>
+  );
+}
+
 
 function DebugIcon() {
   return (

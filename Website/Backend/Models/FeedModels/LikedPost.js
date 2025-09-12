@@ -7,4 +7,4 @@ const LikedPostSchema=new mongoose.Schema({
 })
 
 
-export default mongoose.model("LikedPost",LikedPostSchema)
+export default mongoose.models.LikedPost || mongoose.model("LikedPost", LikedPostSchema)

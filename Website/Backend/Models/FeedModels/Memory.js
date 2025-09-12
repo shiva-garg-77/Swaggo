@@ -51,4 +51,4 @@ const MemorySchema = new mongoose.Schema({
     }
 })
 
-export default mongoose.model("Memory", MemorySchema)
+export default mongoose.models.Memory || mongoose.model("Memory", MemorySchema)

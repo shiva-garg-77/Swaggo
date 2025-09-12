@@ -174,9 +174,8 @@ export const AuthProvider = ({ children }) => {
             }
         };
         
-        // Add small delay to prevent rapid successive calls
-        const timer = setTimeout(refresh, 100);
-        return () => clearTimeout(timer);
+        // Initialize immediately for better UX
+        refresh();
     }, []);
 
     const login = async (info) => {

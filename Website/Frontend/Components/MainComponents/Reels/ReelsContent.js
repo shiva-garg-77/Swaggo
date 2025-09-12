@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useContext } from 'react';
 import { useQuery, useMutation } from '@apollo/client';
+import { useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from '../../Helper/ThemeProvider';
 import { AuthContext } from '../../Helper/AuthProvider';
@@ -34,10 +35,14 @@ import {
 } from '../../../lib/graphql/queries';
 import { BLOCK_USER, RESTRICT_USER } from '../../../lib/graphql/profileQueries';
 
-const ReelsContent = () => {
+const MomentsContent = () => {
   const { theme } = useTheme();
   const { user } = useContext(AuthContext);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const searchParams = useSearchParams();
+  
+  // Get initial moment index from URL parameter
+  const initialMomentIndex = searchParams?.get('moment') ? parseInt(searchParams.get('moment')) : 0;
+  const [currentIndex, setCurrentIndex] = useState(initialMomentIndex);
   const [showComments, setShowComments] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [showMoreOptions, setShowMoreOptions] = useState(false);
@@ -62,29 +67,39 @@ const ReelsContent = () => {
   const [blockUser] = useMutation(BLOCK_USER);
   const [restrictUser] = useMutation(RESTRICT_USER);
 
-  // Filter only video posts for reels
-  const videoReels = data?.getPosts?.filter(post => 
+  // Filter only video posts for moments
+  const videoMoments = data?.getPosts?.filter(post => 
     post.postType === 'VIDEO' && post.postUrl
   ) || [];
-
-  // Enhanced watch time tracker for rewards with unique reel and 10-reel block system
+  
+  // Set initial moment index when data loads
   useEffect(() => {
-    if (videoReels.length > 0 && currentIndex < videoReels.length) {
-      const currentReel = videoReels[currentIndex];
-      const reelId = currentReel.postid;
+    if (videoMoments.length > 0 && initialMomentIndex >= 0 && initialMomentIndex < videoMoments.length) {
+      setCurrentIndex(initialMomentIndex);
+    } else if (videoMoments.length > 0 && initialMomentIndex >= videoMoments.length) {
+      // If requested index is out of bounds, start from the beginning
+      setCurrentIndex(0);
+    }
+  }, [videoMoments.length, initialMomentIndex]);
+
+  // Enhanced watch time tracker for rewards with unique moment and 10-moment block system
+  useEffect(() => {
+    if (videoMoments.length > 0 && currentIndex < videoMoments.length) {
+      const currentMoment = videoMoments[currentIndex];
+      const momentId = currentMoment.postid;
       
-      // Check if this reel is eligible for rewards
-      const isUniqueReel = !uniqueReelsWatched.current.has(reelId);
-      const isNotInRecentHistory = !watchedReelsHistory.current.includes(reelId);
-      const isEligibleForRewards = isUniqueReel || isNotInRecentHistory;
+      // Check if this moment is eligible for rewards
+      const isUniqueMoment = !uniqueReelsWatched.current.has(momentId);
+      const isNotInRecentHistory = !watchedReelsHistory.current.includes(momentId);
+      const isEligibleForRewards = isUniqueMoment || isNotInRecentHistory;
       
       const interval = setInterval(() => {
-        if (!watchTimeRef.current[reelId]) {
-          watchTimeRef.current[reelId] = 0;
+        if (!watchTimeRef.current[momentId]) {
+          watchTimeRef.current[momentId] = 0;
         }
-        watchTimeRef.current[reelId] += 1;
+        watchTimeRef.current[momentId] += 1;
         
-        const watchedSeconds = watchTimeRef.current[reelId];
+        const watchedSeconds = watchTimeRef.current[momentId];
         
         // Only give rewards if eligible
         if (isEligibleForRewards) {
@@ -99,21 +114,21 @@ const ReelsContent = () => {
           
           // Bonus reward every 2 minutes (120 seconds) for completion
           if (watchedSeconds % 120 === 0 && watchedSeconds > 0) {
-            if (!watchTimeRef.current[`bonus_${reelId}_${Math.floor(watchedSeconds / 120)}`]) {
+            if (!watchTimeRef.current[`bonus_${momentId}_${Math.floor(watchedSeconds / 120)}`]) {
               const bonusReward = 0.0005; // Bonus for watching full 2 minutes
               setWalletBalance(prev => Number((prev + bonusReward).toFixed(4)));
-              watchTimeRef.current[`bonus_${reelId}_${Math.floor(watchedSeconds / 120)}`] = true;
+              watchTimeRef.current[`bonus_${momentId}_${Math.floor(watchedSeconds / 120)}`] = true;
             }
           }
         }
         
-        // Mark reel as watched after 30 seconds (significant watch time)
+        // Mark moment as watched after 30 seconds (significant watch time)
         if (watchedSeconds === 30) {
-          // Add to unique reels watched
-          uniqueReelsWatched.current.add(reelId);
+          // Add to unique moments watched
+          uniqueReelsWatched.current.add(momentId);
           
           // Update recent history (keep only last 10)
-          watchedReelsHistory.current.push(reelId);
+          watchedReelsHistory.current.push(momentId);
           if (watchedReelsHistory.current.length > 10) {
             watchedReelsHistory.current.shift(); // Remove oldest
           }
@@ -122,7 +137,7 @@ const ReelsContent = () => {
 
       return () => clearInterval(interval);
     }
-  }, [currentIndex, videoReels]);
+  }, [currentIndex, videoMoments]);
 
   // Handle like toggle
   const handleLike = async (postId) => {
@@ -183,8 +198,8 @@ const ReelsContent = () => {
   };
 
   // Handle comments
-  const handleComments = (reel) => {
-    setSelectedReel(reel);
+  const handleComments = (moment) => {
+    setSelectedReel(moment); // Keep the variable name for compatibility with ReelComments component
     setShowComments(true);
   };
 
@@ -202,45 +217,45 @@ const ReelsContent = () => {
     setShowShare(true);
   };
 
-  // Handle block user from reel
-  const handleBlockFromReel = async (reel) => {
-    if (!user?.profileid || !reel?.profile?.profileid) return;
+  // Handle block user from moment
+  const handleBlockFromReel = async (moment) => {
+    if (!user?.profileid || !moment?.profile?.profileid) return;
     
-    const confirmed = confirm(`Are you sure you want to block ${reel.profile.username}?`);
+    const confirmed = confirm(`Are you sure you want to block ${moment.profile.username}?`);
     if (!confirmed) return;
     
     try {
       await blockUser({
         variables: {
           profileid: user.profileid,
-          targetprofileid: reel.profile.profileid,
-          reason: 'Blocked from reel'
+          targetprofileid: moment.profile.profileid,
+          reason: 'Blocked from moment'
         }
       });
-      alert(`${reel.profile.username} has been blocked.`);
+      alert(`${moment.profile.username} has been blocked.`);
       setShowMoreOptions(false);
-      refetch(); // Refresh reels to remove blocked user's content
+      refetch(); // Refresh moments to remove blocked user's content
     } catch (error) {
       console.error('Error blocking user:', error);
       alert('Failed to block user. Please try again.');
     }
   };
 
-  // Handle restrict user from reel
-  const handleRestrictFromReel = async (reel) => {
-    if (!user?.profileid || !reel?.profile?.profileid) return;
+  // Handle restrict user from moment
+  const handleRestrictFromReel = async (moment) => {
+    if (!user?.profileid || !moment?.profile?.profileid) return;
     
-    const confirmed = confirm(`Are you sure you want to restrict ${reel.profile.username}?`);
+    const confirmed = confirm(`Are you sure you want to restrict ${moment.profile.username}?`);
     if (!confirmed) return;
     
     try {
       await restrictUser({
         variables: {
           profileid: user.profileid,
-          targetprofileid: reel.profile.profileid
+          targetprofileid: moment.profile.profileid
         }
       });
-      alert(`${reel.profile.username} has been restricted.`);
+      alert(`${moment.profile.username} has been restricted.`);
       setShowMoreOptions(false);
       refetch(); // Refresh to apply any content filtering
     } catch (error) {
@@ -249,19 +264,19 @@ const ReelsContent = () => {
     }
   };
 
-  // Navigate reels
-  const nextReel = () => {
-    if (currentIndex < videoReels.length - 1) {
-      // Close comments when moving to the next reel
+  // Navigate moments
+  const nextMoment = () => {
+    if (currentIndex < videoMoments.length - 1) {
+      // Close comments when moving to the next moment
       setShowComments(false);
       setSelectedReel(null);
       setCurrentIndex(currentIndex + 1);
     }
   };
 
-  const prevReel = () => {
+  const prevMoment = () => {
     if (currentIndex > 0) {
-      // Close comments when moving to the previous reel
+      // Close comments when moving to the previous moment
       setShowComments(false);
       setSelectedReel(null);
       setCurrentIndex(currentIndex - 1);
@@ -273,10 +288,10 @@ const ReelsContent = () => {
     const handleKeyDown = (e) => {
       if (e.key === 'ArrowUp') {
         e.preventDefault();
-        prevReel();
+        prevMoment();
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
-        nextReel();
+        nextMoment();
       } else if (e.key === ' ') {
         e.preventDefault();
         setIsMuted(!isMuted);
@@ -290,7 +305,7 @@ const ReelsContent = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentIndex, videoReels.length, isMuted, showComments]);
+  }, [currentIndex, videoMoments.length, isMuted, showComments]);
 
   // Loading state removed
 
@@ -298,39 +313,39 @@ const ReelsContent = () => {
     return (
       <div className="text-center py-10">
         <p className={`text-lg ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
-          Unable to load reels. Please try again later.
+          Unable to load moments. Please try again later.
         </p>
       </div>
     );
   }
 
-  if (videoReels.length === 0) {
+  if (videoMoments.length === 0) {
     return (
       <div className="text-center py-20">
         <div className={`text-6xl mb-4 ${theme === 'dark' ? 'text-gray-600' : 'text-gray-400'}`}>
           🎬
         </div>
         <h3 className={`text-xl font-semibold mb-2 ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
-          No Reels Yet
+          No Moments Yet
         </h3>
         <p className={`${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
-          Be the first to share a video reel!
+          Be the first to share a video moment!
         </p>
       </div>
     );
   }
 
-  const currentReel = videoReels[currentIndex];
+  const currentMoment = videoMoments[currentIndex];
 
   return (
     <div className="relative w-full h-full flex items-center justify-center min-h-screen">
-      {/* Content Row: reel + optional comments panel */}
+      {/* Content Row: moment + optional comments panel */}
       <div className={`relative flex items-center justify-center transition-all duration-300 ${showComments ? 'gap-8' : ''}`}>
-        {/* Reel Container */}
+        {/* Moment Container */}
         <div className="relative" style={{ width: '480px', height: '90vh' }}>
           <AnimatePresence mode="wait">
             <motion.div
-              key={currentReel?.postid}
+              key={currentMoment?.postid}
               initial={{ opacity: 0, scale: 1.05 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
@@ -339,7 +354,7 @@ const ReelsContent = () => {
             >
             {/* Video Player */}
             <VideoPlayer
-              src={currentReel?.postUrl}
+              src={currentMoment?.postUrl}
               autoPlay={true}
               muted={isMuted}
               loop={true}
@@ -357,9 +372,9 @@ const ReelsContent = () => {
               watchStreak={watchStreak}
               theme={theme}
               isEarningRewards={
-                videoReels.length > 0 && currentIndex < videoReels.length
-                  ? (!uniqueReelsWatched.current.has(videoReels[currentIndex]?.postid) || 
-                     !watchedReelsHistory.current.includes(videoReels[currentIndex]?.postid))
+                videoMoments.length > 0 && currentIndex < videoMoments.length
+                  ? (!uniqueReelsWatched.current.has(videoMoments[currentIndex]?.postid) || 
+                     !watchedReelsHistory.current.includes(videoMoments[currentIndex]?.postid))
                   : true
               }
             />
@@ -384,7 +399,7 @@ const ReelsContent = () => {
                 <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
-                  onClick={prevReel}
+                  onClick={prevMoment}
                   disabled={currentIndex === 0}
                   className={`p-2 rounded-full backdrop-blur-md transition-all duration-300 ${
                     currentIndex === 0 
@@ -398,10 +413,10 @@ const ReelsContent = () => {
                 <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
-                  onClick={nextReel}
-                  disabled={currentIndex === videoReels.length - 1}
+                  onClick={nextMoment}
+                  disabled={currentIndex === videoMoments.length - 1}
                   className={`p-2 rounded-full backdrop-blur-md transition-all duration-300 ${
-                    currentIndex === videoReels.length - 1
+                    currentIndex === videoMoments.length - 1
                       ? 'bg-white/10 text-white/40 cursor-not-allowed'
                       : 'bg-white/20 text-white hover:bg-white/30'
                   }`}
@@ -425,67 +440,67 @@ const ReelsContent = () => {
                     {/* User Profile Section */}
                     <div className="flex items-center space-x-3">
                       <button 
-                        onClick={() => handleViewProfile(currentReel?.profile?.profileid)}
+                        onClick={() => handleViewProfile(currentMoment?.profile?.profileid)}
                         className="relative hover:scale-105 transition-transform duration-200"
                       >
                         <img
-                          src={currentReel?.profile?.profilePic || '/default-avatar.png'}
-                          alt={currentReel?.profile?.username}
+                          src={currentMoment?.profile?.profilePic || '/default-avatar.png'}
+                          alt={currentMoment?.profile?.username}
                           className="w-12 h-12 rounded-full border-2 border-white/50 shadow-lg hover:border-white/80 transition-all"
                         />
                         <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white"></div>
                       </button>
                       <div className="flex-1">
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center space-x-2 mb-1">
                           <button 
-                            onClick={() => handleViewProfile(currentReel?.profile?.profileid)}
+                            onClick={() => handleViewProfile(currentMoment?.profile?.profileid)}
                             className="text-white font-bold text-lg hover:underline transition-all"
                           >
-                            @{currentReel?.profile?.username}
+                            @{currentMoment?.profile?.username}
                           </button>
-                          {currentReel?.profile?.isVerified && (
+                          {currentMoment?.profile?.isVerified && (
                             <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
                               <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                               </svg>
                             </div>
                           )}
+                          {/* Follow Button - Inline with username */}
+                          {user?.profileid !== currentMoment?.profile?.profileid && (
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => handleFollow(currentMoment?.profile?.profileid)}
+                              className="ml-3 px-3 py-1 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white text-sm font-semibold rounded-full transition-all duration-300 flex items-center space-x-1 shadow-lg"
+                            >
+                              <UserPlus className="w-3 h-3" />
+                              <span>Follow</span>
+                            </motion.button>
+                          )}
                         </div>
                         <p className="text-white/70 text-sm">
-                          {new Date(currentReel?.createdAt).toLocaleDateString()}
+                          {new Date(currentMoment?.createdAt).toLocaleDateString()}
                         </p>
                       </div>
-                      {/* Follow Button */}
-                      {user?.profileid !== currentReel?.profile?.profileid && (
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => handleFollow(currentReel?.profile?.profileid)}
-                          className="px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold rounded-full transition-all duration-300 flex items-center space-x-2 shadow-lg"
-                        >
-                          <UserPlus className="w-4 h-4" />
-                          <span>Follow</span>
-                        </motion.button>
-                      )}
                     </div>
 
                     {/* Content Section */}
                     <div className="space-y-2">
-                      {currentReel?.title && (
+                      {currentMoment?.title && (
                         <h4 className="text-white font-bold text-xl leading-tight">
-                          {currentReel.title}
+                          {currentMoment.title}
                         </h4>
                       )}
-                      {currentReel?.Description && (
+                      {currentMoment?.Description && (
                         <p className="text-white/90 text-base leading-relaxed">
-                          {currentReel.Description}
+                          {currentMoment.Description}
                         </p>
                       )}
                       
                       {/* Tags */}
-                      {currentReel?.tags && currentReel.tags.length > 0 && (
+                      {currentMoment?.tags && currentMoment.tags.length > 0 && (
                         <div className="flex flex-wrap gap-2 mt-3">
-                          {currentReel.tags.slice(0, 4).map((tag, tagIndex) => (
+                          {currentMoment.tags.slice(0, 4).map((tag, tagIndex) => (
                             <motion.span
                               key={tagIndex}
                               whileHover={{ scale: 1.05 }}
@@ -509,17 +524,17 @@ const ReelsContent = () => {
                     className="flex flex-col items-center space-y-1"
                   >
                     <button
-                      onClick={() => handleLike(currentReel?.postid)}
+                      onClick={() => handleLike(currentMoment?.postid)}
                       className={`p-3 rounded-full backdrop-blur-md transition-all duration-300 shadow-lg ${
-                        currentReel?.isLikedByUser
+                        currentMoment?.isLikedByUser
                           ? 'bg-red-500 text-white'
                           : 'bg-white/20 text-white hover:bg-white/30'
                       }`}
                     >
-                      <Heart className={`w-6 h-6 ${currentReel?.isLikedByUser ? 'fill-current' : ''}`} />
+                      <Heart className={`w-6 h-6 ${currentMoment?.isLikedByUser ? 'fill-current' : ''}`} />
                     </button>
                     <span className="text-white font-semibold text-xs">
-                      {currentReel?.likeCount || 0}
+                      {currentMoment?.likeCount || 0}
                     </span>
                   </motion.div>
 
@@ -530,13 +545,13 @@ const ReelsContent = () => {
                     className="flex flex-col items-center space-y-1"
                   >
                     <button
-                      onClick={() => handleComments(currentReel)}
+                      onClick={() => handleComments(currentMoment)}
                       className="p-3 rounded-full bg-white/20 text-white backdrop-blur-md hover:bg-white/30 transition-all duration-300 shadow-lg"
                     >
                       <MessageCircle className="w-6 h-6" />
                     </button>
                     <span className="text-white font-semibold text-xs">
-                      {currentReel?.commentCount || 0}
+                      {currentMoment?.commentCount || 0}
                     </span>
                   </motion.div>
 
@@ -547,7 +562,7 @@ const ReelsContent = () => {
                     className="flex flex-col items-center space-y-1"
                   >
                     <button
-                      onClick={() => handleShare(currentReel)}
+                      onClick={() => handleShare(currentMoment)}
                       className="p-3 rounded-full bg-white/20 text-white backdrop-blur-md hover:bg-white/30 transition-all duration-300 shadow-lg"
                     >
                       <Share className="w-6 h-6" />
@@ -562,14 +577,14 @@ const ReelsContent = () => {
                     className="flex flex-col items-center space-y-1"
                   >
                     <button
-                      onClick={() => handleSave(currentReel?.postid)}
+                      onClick={() => handleSave(currentMoment?.postid)}
                       className={`p-3 rounded-full backdrop-blur-md transition-all duration-300 shadow-lg ${
-                        currentReel?.isSavedByUser
+                        currentMoment?.isSavedByUser
                           ? 'bg-yellow-500 text-white'
                           : 'bg-white/20 text-white hover:bg-white/30'
                       }`}
                     >
-                      <Bookmark className={`w-6 h-6 ${currentReel?.isSavedByUser ? 'fill-current' : ''}`} />
+                      <Bookmark className={`w-6 h-6 ${currentMoment?.isSavedByUser ? 'fill-current' : ''}`} />
                     </button>
                   </motion.div>
 
@@ -592,7 +607,7 @@ const ReelsContent = () => {
             {/* Progress Bar */}
             <div className="absolute top-2 left-4 z-20">
               <div className="flex space-x-1">
-                {videoReels.map((_, index) => (
+                {videoMoments.map((_, index) => (
                   <div
                     key={index}
                     className={`h-1 rounded-full transition-all duration-300 ${
@@ -644,7 +659,7 @@ const ReelsContent = () => {
       <MoreOptionsModal
         isOpen={showMoreOptions}
         onClose={() => setShowMoreOptions(false)}
-        reel={currentReel}
+        reel={currentMoment}
         theme={theme}
         user={user}
         onBlockUser={handleBlockFromReel}
@@ -654,4 +669,4 @@ const ReelsContent = () => {
   );
 };
 
-export default ReelsContent;
+export default MomentsContent;

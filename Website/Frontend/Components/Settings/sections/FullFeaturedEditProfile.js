@@ -33,8 +33,10 @@ import {
   CheckCircle,
   XCircle,
   Info,
-  Eye
+  Eye,
+  BarChart3
 } from 'lucide-react'
+
 
 export default function FullFeaturedEditProfile({ onBack }) {
   const [activeTab, setActiveTab] = useState('basic')
@@ -103,7 +105,7 @@ export default function FullFeaturedEditProfile({ onBack }) {
     { id: 'interests', label: 'Interests', icon: Heart },
     { id: 'social', label: 'Social Media', icon: Globe },
     { id: 'privacy', label: 'Privacy', icon: Shield },
-    { id: 'photos', label: 'Photos', icon: Camera }
+    { id: 'photos', label: 'Photos', icon: Camera },
   ]
 
   useEffect(() => {
@@ -790,6 +792,7 @@ export default function FullFeaturedEditProfile({ onBack }) {
               </div>
             </div>
           )}
+
 
           {/* Photos Tab */}
           {activeTab === 'photos' && (

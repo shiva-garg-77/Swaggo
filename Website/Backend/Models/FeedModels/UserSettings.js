@@ -23,4 +23,4 @@ const UserSettingsSchema = new mongoose.Schema({
     timestamps: true
 });
 
-export default mongoose.model("UserSettings", UserSettingsSchema);
+export default mongoose.models.UserSettings || mongoose.model("UserSettings", UserSettingsSchema);

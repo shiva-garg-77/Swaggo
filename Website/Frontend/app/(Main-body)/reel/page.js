@@ -1,12 +1,23 @@
-import { lazy, Suspense } from 'react'
+"use client";
+import { lazy, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
+import SplashScreen from '../../../Components/shared/SplashScreen';
 
-// Lazy load ReelsContent for better performance
-const ReelsContent = lazy(() => import('../../../Components/MainComponents/Reels/ReelsContent'))
+// Lazy load MomentsContent for better performance
+const MomentsContent = lazy(() => import('../../../Components/MainComponents/Reels/ReelsContent'));
 
-export default function ReelPage() {
+function MomentsPageContent() {
   return (
-    <Suspense fallback={null}>
-      <ReelsContent />
+    <Suspense fallback={<SplashScreen compact show />}>
+      <MomentsContent />
     </Suspense>
-  )
+  );
+}
+
+export default function MomentsPage() {
+  return (
+    <Suspense fallback={<SplashScreen show />}>
+      <MomentsPageContent />
+    </Suspense>
+  );
 }

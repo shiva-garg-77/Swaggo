@@ -17,4 +17,4 @@ const DraftSchema = new mongoose.Schema({
     timestamps: true
 });
 
-export default mongoose.model("Draft", DraftSchema);
+export default mongoose.models.Draft || mongoose.model("Draft", DraftSchema);

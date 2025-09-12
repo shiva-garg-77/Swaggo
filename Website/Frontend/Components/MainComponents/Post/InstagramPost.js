@@ -452,7 +452,7 @@ export default function InstagramPost({
       </div>
 
       {/* Post Media */}
-      <div className="relative">
+      <div className="relative cursor-pointer" onClick={onCommentClick}>
         {post.postType === 'VIDEO' ? (
           <video
             src={post.postUrl}
@@ -524,7 +524,18 @@ export default function InstagramPost({
           </button>
           
           {/* Comment Button */}
-          <button onClick={onCommentClick} className={theme === 'dark' ? 'text-white' : 'text-black'}>
+          <button 
+            onClick={() => {
+              console.log('💬 Comment button clicked for post:', post.postid);
+              if (onCommentClick) {
+                console.log('💬 Calling onCommentClick');
+                onCommentClick();
+              } else {
+                console.log('❌ onCommentClick is not provided');
+              }
+            }} 
+            className={theme === 'dark' ? 'text-white' : 'text-black'}
+          >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
             </svg>
@@ -574,7 +585,15 @@ export default function InstagramPost({
       {/* View Comments */}
       {commentCount > 0 && (
         <button
-          onClick={onCommentClick}
+          onClick={() => {
+            console.log('💬 View comments clicked for post:', post.postid);
+            if (onCommentClick) {
+              console.log('💬 Calling onCommentClick from view comments');
+              onCommentClick();
+            } else {
+              console.log('❌ onCommentClick is not provided for view comments');
+            }
+          }}
           className={`px-4 pb-2 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}
         >
           View all {commentCount} comments

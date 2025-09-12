@@ -2,10 +2,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLazyQuery } from '@apollo/client';
 import { useTheme } from '../Helper/ThemeProvider';
+import { useRouter } from 'next/navigation';
 import { SEARCH_USERS } from '../../lib/graphql/queries';
 
 export default function UserSearch({ onUserSelect, placeholder = "Search users..." }) {
   const { theme } = useTheme();
+  const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [searchUsers, { data, loading, error }] = useLazyQuery(SEARCH_USERS, {
@@ -60,6 +62,12 @@ export default function UserSearch({ onUserSelect, placeholder = "Search users..
   const handleUserClick = (user) => {
     setSearchTerm(user.username);
     setIsOpen(false);
+    
+    console.log('🔄 Navigating to profile of user:', user.username, user.profileid);
+    
+    // Navigate to the user's profile page using username
+    router.push(`/Profile?user=${user.username}`);
+    
     if (onUserSelect) {
       onUserSelect(user);
     }
@@ -181,20 +189,32 @@ export default function UserSearch({ onUserSelect, placeholder = "Search users..
                   }`}
                 >
                   <div className="flex items-center space-x-3">
-                    <img
-                      src={user.profilePic || '/default-profile.svg'}
-                      alt={user.username}
-                      className="w-10 h-10 rounded-full object-cover"
-                      onError={(e) => {
-                        e.target.src = '/default-profile.svg';
-                      }}
-                    />
+                    <div className="relative">
+                      {user.profilepicture ? (
+                        <img
+                          src={user.profilepicture}
+                          alt={user.username}
+                          className="w-12 h-12 rounded-full object-cover"
+                          onError={(e) => {
+                            e.target.src = '/default-avatar.png';
+                          }}
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-red-400 to-pink-500 flex items-center justify-center">
+                          <span className="text-white font-semibold text-lg">
+                            {user.username[0]?.toUpperCase()}
+                          </span>
+                        </div>
+                      )}
+                      {/* Online status indicator */}
+                      <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
+                    </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center space-x-2">
-                        <p className={`font-semibold truncate ${
+                        <p className={`font-bold truncate ${
                           theme === 'dark' ? 'text-white' : 'text-gray-900'
                         }`}>
-                          {user.username}
+                          @{user.username}
                         </p>
                         {user.isVerified && (
                           <svg className="w-4 h-4 text-blue-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -202,32 +222,42 @@ export default function UserSearch({ onUserSelect, placeholder = "Search users..
                           </svg>
                         )}
                       </div>
-                      <p className={`text-sm truncate ${
-                        theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                      <p className={`text-sm truncate font-medium ${
+                        theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
                       }`}>
-                        {user.name}
+                        {user.name || 'No name'}
+                      </p>
+                      <p className={`text-xs truncate ${
+                        theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+                      }`}>
+                        ID: {user.profileid}
                       </p>
                       {user.bio && (
                         <p className={`text-xs truncate mt-1 ${
                           theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
                         }`}>
-                          {user.bio}
+                          {user.bio.length > 50 ? user.bio.substring(0, 50) + '...' : user.bio}
                         </p>
                       )}
                     </div>
-                    <div className="text-right">
-                      <p className={`text-xs ${
-                        theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+                    <div className="text-right flex flex-col space-y-1">
+                      <p className={`text-xs font-semibold ${
+                        theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
                       }`}>
                         {user.followersCount || 0} followers
                       </p>
-                      {user.postsCount > 0 && (
-                        <p className={`text-xs ${
-                          theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
-                        }`}>
-                          {user.postsCount} posts
-                        </p>
-                      )}
+                      <p className={`text-xs ${
+                        theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+                      }`}>
+                        {user.postsCount || 0} posts
+                      </p>
+                      {/* Quick action indicator */}
+                      <div className="flex items-center justify-end">
+                        <span className="text-xs text-red-500 font-medium">View Profile</span>
+                        <svg className="w-3 h-3 text-red-500 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </div>
                     </div>
                   </div>
                 </div>

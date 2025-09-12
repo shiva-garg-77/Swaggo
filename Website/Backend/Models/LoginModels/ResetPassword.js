@@ -5,4 +5,4 @@ const passwordSchema = new mongoose.Schema({
     token: { type: String, required: true }
 });
 
-export default mongoose.model("ResetPassword", passwordSchema);
+export default mongoose.models.ResetPassword || mongoose.model("ResetPassword", passwordSchema);

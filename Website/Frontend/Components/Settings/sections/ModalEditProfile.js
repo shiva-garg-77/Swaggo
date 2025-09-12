@@ -33,9 +33,6 @@ export default function ModalEditProfile() {
         <button className="px-6 py-2 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 transition-colors">
           Change pic
         </button>
-        <button className="px-6 py-2 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 transition-colors">
-          Switch to VIP
-        </button>
       </div>
 
       {/* Form Fields */}

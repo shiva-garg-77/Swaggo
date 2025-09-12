@@ -5,6 +5,7 @@ import { useTheme } from '../../Helper/ThemeProvider';
 import { useMutation, useQuery } from '@apollo/client';
 import { useAuth } from '../../Helper/AuthProvider';
 import { gql } from '@apollo/client';
+import SimpleFlatCommentSystem from './SimpleFlatCommentSystem';
 
 // GraphQL mutations and queries
 const TOGGLE_POST_LIKE = gql`
@@ -385,7 +386,11 @@ export default function InstagramPostModal({
     setShowEmojiPicker(false);
   };
 
-  if (!isOpen || !post) return null;
+  console.log('🤖 InstagramPostModal render check:', { isOpen, hasPost: !!post, postId: post?.postid });
+  if (!isOpen || !post) {
+    console.log('🤖 InstagramPostModal returning null - isOpen:', isOpen, 'hasPost:', !!post);
+    return null;
+  }
 
   const comments = commentsData?.getCommentsByPost || [];
 
@@ -393,11 +398,17 @@ export default function InstagramPostModal({
     <div 
       ref={modalRef}
       onClick={handleBackdropClick}
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="fixed inset-0 flex items-center justify-center"
       style={{ 
         backgroundColor: 'rgba(0, 0, 0, 0.75)',
         backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)' 
+        WebkitBackdropFilter: 'blur(8px)',
+        zIndex: 9999,
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0
       }}
     >
       {/* Modal Container - Instagram style */}
@@ -506,18 +517,9 @@ export default function InstagramPostModal({
             </div>
           </div>
 
-          {/* Comments Section */}
-          <div 
-            ref={commentsContainerRef}
-            className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scrollbar-hide"
-            style={{ 
-              scrollBehavior: 'smooth',
-              scrollbarWidth: 'none', /* Firefox */
-              msOverflowStyle: 'none'  /* Internet Explorer and Edge */
-            }}
-          >
-            {/* Caption */}
-            {(post.title || post.Description) && (
+          {/* Caption Section */}
+          {(post.title || post.Description) && (
+            <div className={`px-4 py-3 border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
               <div className="flex space-x-3">
                 <img
                   src={post.profile?.profilePic || '/default-profile.svg'}
@@ -532,77 +534,20 @@ export default function InstagramPostModal({
                   </p>
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Comments */}
-            {comments.map((comment, index) => {
-              console.log(`💬 Rendering comment ${index + 1}:`, {
-                id: comment.commentid,
-                text: comment.comment,
-                username: comment.profile?.username,
-                isLikedByUser: comment.isLikedByUser,
-                likeCount: comment.likeCount
-              });
-              
-              return (
-                <div key={comment.commentid} className="flex space-x-3 group hover:bg-opacity-5 hover:bg-gray-500 -mx-2 px-2 py-1 rounded-md transition-colors duration-150">
-                  <img
-                    src={comment.profile?.profilePic || '/default-profile.svg'}
-                    alt={comment.profile?.username}
-                    className="w-8 h-8 rounded-full object-cover flex-shrink-0 ring-1 ring-gray-200 dark:ring-gray-700"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between">
-                      <p className={`text-sm leading-relaxed ${theme === 'dark' ? 'text-white' : 'text-black'}`}>
-                        <span className="font-semibold mr-2 hover:opacity-70 cursor-pointer transition-opacity">
-                          {comment.profile?.username}
-                          {comment.profile?.isVerified && (
-                            <VerifiedIcon className="w-3 h-3 text-blue-500 inline ml-1" />
-                          )}
-                        </span>
-                        <span className="break-words">{comment.comment}</span>
-                      </p>
-                      <button 
-                        onClick={() => {
-                          console.log('🚀 Comment heart clicked:', comment.commentid);
-                          handleCommentLike(comment.commentid);
-                        }}
-                        className={`ml-2 opacity-100 hover:scale-110 transition-all duration-150 ${
-                          comment.isLikedByUser 
-                            ? 'text-red-500' 
-                            : theme === 'dark' ? 'text-gray-400 hover:text-red-400' : 'text-gray-400 hover:text-red-500'
-                        }`}
-                        title={comment.isLikedByUser ? 'Unlike comment' : 'Like comment'}
-                      >
-                        <HeartIcon className={`w-4 h-4 ${comment.isLikedByUser ? 'fill-current' : ''}`} />
-                      </button>
-                    </div>
-                  <div className="flex items-center space-x-4 mt-1">
-                    <span className={`text-xs cursor-pointer hover:opacity-70 transition-opacity ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
-                      {formatTimeAgo(comment.createdAt)}
-                    </span>
-                    {comment.likeCount > 0 && (
-                      <span className={`text-xs font-medium cursor-pointer hover:opacity-70 transition-opacity ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
-                        {comment.likeCount} {comment.likeCount === 1 ? 'like' : 'likes'}
-                      </span>
-                    )}
-                    <button className={`text-xs font-medium transition-colors ${theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-black'}`}>
-                      Reply
-                    </button>
-                  </div>
-                  
-                  {/* Show replies if any */}
-                  {comment.replies && comment.replies.length > 0 && (
-                    <div className="mt-2 pl-0 space-y-2">
-                      <button className={`text-xs font-medium ${theme === 'dark' ? 'text-gray-400 hover:text-white' : 'text-gray-500 hover:text-black'}`}>
-                        — View {comment.replies.length} {comment.replies.length === 1 ? 'reply' : 'replies'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-              );
-            })}
+          {/* Comments Section - Using SimpleFlatCommentSystem */}
+          <div className="flex-1">
+            <SimpleFlatCommentSystem
+              postId={post.postid}
+              theme={theme}
+              onCommentUpdate={() => {
+                refetchComments();
+                refetchStats();
+              }}
+              className="h-full"
+            />
           </div>
 
           {/* Actions */}
@@ -643,95 +588,6 @@ export default function InstagramPostModal({
               </div>
             )}
 
-            {/* Add Comment */}
-            <div className={`border-t px-4 py-3 ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
-              <form onSubmit={handleSubmitComment} className="flex items-center space-x-3 relative">
-                <div className="flex-1 relative">
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    value={newComment}
-                    onChange={(e) => setNewComment(e.target.value)}
-                    placeholder="Add a comment..."
-                    className={`w-full bg-transparent text-sm outline-none py-2 px-3 rounded-full border transition-colors ${
-                      theme === 'dark' 
-                        ? 'placeholder-gray-500 text-white border-gray-600 focus:border-gray-400' 
-                        : 'placeholder-gray-400 text-black border-gray-200 focus:border-gray-400'
-                    }`}
-                    disabled={isSubmitting}
-                    maxLength={500}
-                  />
-                  
-                  {/* Character Count */}
-                  {newComment.length > 400 && (
-                    <span className={`absolute -top-6 right-0 text-xs ${
-                      newComment.length >= 500 ? 'text-red-500' : theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
-                    }`}>
-                      {newComment.length}/500
-                    </span>
-                  )}
-                  
-                  {/* Enhanced Emoji Picker */}
-                  {showEmojiPicker && (
-                    <div 
-                      ref={emojiPickerRef}
-                      className={`absolute bottom-full left-0 mb-2 p-3 rounded-xl shadow-xl border backdrop-blur-sm ${
-                        theme === 'dark' ? 'bg-gray-800/95 border-gray-600' : 'bg-white/95 border-gray-200'
-                      } grid grid-cols-8 gap-2 z-20 max-w-sm`}
-                    >
-                      <div className={`col-span-8 text-xs font-medium pb-2 border-b ${
-                        theme === 'dark' ? 'text-gray-300 border-gray-600' : 'text-gray-600 border-gray-200'
-                      }`}>
-                        Frequently used
-                      </div>
-                      {commonEmojis.map((emoji, index) => (
-                        <button
-                          key={index}
-                          type="button"
-                          onClick={() => addEmoji(emoji)}
-                          className={`text-lg p-2 rounded-lg transition-all duration-200 hover:scale-110 ${
-                            theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
-                          }`}
-                          title={`Add ${emoji}`}
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                
-                <button
-                  type="button"
-                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                  className={`text-xl p-2 rounded-full transition-all duration-200 hover:scale-110 ${
-                    showEmojiPicker 
-                      ? 'bg-blue-500 text-white' 
-                      : theme === 'dark' ? 'text-gray-400 hover:text-white hover:bg-gray-700' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                  }`}
-                  title="Add emoji"
-                >
-                  😊
-                </button>
-                
-                {newComment.trim() && (
-                  <button
-                    type="submit"
-                    disabled={isSubmitting || newComment.length > 500}
-                    className="text-blue-500 font-semibold text-sm hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed px-3 py-2 rounded-full transition-all"
-                  >
-                    {isSubmitting ? (
-                      <div className="flex items-center space-x-2">
-                        <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                        <span>Posting...</span>
-                      </div>
-                    ) : (
-                      'Post'
-                    )}
-                  </button>
-                )}
-              </form>
-            </div>
           </div>
         </div>
       </div>

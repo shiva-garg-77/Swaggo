@@ -12,4 +12,4 @@ const TagPostSchema = new mongoose.Schema({
 })
 
 
-export default mongoose.model("TagPost", TagPostSchema)
+export default mongoose.models.TagPost || mongoose.model("TagPost", TagPostSchema)

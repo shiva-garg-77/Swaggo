@@ -1,20 +1,23 @@
-import Profile from '../Models/FeedModels/Profile.js'
-import Comment from '../Models/FeedModels/Comments.js'
-import Post from '../Models/FeedModels/Post.js';
-import Draft from '../Models/FeedModels/Draft.js';
-import Followers from '../Models/FeedModels/Followers.js';
-import Following from '../Models/FeedModels/Following.js';
-import Likes from '../Models/FeedModels/Likes.js';
-import TagPost from '../Models/FeedModels/Tagpost.js';
-import LikedPost from '../Models/FeedModels/LikedPost.js';
-import SavedPost from '../Models/FeedModels/SavedPost.js';
-import Memory from '../Models/FeedModels/Memory.js';
-import BlockedAccount from '../Models/FeedModels/BlockedAccounts.js';
-import RestrictedAccount from '../Models/FeedModels/RestrictedAccounts.js';
-import CloseFriends from '../Models/FeedModels/CloseFriends.js';
-import Mentions from '../Models/FeedModels/Mentions.js';
-import UserSettings from '../Models/FeedModels/UserSettings.js';
-import User from '../Models/LoginModels/User.js';
+import Profile from '../models/FeedModels/Profile.js'
+import Comment from '../models/FeedModels/Comments.js'
+import Post from '../models/FeedModels/Post.js';
+import Draft from '../models/FeedModels/Draft.js';
+import Followers from '../models/FeedModels/Followers.js';
+import Following from '../models/FeedModels/Following.js';
+import Likes from '../models/FeedModels/Likes.js';
+import TagPost from '../models/FeedModels/Tagpost.js';
+import LikedPost from '../models/FeedModels/LikedPost.js';
+import SavedPost from '../models/FeedModels/SavedPost.js';
+import Memory from '../models/FeedModels/Memory.js';
+import BlockedAccount from '../models/FeedModels/BlockedAccounts.js';
+import RestrictedAccount from '../models/FeedModels/RestrictedAccounts.js';
+import CloseFriends from '../models/FeedModels/CloseFriends.js';
+import Mentions from '../models/FeedModels/Mentions.js';
+import UserSettings from '../models/FeedModels/UserSettings.js';
+import User from '../models/LoginModels/User.js';
+import Chat from '../models/FeedModels/Chat.js';
+import Message from '../models/FeedModels/Message.js';
+import Story from '../models/FeedModels/Story.js';
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
@@ -155,6 +158,18 @@ const Resolvers = {
                 return memories || [];
             } catch (err) {
                 throw new Error(`Error fetching memories for user ${Parent.username}: ${err.message}`);
+            }
+        },
+        stories: async (Parent) => {
+            try {
+                const stories = await Story.find({ 
+                    profileid: Parent.profileid, 
+                    isActive: true,
+                    expiresAt: { $gt: new Date() }
+                }).sort({ createdAt: -1 });
+                return stories || [];
+            } catch (err) {
+                throw new Error(`Error fetching stories for user ${Parent.username}: ${err.message}`);
             }
         },
         blockedAccounts: async (Parent) => {
@@ -650,10 +665,17 @@ const Resolvers = {
                 throw new Error(`Error fetching memory: ${err.message}`);
             }
         },
-        getCommentsByPost: async (_, { postid }) => {
+        getCommentsByPost: async (_, { postid }, { user }) => {
             try {
-                return await getTopLevelComments(postid);
+                console.log(`🔍 Fetching comments for post: ${postid}`);
+                console.log(`👤 User context: ${user ? user.username : 'Anonymous'}`);
+                
+                const comments = await getTopLevelComments(postid);
+                console.log(`📝 Found ${comments.length} comments for post ${postid}`);
+                
+                return comments;
             } catch (err) {
+                console.error(`❌ Error fetching comments for post ${postid}:`, err);
                 throw new Error(`Error fetching comments: ${err.message}`);
             }
         },
@@ -810,6 +832,292 @@ const Resolvers = {
                 return settings;
             } catch (err) {
                 throw new Error(`Error fetching user settings: ${err.message}`);
+            }
+        },
+        
+        // Chat queries
+        getChats: async (_, { profileid }, { user }) => {
+            try {
+                if (!user || user.profileid !== profileid) {
+                    throw new Error('Unauthorized: Cannot access other user\'s chats');
+                }
+
+                const chats = await Chat.find({
+                    participants: profileid,
+                    isActive: true
+                }).sort({ lastMessageAt: -1 });
+
+                return chats;
+            } catch (error) {
+                console.error('Error fetching chats:', error);
+                throw new Error('Failed to fetch chats');
+            }
+        },
+
+        getChatById: async (_, { chatid }, { user }) => {
+            try {
+                const chat = await Chat.findOne({ chatid, isActive: true });
+                
+                if (!chat) {
+                    throw new Error('Chat not found');
+                }
+
+                // Check if user is a participant
+                if (!chat.participants.includes(user.profileid)) {
+                    throw new Error('Unauthorized: Not a participant in this chat');
+                }
+
+                return chat;
+            } catch (error) {
+                console.error('Error fetching chat by ID:', error);
+                throw new Error('Failed to fetch chat');
+            }
+        },
+
+        getChatByParticipants: async (_, { participants }, { user }) => {
+            try {
+                // Check if current user is in participants
+                if (!participants.includes(user.profileid)) {
+                    throw new Error('Unauthorized: User not in participants list');
+                }
+
+                // For direct chats, find existing chat
+                if (participants.length === 2) {
+                    const chat = await Chat.findOne({
+                        participants: { $all: participants, $size: 2 },
+                        chatType: 'direct',
+                        isActive: true
+                    });
+                    return chat;
+                }
+
+                // For group chats, find exact match
+                const chat = await Chat.findOne({
+                    participants: { $all: participants, $size: participants.length },
+                    chatType: 'group',
+                    isActive: true
+                });
+
+                return chat;
+            } catch (error) {
+                console.error('Error fetching chat by participants:', error);
+                throw new Error('Failed to fetch chat');
+            }
+        },
+
+        // Message queries
+        getMessagesByChat: async (_, { chatid, limit = 50, offset = 0 }, { user }) => {
+            try {
+                // Check if user has access to this chat
+                const chat = await Chat.findOne({ chatid, isActive: true });
+                if (!chat || !chat.participants.includes(user.profileid)) {
+                    throw new Error('Unauthorized: Cannot access this chat');
+                }
+
+                const messages = await Message.find({
+                    chatid,
+                    isDeleted: false
+                })
+                .sort({ createdAt: -1 })
+                .limit(limit)
+                .skip(offset);
+
+                return messages.reverse(); // Return in chronological order
+            } catch (error) {
+                console.error('Error fetching messages:', error);
+                throw new Error('Failed to fetch messages');
+            }
+        },
+
+        getMessageById: async (_, { messageid }, { user }) => {
+            try {
+                const message = await Message.findOne({ messageid, isDeleted: false });
+                
+                if (!message) {
+                    throw new Error('Message not found');
+                }
+
+                // Check if user has access to this chat
+                const chat = await Chat.findOne({ chatid: message.chatid });
+                if (!chat || !chat.participants.includes(user.profileid)) {
+                    throw new Error('Unauthorized: Cannot access this message');
+                }
+
+                return message;
+            } catch (error) {
+                console.error('Error fetching message by ID:', error);
+                throw new Error('Failed to fetch message');
+            }
+        },
+
+        searchMessages: async (_, { chatid, query }, { user }) => {
+            try {
+                // Check if user has access to this chat
+                const chat = await Chat.findOne({ chatid, isActive: true });
+                if (!chat || !chat.participants.includes(user.profileid)) {
+                    throw new Error('Unauthorized: Cannot search this chat');
+                }
+
+                const messages = await Message.find({
+                    chatid,
+                    content: { $regex: query, $options: 'i' },
+                    messageType: 'text',
+                    isDeleted: false
+                }).sort({ createdAt: -1 }).limit(20);
+
+                return messages;
+            } catch (error) {
+                console.error('Error searching messages:', error);
+                throw new Error('Failed to search messages');
+            }
+        },
+
+        // Chat statistics
+        getUnreadMessageCount: async (_, { profileid }, { user }) => {
+            try {
+                if (!user || user.profileid !== profileid) {
+                    throw new Error('Unauthorized');
+                }
+
+                // Get all chats user participates in
+                const chats = await Chat.find({
+                    participants: profileid,
+                    isActive: true
+                });
+
+                let unreadCount = 0;
+                for (const chat of chats) {
+                    const count = await Message.countDocuments({
+                        chatid: chat.chatid,
+                        senderid: { $ne: profileid },
+                        'readBy.profileid': { $ne: profileid },
+                        isDeleted: false
+                    });
+                    unreadCount += count;
+                }
+
+                return unreadCount;
+            } catch (error) {
+                console.error('Error getting unread message count:', error);
+                return 0;
+            }
+        },
+
+        getChatUnreadCount: async (_, { chatid, profileid }, { user }) => {
+            try {
+                if (!user || user.profileid !== profileid) {
+                    throw new Error('Unauthorized');
+                }
+
+                // Check if user has access to this chat
+                const chat = await Chat.findOne({ chatid, isActive: true });
+                if (!chat || !chat.participants.includes(profileid)) {
+                    throw new Error('Unauthorized: Cannot access this chat');
+                }
+
+                const count = await Message.countDocuments({
+                    chatid,
+                    senderid: { $ne: profileid },
+                    'readBy.profileid': { $ne: profileid },
+                    isDeleted: false
+                });
+
+                return count;
+            } catch (error) {
+                console.error('Error getting chat unread count:', error);
+                return 0;
+            }
+        },
+        
+        // Story queries
+        getStories: async (_, { profileid }, { user }) => {
+            try {
+                const stories = await Story.find({
+                    profileid: profileid || user.profileid,
+                    isActive: true,
+                    expiresAt: { $gt: new Date() }
+                }).sort({ createdAt: -1 });
+
+                return stories;
+            } catch (error) {
+                console.error('Error fetching stories:', error);
+                throw new Error('Failed to fetch stories');
+            }
+        },
+
+        getActiveStories: async (_, args, { user }) => {
+            try {
+                if (!user) {
+                    throw new Error('Authentication required');
+                }
+
+                const stories = await Story.find({
+                    isActive: true,
+                    expiresAt: { $gt: new Date() }
+                }).sort({ createdAt: -1 });
+
+                // Group by profile
+                const storiesByProfile = {};
+                stories.forEach(story => {
+                    if (!storiesByProfile[story.profileid]) {
+                        storiesByProfile[story.profileid] = [];
+                    }
+                    storiesByProfile[story.profileid].push(story);
+                });
+
+                // Return latest story from each profile
+                const latestStories = Object.values(storiesByProfile).map(profileStories => profileStories[0]);
+                
+                return latestStories;
+            } catch (error) {
+                console.error('Error fetching active stories:', error);
+                throw new Error('Failed to fetch active stories');
+            }
+        },
+
+        getStoryById: async (_, { storyid }) => {
+            try {
+                const story = await Story.findOne({ 
+                    storyid, 
+                    isActive: true,
+                    expiresAt: { $gt: new Date() }
+                });
+
+                if (!story) {
+                    throw new Error('Story not found or expired');
+                }
+
+                return story;
+            } catch (error) {
+                console.error('Error fetching story by ID:', error);
+                throw new Error('Failed to fetch story');
+            }
+        },
+
+        getStoryViewers: async (_, { storyid }, { user }) => {
+            try {
+                const story = await Story.findOne({ storyid });
+                
+                if (!story) {
+                    throw new Error('Story not found');
+                }
+
+                // Check if user owns this story
+                if (story.profileid !== user.profileid) {
+                    throw new Error('Unauthorized: Can only view your own story viewers');
+                }
+
+                const profileIds = story.viewers.map(viewer => viewer.profileid);
+                const profiles = await Profile.find({ profileid: { $in: profileIds } });
+                
+                return story.viewers.map(viewer => ({
+                    profileid: viewer.profileid,
+                    profile: profiles.find(p => p.profileid === viewer.profileid),
+                    viewedAt: viewer.viewedAt
+                }));
+            } catch (error) {
+                console.error('Error fetching story viewers:', error);
+                throw new Error('Failed to fetch story viewers');
             }
         },
     },
@@ -1814,6 +2122,312 @@ const Resolvers = {
             }
         },
         
+        // Chat mutations
+        CreateChat: async (_, { participants, chatType, chatName, chatAvatar }, { user }) => {
+            try {
+                if (!user) {
+                    throw new Error('Authentication required');
+                }
+
+                // Ensure current user is in participants
+                if (!participants.includes(user.profileid)) {
+                    participants.push(user.profileid);
+                }
+
+                // Validate participants exist
+                const validParticipants = await Profile.find({
+                    profileid: { $in: participants }
+                });
+
+                if (validParticipants.length !== participants.length) {
+                    throw new Error('Some participants do not exist');
+                }
+
+                // For direct chats, check if chat already exists
+                if (chatType === 'direct' && participants.length === 2) {
+                    const existingChat = await Chat.findOne({
+                        participants: { $all: participants, $size: 2 },
+                        chatType: 'direct',
+                        isActive: true
+                    });
+
+                    if (existingChat) {
+                        return existingChat;
+                    }
+                }
+
+                // Create new chat
+                const newChat = new Chat({
+                    chatid: uuidv4(),
+                    participants,
+                    chatType,
+                    chatName: chatType === 'group' ? chatName || 'New Group' : null,
+                    chatAvatar,
+                    createdBy: user.profileid,
+                    adminIds: chatType === 'group' ? [user.profileid] : []
+                });
+
+                await newChat.save();
+                return newChat;
+            } catch (error) {
+                console.error('Error creating chat:', error);
+                throw new Error('Failed to create chat');
+            }
+        },
+
+        UpdateChat: async (_, { chatid, chatName, chatAvatar }, { user }) => {
+            try {
+                const chat = await Chat.findOne({ chatid, isActive: true });
+                
+                if (!chat) {
+                    throw new Error('Chat not found');
+                }
+
+                // Check if user is admin (for group chats) or participant (for direct chats)
+                if (chat.chatType === 'group' && !chat.adminIds.includes(user.profileid)) {
+                    throw new Error('Unauthorized: Only admins can update group chat');
+                }
+
+                if (!chat.participants.includes(user.profileid)) {
+                    throw new Error('Unauthorized: Not a participant in this chat');
+                }
+
+                // Update chat
+                if (chatName !== undefined) chat.chatName = chatName;
+                if (chatAvatar !== undefined) chat.chatAvatar = chatAvatar;
+
+                await chat.save();
+                return chat;
+            } catch (error) {
+                console.error('Error updating chat:', error);
+                throw new Error('Failed to update chat');
+            }
+        },
+
+        // Message mutations
+        SendMessage: async (_, { chatid, messageType, content, attachments, replyTo, mentions }, { user }) => {
+            try {
+                if (!user) {
+                    throw new Error('Authentication required');
+                }
+
+                // Check if user has access to this chat
+                const chat = await Chat.findOne({ chatid, isActive: true });
+                if (!chat || !chat.participants.includes(user.profileid)) {
+                    throw new Error('Unauthorized: Cannot send message to this chat');
+                }
+
+                // Create new message
+                const newMessage = new Message({
+                    messageid: uuidv4(),
+                    chatid,
+                    senderid: user.profileid,
+                    messageType,
+                    content,
+                    attachments: attachments || [],
+                    replyTo,
+                    mentions: mentions || [],
+                    messageStatus: 'sent'
+                });
+
+                await newMessage.save();
+
+                // Update chat's last message
+                chat.lastMessage = newMessage.messageid;
+                chat.lastMessageAt = new Date();
+                await chat.save();
+
+                return newMessage;
+            } catch (error) {
+                console.error('Error sending message:', error);
+                throw new Error('Failed to send message');
+            }
+        },
+
+        EditMessage: async (_, { messageid, content }, { user }) => {
+            try {
+                const message = await Message.findOne({ messageid, isDeleted: false });
+                
+                if (!message) {
+                    throw new Error('Message not found');
+                }
+
+                if (message.senderid !== user.profileid) {
+                    throw new Error('Unauthorized: Can only edit your own messages');
+                }
+
+                // Store edit history
+                message.editHistory.push({
+                    content: message.content,
+                    editedAt: new Date()
+                });
+
+                message.content = content;
+                message.isEdited = true;
+
+                await message.save();
+                return message;
+            } catch (error) {
+                console.error('Error editing message:', error);
+                throw new Error('Failed to edit message');
+            }
+        },
+
+        DeleteMessage: async (_, { messageid }, { user }) => {
+            try {
+                const message = await Message.findOne({ messageid, isDeleted: false });
+                
+                if (!message) {
+                    throw new Error('Message not found');
+                }
+
+                if (message.senderid !== user.profileid) {
+                    throw new Error('Unauthorized: Can only delete your own messages');
+                }
+
+                message.isDeleted = true;
+                message.deletedBy = user.profileid;
+                message.deletedAt = new Date();
+
+                await message.save();
+                return message;
+            } catch (error) {
+                console.error('Error deleting message:', error);
+                throw new Error('Failed to delete message');
+            }
+        },
+
+        ReactToMessage: async (_, { messageid, emoji }, { user }) => {
+            try {
+                const message = await Message.findOne({ messageid, isDeleted: false });
+                
+                if (!message) {
+                    throw new Error('Message not found');
+                }
+
+                // Check if user has access to this chat
+                const chat = await Chat.findOne({ chatid: message.chatid });
+                if (!chat || !chat.participants.includes(user.profileid)) {
+                    throw new Error('Unauthorized: Cannot react to this message');
+                }
+
+                // Remove existing reaction from this user
+                message.reactions = message.reactions.filter(
+                    reaction => reaction.profileid !== user.profileid
+                );
+
+                // Add new reaction
+                message.reactions.push({
+                    profileid: user.profileid,
+                    emoji,
+                    createdAt: new Date()
+                });
+
+                await message.save();
+                return message;
+            } catch (error) {
+                console.error('Error reacting to message:', error);
+                throw new Error('Failed to react to message');
+            }
+        },
+
+        RemoveReaction: async (_, { messageid, emoji }, { user }) => {
+            try {
+                const message = await Message.findOne({ messageid, isDeleted: false });
+                
+                if (!message) {
+                    throw new Error('Message not found');
+                }
+
+                // Remove reaction
+                message.reactions = message.reactions.filter(
+                    reaction => !(reaction.profileid === user.profileid && reaction.emoji === emoji)
+                );
+
+                await message.save();
+                return message;
+            } catch (error) {
+                console.error('Error removing reaction:', error);
+                throw new Error('Failed to remove reaction');
+            }
+        },
+
+        MarkMessageAsRead: async (_, { messageid }, { user }) => {
+            try {
+                const message = await Message.findOne({ messageid, isDeleted: false });
+                
+                if (!message) {
+                    throw new Error('Message not found');
+                }
+
+                // Check if user has access to this chat
+                const chat = await Chat.findOne({ chatid: message.chatid });
+                if (!chat || !chat.participants.includes(user.profileid)) {
+                    throw new Error('Unauthorized: Cannot mark this message as read');
+                }
+
+                // Check if already marked as read
+                const existingRead = message.readBy.find(
+                    read => read.profileid === user.profileid
+                );
+
+                if (!existingRead) {
+                    message.readBy.push({
+                        profileid: user.profileid,
+                        readAt: new Date()
+                    });
+                    await message.save();
+                }
+
+                return message;
+            } catch (error) {
+                console.error('Error marking message as read:', error);
+                throw new Error('Failed to mark message as read');
+            }
+        },
+
+        MarkChatAsRead: async (_, { chatid }, { user }) => {
+            try {
+                // Check if user has access to this chat
+                const chat = await Chat.findOne({ chatid, isActive: true });
+                if (!chat || !chat.participants.includes(user.profileid)) {
+                    throw new Error('Unauthorized: Cannot access this chat');
+                }
+
+                // Find unread messages
+                const unreadMessages = await Message.find({
+                    chatid,
+                    senderid: { $ne: user.profileid },
+                    'readBy.profileid': { $ne: user.profileid },
+                    isDeleted: false
+                });
+
+                // Mark all as read
+                const bulkOps = unreadMessages.map(message => ({
+                    updateOne: {
+                        filter: { _id: message._id },
+                        update: {
+                            $push: {
+                                readBy: {
+                                    profileid: user.profileid,
+                                    readAt: new Date()
+                                }
+                            }
+                        }
+                    }
+                }));
+
+                if (bulkOps.length > 0) {
+                    await Message.bulkWrite(bulkOps);
+                }
+
+                return unreadMessages;
+            } catch (error) {
+                console.error('Error marking chat as read:', error);
+                throw new Error('Failed to mark chat as read');
+            }
+        },
+        
         signup: async (_, { username, email, password }) => {
             try {
                 console.log('Signup attempt:', { username, email });
@@ -1878,7 +2492,290 @@ const Resolvers = {
                 throw new Error(`Signup failed: ${err.message}`);
             }
         },
+        
+        // Story mutations
+        CreateStory: async (_, { profileid, mediaUrl, mediaType, caption }, { user }) => {
+            try {
+                if (!user) {
+                    throw new Error('Authentication required');
+                }
 
+                // Ensure user can only create stories for themselves
+                if (profileid !== user.profileid) {
+                    throw new Error('Unauthorized: Can only create stories for yourself');
+                }
+
+                const newStory = new Story({
+                    storyid: uuidv4(),
+                    profileid,
+                    mediaUrl,
+                    mediaType,
+                    caption: caption || ''
+                });
+
+                await newStory.save();
+                return newStory;
+            } catch (error) {
+                console.error('Error creating story:', error);
+                throw new Error('Failed to create story');
+            }
+        },
+
+        DeleteStory: async (_, { storyid }, { user }) => {
+            try {
+                const story = await Story.findOne({ storyid });
+                
+                if (!story) {
+                    throw new Error('Story not found');
+                }
+
+                // Check if user owns this story
+                if (story.profileid !== user.profileid) {
+                    throw new Error('Unauthorized: Can only delete your own stories');
+                }
+
+                story.isActive = false;
+                await story.save();
+                
+                return story;
+            } catch (error) {
+                console.error('Error deleting story:', error);
+                throw new Error('Failed to delete story');
+            }
+        },
+
+        ViewStory: async (_, { storyid }, { user }) => {
+            try {
+                if (!user) {
+                    throw new Error('Authentication required');
+                }
+
+                const story = await Story.findOne({ 
+                    storyid, 
+                    isActive: true,
+                    expiresAt: { $gt: new Date() }
+                });
+                
+                if (!story) {
+                    throw new Error('Story not found or expired');
+                }
+
+                // Don't add view if it's the story owner
+                if (story.profileid === user.profileid) {
+                    return story;
+                }
+
+                // Check if user already viewed this story
+                const existingView = story.viewers.find(viewer => viewer.profileid === user.profileid);
+                
+                if (!existingView) {
+                    story.viewers.push({
+                        profileid: user.profileid,
+                        viewedAt: new Date()
+                    });
+                    await story.save();
+                }
+
+                return story;
+            } catch (error) {
+                console.error('Error viewing story:', error);
+                throw new Error('Failed to view story');
+            }
+        },
+
+    },
+
+    // Chat field resolvers
+    Chat: {
+        participants: async (parent) => {
+            try {
+                const profiles = await Profile.find({ profileid: { $in: parent.participants } });
+                return profiles;
+            } catch (error) {
+                console.error('Error fetching chat participants:', error);
+                return [];
+            }
+        },
+        lastMessage: async (parent) => {
+            if (!parent.lastMessage) return null;
+            try {
+                const message = await Message.findOne({ messageid: parent.lastMessage });
+                return message;
+            } catch (error) {
+                console.error('Error fetching last message:', error);
+                return null;
+            }
+        },
+        mutedBy: async (parent) => {
+            if (!parent.mutedBy || parent.mutedBy.length === 0) return [];
+            try {
+                const profiles = await Profile.find({ profileid: { $in: parent.mutedBy } });
+                return profiles;
+            } catch (error) {
+                console.error('Error fetching muted by profiles:', error);
+                return [];
+            }
+        },
+        adminIds: async (parent) => {
+            if (!parent.adminIds || parent.adminIds.length === 0) return [];
+            try {
+                const profiles = await Profile.find({ profileid: { $in: parent.adminIds } });
+                return profiles;
+            } catch (error) {
+                console.error('Error fetching admin profiles:', error);
+                return [];
+            }
+        },
+        createdBy: async (parent) => {
+            try {
+                const profile = await Profile.findOne({ profileid: parent.createdBy });
+                return profile;
+            } catch (error) {
+                console.error('Error fetching created by profile:', error);
+                return null;
+            }
+        },
+        messages: async (parent, { limit = 50, offset = 0 }) => {
+            try {
+                const messages = await Message.find({ 
+                    chatid: parent.chatid,
+                    isDeleted: false
+                })
+                .sort({ createdAt: -1 })
+                .limit(limit)
+                .skip(offset);
+                return messages.reverse(); // Return in chronological order
+            } catch (error) {
+                console.error('Error fetching chat messages:', error);
+                return [];
+            }
+        }
+    },
+
+    // Message field resolvers
+    Message: {
+        chat: async (parent) => {
+            try {
+                const chat = await Chat.findOne({ chatid: parent.chatid });
+                return chat;
+            } catch (error) {
+                console.error('Error fetching message chat:', error);
+                return null;
+            }
+        },
+        sender: async (parent) => {
+            try {
+                const profile = await Profile.findOne({ profileid: parent.senderid });
+                return profile;
+            } catch (error) {
+                console.error('Error fetching message sender:', error);
+                return null;
+            }
+        },
+        replyTo: async (parent) => {
+            if (!parent.replyTo) return null;
+            try {
+                const message = await Message.findOne({ messageid: parent.replyTo });
+                return message;
+            } catch (error) {
+                console.error('Error fetching reply to message:', error);
+                return null;
+            }
+        },
+        mentions: async (parent) => {
+            if (!parent.mentions || parent.mentions.length === 0) return [];
+            try {
+                const profiles = await Profile.find({ profileid: { $in: parent.mentions } });
+                return profiles;
+            } catch (error) {
+                console.error('Error fetching mentioned profiles:', error);
+                return [];
+            }
+        },
+        deletedBy: async (parent) => {
+            if (!parent.deletedBy) return null;
+            try {
+                const profile = await Profile.findOne({ profileid: parent.deletedBy });
+                return profile;
+            } catch (error) {
+                console.error('Error fetching deleted by profile:', error);
+                return null;
+            }
+        }
+    },
+
+    // MessageReaction field resolvers
+    MessageReaction: {
+        profile: async (parent) => {
+            try {
+                const profile = await Profile.findOne({ profileid: parent.profileid });
+                return profile;
+            } catch (error) {
+                console.error('Error fetching reaction profile:', error);
+                return null;
+            }
+        }
+    },
+
+    // MessageReadStatus field resolvers
+    MessageReadStatus: {
+        profile: async (parent) => {
+            try {
+                const profile = await Profile.findOne({ profileid: parent.profileid });
+                return profile;
+            } catch (error) {
+                console.error('Error fetching read status profile:', error);
+                return null;
+            }
+        }
+    },
+
+    // Story field resolvers
+    Story: {
+        profile: async (parent) => {
+            try {
+                const profile = await Profile.findOne({ profileid: parent.profileid });
+                return profile;
+            } catch (error) {
+                console.error('Error fetching story profile:', error);
+                return null;
+            }
+        },
+        viewers: async (parent) => {
+            try {
+                const profileIds = parent.viewers.map(viewer => viewer.profileid);
+                const profiles = await Profile.find({ profileid: { $in: profileIds } });
+                
+                return parent.viewers.map(viewer => ({
+                    profileid: viewer.profileid,
+                    profile: profiles.find(p => p.profileid === viewer.profileid),
+                    viewedAt: viewer.viewedAt
+                }));
+            } catch (error) {
+                console.error('Error fetching story viewers:', error);
+                return [];
+            }
+        },
+        viewersCount: (parent) => {
+            return parent.viewers ? parent.viewers.length : 0;
+        },
+        isViewedByUser: (parent, args, context) => {
+            if (!context.user) return false;
+            return parent.viewers ? parent.viewers.some(viewer => viewer.profileid === context.user.profileid) : false;
+        }
+    },
+
+    // StoryViewer field resolvers
+    StoryViewer: {
+        profile: async (parent) => {
+            try {
+                const profile = await Profile.findOne({ profileid: parent.profileid });
+                return profile;
+            } catch (error) {
+                console.error('Error fetching story viewer profile:', error);
+                return null;
+            }
+        }
     }
 
 }

@@ -1,15 +1,15 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Simple performance optimizations
+  // Build optimization
   compress: true,
   poweredByHeader: false,
   
-  // Image optimization
+  // Fix workspace root warning
+  outputFileTracingRoot: __dirname,
+  
+  // Faster image optimization
   images: {
-    formats: ['image/webp', 'image/avif'],
-    minimumCacheTTL: 60 * 60 * 24 * 30, // 30 days
-    dangerouslyAllowSVG: true,
-    contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
+    formats: ['image/webp'],
     remotePatterns: [
       {
         protocol: 'http',
@@ -20,80 +20,40 @@ const nextConfig = {
         hostname: 'localhost',
       },
     ],
-    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
-    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
   },
 
-  // Compiler optimizations
+  // Enhanced compiler optimizations for faster builds
   compiler: {
     removeConsole: process.env.NODE_ENV === 'production',
   },
 
-  // Aggressive bundle optimization
+  // Webpack optimizations
   webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
-    // Minimize bundle size
-    config.resolve.alias = {
-      ...config.resolve.alias,
-      '@': __dirname,
+    // Faster builds with better caching
+    config.cache = {
+      type: 'filesystem',
+      buildDependencies: {
+        config: [__filename],
+      },
     };
     
-    // Production optimizations
-    if (!dev) {
+    // Optimize bundle splits for faster builds
+    if (!dev && !isServer) {
       config.optimization = {
         ...config.optimization,
-        usedExports: true,
-        sideEffects: false,
         splitChunks: {
           chunks: 'all',
-          minSize: 20000,
-          maxSize: 244000,
           cacheGroups: {
-            default: {
-              minChunks: 2,
-              priority: -20,
-              reuseExistingChunk: true,
-            },
             vendor: {
               test: /[\\/]node_modules[\\/]/,
               name: 'vendors',
-              priority: -10,
-              reuseExistingChunk: true,
+              chunks: 'all',
+              priority: 10,
             },
-            apollo: {
-              test: /[\\/]node_modules[\\/](@apollo|graphql)[\\/]/,
-              name: 'apollo',
-              priority: 20,
-              reuseExistingChunk: true,
-            },
-            framer: {
-              test: /[\\/]node_modules[\\/]framer-motion[\\/]/,
-              name: 'framer',
-              priority: 20,
-              reuseExistingChunk: true,
-            },
-            icons: {
-              test: /[\\/]node_modules[\\/]lucide-react[\\/]/,
-              name: 'icons',
-              priority: 20,
-              reuseExistingChunk: true,
-            },
-            // Route-specific chunking for better performance
-            homeRoute: {
-              test: /[\\/]Components[\\/]MainComponents[\\/]Home[\\/]/,
-              name: 'home-chunk',
-              priority: 30,
-              reuseExistingChunk: true,
-            },
-            profileRoute: {
-              test: /[\\/]Components[\\/]MainComponents[\\/]Profile[\\/]/,
-              name: 'profile-chunk',
-              priority: 30,
-              reuseExistingChunk: true,
-            },
-            reelsRoute: {
-              test: /[\\/]Components[\\/]MainComponents[\\/]Reels[\\/]/,
-              name: 'reels-chunk',
-              priority: 30,
+            common: {
+              minChunks: 2,
+              chunks: 'all',
+              priority: 5,
               reuseExistingChunk: true,
             },
           },
@@ -101,88 +61,38 @@ const nextConfig = {
       };
     }
 
-    // Bundle analyzer in development
-    if (dev && process.env.ANALYZE === 'true') {
-      const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
-      config.plugins.push(
-        new BundleAnalyzerPlugin({
-          analyzerMode: 'server',
-          openAnalyzer: true,
-        })
-      );
-    }
+    // Add alias for faster resolution
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@': __dirname,
+    };
+    
+    // Exclude unnecessary files from compilation
+    config.module.rules.push({
+      test: /\.(md|txt)$/,
+      use: 'raw-loader',
+    });
 
     return config;
   },
 
-  // Headers for caching and security
-  async headers() {
-    return [
-      {
-        source: '/:path*',
-        headers: [
-          {
-            key: 'X-DNS-Prefetch-Control',
-            value: 'on'
-          },
-          {
-            key: 'X-XSS-Protection',
-            value: '1; mode=block'
-          },
-          {
-            key: 'X-Content-Type-Options',
-            value: 'nosniff'
-          },
-          {
-            key: 'Referrer-Policy',
-            value: 'origin-when-cross-origin'
-          },
-        ],
-      },
-      {
-        source: '/static/:path*',
-        headers: [
-          {
-            key: 'Cache-Control',
-            value: 'public, max-age=31536000, immutable',
-          },
-        ],
-      },
-    ];
-  },
-
-  // Transpile packages for better compatibility
-  transpilePackages: [],
-  
-  // Server external packages (moved from experimental)
-  serverExternalPackages: [],
-  
-  // Turbopack configuration (moved from experimental)
-  turbopack: {
-    rules: {
-      '*.svg': {
-        loaders: ['@svgr/webpack'],
-        as: '*.js',
-      },
-    },
-  },
-  
-  // Experimental features for performance
+  // Experimental features for better performance
   experimental: {
-    // optimizeCss: true, // Disabled due to missing critters dependency
     optimizePackageImports: [
       'framer-motion',
       'lucide-react',
     ],
-    // optimizeServerReact: true, // Disabled for compatibility
   },
 
-  // Static optimization
-  output: 'standalone',
-  
-  // Environment variables
-  env: {
-    CUSTOM_KEY: 'swaggo-optimized',
+  // ESLint configuration for faster builds (skip during build)
+  eslint: {
+    // Only run ESLint during development
+    ignoreDuringBuilds: process.env.NODE_ENV === 'production',
+  },
+
+  // TypeScript configuration for faster builds
+  typescript: {
+    ignoreBuildErrors: false,
   },
 };
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../Components/Helper/AuthProvider';
 import LoginModal from '../auth/LoginModal';
+import CreatePostModal from '../MainComponents/Post/CreatePostModal';
 
 const Header = () => {
   const { user, accessToken, logout, loading } = useAuth();
@@ -8,6 +9,7 @@ const Header = () => {
   const isLoading = loading;
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showCreatePost, setShowCreatePost] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -35,7 +37,18 @@ const Header = () => {
           
           <div className="flex items-center space-x-4">
             {isAuthenticated ? (
-              <div className="relative">
+              <>
+                {/* Post Button */}
+                <button
+                  onClick={() => setShowCreatePost(true)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-lg font-medium transition-all duration-300 hover:shadow-lg"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  <span>Post</span>
+                </button>
+                <div className="relative">
                 <button
                   onClick={() => setShowUserMenu(!showUserMenu)}
                   className="flex items-center space-x-2 hover:bg-gray-50 rounded-lg px-3 py-2"
@@ -65,11 +78,20 @@ const Header = () => {
                       <button
                         onClick={() => {
                           setShowUserMenu(false);
-                          // Navigate to profile or settings
+                          window.location.href = '/Profile';
                         }}
                         className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                       >
-                        Profile
+                        👤 Profile
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          window.location.href = '/dashboard';
+                        }}
+                        className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        📊 Dashboard
                       </button>
                       <button
                         onClick={() => {
@@ -78,7 +100,7 @@ const Header = () => {
                         }}
                         className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                       >
-                        Settings
+                        ⚙️ Settings
                       </button>
                       <div className="border-t border-gray-100"></div>
                       <button
@@ -91,6 +113,7 @@ const Header = () => {
                   </div>
                 )}
               </div>
+              </>
             ) : (
               <div className="flex items-center space-x-2">
                 <button
@@ -116,6 +139,18 @@ const Header = () => {
         isOpen={showLoginModal}
         onClose={() => setShowLoginModal(false)}
       />
+      
+      {/* Create Post Modal */}
+      {isAuthenticated && (
+        <CreatePostModal
+          isOpen={showCreatePost}
+          onClose={() => setShowCreatePost(false)}
+          onPostSuccess={() => {
+            setShowCreatePost(false);
+            // Refresh the page or trigger a refetch if needed
+          }}
+        />
+      )}
 
       {/* Click outside to close user menu */}
       {showUserMenu && (

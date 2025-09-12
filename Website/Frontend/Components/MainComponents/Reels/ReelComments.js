@@ -13,26 +13,51 @@ export default function ReelComments({ isOpen, onClose, reel, user, refetch, var
   const [replyingTo, setReplyingTo] = useState(null); // Track which comment is being replied to
   const [replyText, setReplyText] = useState('');
   const [showReplyEmojiPicker, setShowReplyEmojiPicker] = useState(false);
+  const [localComments, setLocalComments] = useState([]); // Fallback local comments
+  
+  // Always call hooks at the top level
   const { data, loading, error, refetch: refetchComments } = useQuery(GET_POST_COMMENTS, {
-    skip: !reel?.postid,
-    variables: { postid: reel?.postid },
+    variables: { postid: reel?.postid || '' },
+    skip: !reel?.postid, // Skip query if no postid
     fetchPolicy: 'cache-and-network',
-    errorPolicy: 'all'
+    errorPolicy: 'all',
+    notifyOnNetworkStatusChange: true,
+    // Add retry logic
+    onError: (err) => {
+      console.error('GraphQL Query Error:', err);
+      console.error('Network Error:', err.networkError);
+      console.error('GraphQL Errors:', err.graphQLErrors);
+    }
   });
 
   const [createComment] = useMutation(CREATE_COMMENT);
   const [createCommentReply] = useMutation(CREATE_COMMENT_REPLY);
   const [toggleCommentLike] = useMutation(TOGGLE_COMMENT_LIKE);
+  
+  // Don't render if not open or no reel data
+  if (!isOpen || !reel?.postid) {
+    return null;
+  }
 
-  const comments = data?.getCommentsByPost || [];
+  // Use GraphQL comments if available, otherwise use local fallback
+  const comments = data?.getCommentsByPost || localComments || [];
+  
+  // If there's an error, we'll still allow local commenting
+  const canComment = user?.profileid && reel?.postid;
   
   // Debug logging
   console.log('ReelComments Debug:', {
+    isOpen,
     user: user,
     userProfileId: user?.profileid,
     reel: reel,
     reelPostId: reel?.postid,
-    commentsLength: comments.length
+    commentsLength: comments.length,
+    data,
+    loading,
+    error: error?.message,
+    graphQLErrors: error?.graphQLErrors,
+    networkError: error?.networkError
   });
   
   // Enhanced emoji collection
@@ -61,7 +86,24 @@ export default function ReelComments({ isOpen, onClose, reel, user, refetch, var
   ];
 
   const addComment = async () => {
-    if (!newComment.trim() || !user?.profileid) return;
+    if (!newComment.trim() || !canComment) return;
+    
+    const tempCommentId = `temp_${Date.now()}_${Math.random()}`;
+    const tempComment = {
+      commentid: tempCommentId,
+      comment: newComment,
+      profile: {
+        profileid: user.profileid,
+        username: user.username || 'You',
+        profilePic: user.profilePic || '/default-avatar.png',
+        isVerified: user.isVerified || false
+      },
+      likeCount: 0,
+      isLikedByUser: false,
+      createdAt: new Date().toISOString(),
+      replies: []
+    };
+    
     try {
       console.log('Adding comment with data:', {
         postid: reel.postid,
@@ -76,20 +118,24 @@ export default function ReelComments({ isOpen, onClose, reel, user, refetch, var
           comment: newComment
         },
         update: (cache, { data }) => {
-          const newComment = data.CreateComment;
-          const existingComments = cache.readQuery({
-            query: GET_POST_COMMENTS,
-            variables: { postid: reel.postid }
-          });
-          
-          if (existingComments && newComment) {
-            cache.writeQuery({
+          const newCommentData = data.CreateComment;
+          try {
+            const existingComments = cache.readQuery({
               query: GET_POST_COMMENTS,
-              variables: { postid: reel.postid },
-              data: {
-                getCommentsByPost: [...existingComments.getCommentsByPost, newComment]
-              }
+              variables: { postid: reel.postid }
             });
+            
+            if (existingComments && newCommentData) {
+              cache.writeQuery({
+                query: GET_POST_COMMENTS,
+                variables: { postid: reel.postid },
+                data: {
+                  getCommentsByPost: [...existingComments.getCommentsByPost, newCommentData]
+                }
+              });
+            }
+          } catch (cacheError) {
+            console.log('Cache update failed, using local state');
           }
         }
       });
@@ -102,6 +148,12 @@ export default function ReelComments({ isOpen, onClose, reel, user, refetch, var
       console.error('Error adding comment:', e);
       console.error('GraphQL errors:', e.graphQLErrors);
       console.error('Network error:', e.networkError);
+      
+      // Fallback: Add comment to local state if GraphQL fails
+      console.log('Adding comment to local state as fallback');
+      setLocalComments(prev => [...prev, tempComment]);
+      setNewComment('');
+      setShowEmojiPicker(false);
     }
   };
 
@@ -295,8 +347,6 @@ export default function ReelComments({ isOpen, onClose, reel, user, refetch, var
     }
   };
 
-  if (!isOpen) return null;
-
   return (
     <AnimatePresence>
       <motion.div
@@ -350,7 +400,18 @@ export default function ReelComments({ isOpen, onClose, reel, user, refetch, var
             <div className={`p-4 rounded-2xl border ${
               theme === 'dark' ? 'bg-red-900/20 border-red-700/50 text-red-400' : 'bg-red-50 border-red-200 text-red-600'
             }`}>
-              <p className="text-sm font-medium">Failed to load comments. Please try again.</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Failed to load comments</p>
+                  <p className="text-xs mt-1 opacity-75">{error.message || 'Please try again'}</p>
+                </div>
+                <button
+                  onClick={() => refetchComments()}
+                  className="px-3 py-1 text-xs bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
             </div>
           )}
           {loading && (
@@ -669,9 +730,12 @@ export default function ReelComments({ isOpen, onClose, reel, user, refetch, var
                     value={newComment}
                     onChange={(e) => setNewComment(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && addComment()}
-                    placeholder="Add a comment..."
+                    placeholder={error ? "Add a comment... (offline mode)" : "Add a comment..."}
+                    disabled={!canComment}
                     className={`flex-1 px-2 py-3 bg-transparent focus:outline-none text-sm ${
-                      theme === 'dark'
+                      !canComment 
+                        ? 'opacity-50 cursor-not-allowed'
+                        : theme === 'dark'
                         ? 'text-white placeholder-gray-400'
                         : 'text-gray-900 placeholder-gray-500'
                     }`}

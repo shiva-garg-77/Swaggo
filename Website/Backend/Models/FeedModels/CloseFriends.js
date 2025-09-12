@@ -15,4 +15,4 @@ const CloseFriendsSchema = new mongoose.Schema({
 // Ensure a user can't add the same person as close friend multiple times
 CloseFriendsSchema.index({ profileid: 1, closefriendid: 1 }, { unique: true });
 
-export default mongoose.model("CloseFriends", CloseFriendsSchema);
+export default mongoose.models.CloseFriends || mongoose.model("CloseFriends", CloseFriendsSchema);

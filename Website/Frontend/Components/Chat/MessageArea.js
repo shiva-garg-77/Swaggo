@@ -1,0 +1,452 @@
+'use client';
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useQuery, useMutation } from '@apollo/client';
+import { useAuth } from '../Helper/AuthProvider';
+import { useSocket } from '../Helper/SocketProvider';
+import { GET_MESSAGES_BY_CHAT, SEND_MESSAGE, EDIT_MESSAGE, DELETE_MESSAGE } from './queries';
+import MessageInput from './MessageInput';
+import MessageBubble from './MessageBubble';
+
+export default function MessageArea({ 
+  selectedChat, 
+  user,
+  socket,
+  isConnected
+}) {
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [allMessages, setAllMessages] = useState([]);
+  const [typingUsers, setTypingUsers] = useState({});
+  const [replyingTo, setReplyingTo] = useState(null);
+  const messagesContainerRef = useRef(null);
+  const messagesEndRef = useRef(null);
+
+  // Fetch messages for the selected chat
+  const { data: messagesData, loading, refetch: refetchMessages } = useQuery(GET_MESSAGES_BY_CHAT, {
+    variables: { chatid: selectedChat?.chatid, limit: 50, offset: 0 },
+    skip: !selectedChat?.chatid,
+    onCompleted: (data) => {
+      setAllMessages(data.getMessagesByChat || []);
+    }
+  });
+
+  // Send message mutation
+  const [sendMessageMutation] = useMutation(SEND_MESSAGE, {
+    onCompleted: (data) => {
+      // Message will be added via socket event
+      scrollToBottom();
+    },
+    onError: (error) => {
+      console.error('Error sending message:', error);
+    }
+  });
+
+  // Edit message mutation
+  const [editMessageMutation] = useMutation(EDIT_MESSAGE, {
+    onCompleted: () => {
+      refetchMessages();
+    },
+    onError: (error) => {
+      console.error('Error editing message:', error);
+    }
+  });
+
+  // Delete message mutation
+  const [deleteMessageMutation] = useMutation(DELETE_MESSAGE, {
+    onCompleted: () => {
+      refetchMessages();
+    },
+    onError: (error) => {
+      console.error('Error deleting message:', error);
+    }
+  });
+
+  // Socket event handlers
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleNewMessage = (data) => {
+      if (data.chat.chatid === selectedChat?.chatid) {
+        setAllMessages(prev => [...prev, data.message]);
+      }
+    };
+
+    const handleUserTyping = (data) => {
+      setTypingUsers(prev => ({
+        ...prev,
+        [data.profileid]: data.isTyping ? data.username : undefined
+      }));
+      
+      // Clear typing after 3 seconds
+      if (data.isTyping) {
+        setTimeout(() => {
+          setTypingUsers(prev => {
+            const newTyping = { ...prev };
+            delete newTyping[data.profileid];
+            return newTyping;
+          });
+        }, 3000);
+      }
+    };
+
+    socket.on('new_message', handleNewMessage);
+    socket.on('user_typing', handleUserTyping);
+
+    return () => {
+      socket.off('new_message', handleNewMessage);
+      socket.off('user_typing', handleUserTyping);
+    };
+  }, [socket, selectedChat]);
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    scrollToBottom();
+  }, [allMessages]);
+
+  // Auto scroll to bottom
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  // Get chat display info
+  const getChatDisplayInfo = () => {
+    if (!selectedChat) return { name: '', avatar: '', subtitle: '' };
+    
+    // Check if participants array exists
+    const participants = selectedChat.participants || [];
+    
+    if (selectedChat.chatType === 'group') {
+      return {
+        name: selectedChat.chatName || 'Group Chat',
+        avatar: selectedChat.chatAvatar,
+        subtitle: `${participants.length} members`
+      };
+    } else {
+      // Direct chat - find the other participant
+      const otherParticipant = participants.find(p => p.profileid !== user?.profileid);
+      return {
+        name: otherParticipant?.name || otherParticipant?.username || 'Unknown User',
+        avatar: otherParticipant?.profilePic,
+        subtitle: `@${otherParticipant?.username || 'unknown'}`
+      };
+    }
+  };
+
+  // Handle file upload
+  const uploadFile = async (file) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch('/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('File upload error:', error);
+      throw error;
+    }
+  };
+
+  // Handle message sending
+  const handleSendMessage = async (content, attachments = [], replyTo = null, mentions = []) => {
+    if (!content.trim() && !attachments.length) return;
+
+    try {
+      // Process attachments - upload files first
+      const processedAttachments = [];
+      
+      for (const attachment of attachments) {
+        if (attachment.file) {
+          // Upload the file
+          const uploadResult = await uploadFile(attachment.file);
+          processedAttachments.push({
+            type: attachment.type,
+            url: uploadResult.fileUrl,
+            filename: uploadResult.originalname,
+            size: uploadResult.size,
+            mimetype: attachment.mimetype
+          });
+        } else {
+          // Attachment already processed or URL-based
+          processedAttachments.push(attachment);
+        }
+      }
+      
+      // Send via GraphQL mutation
+      await sendMessageMutation({
+        variables: {
+          chatid: selectedChat.chatid,
+          messageType: processedAttachments.length > 0 ? processedAttachments[0].type : 'text',
+          content: content.trim(),
+          attachments: processedAttachments,
+          replyTo,
+          mentions
+        }
+      });
+
+      // Also send via Socket.io for real-time delivery
+      if (socket) {
+        socket.emit('send_message', {
+          chatid: selectedChat.chatid,
+          messageType: processedAttachments.length > 0 ? processedAttachments[0].type : 'text',
+          content: content.trim(),
+          attachments: processedAttachments,
+          replyTo,
+          mentions
+        });
+      }
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      // You could add user notification here
+    }
+  };
+
+  // Handle reply to message
+  const handleReplyToMessage = (message) => {
+    setReplyingTo(message);
+    // You could also scroll to input or focus it
+  };
+
+  // Handle edit message
+  const handleEditMessage = async (message) => {
+    const newContent = prompt('Edit message:', message.content);
+    if (newContent !== null && newContent.trim() !== message.content) {
+      try {
+        await editMessageMutation({
+          variables: {
+            messageid: message.messageid,
+            content: newContent.trim()
+          }
+        });
+      } catch (error) {
+        console.error('Failed to edit message:', error);
+      }
+    }
+  };
+
+  // Handle delete message
+  const handleDeleteMessage = async (messageid) => {
+    if (window.confirm('Are you sure you want to delete this message?')) {
+      try {
+        await deleteMessageMutation({
+          variables: {
+            messageid
+          }
+        });
+      } catch (error) {
+        console.error('Failed to delete message:', error);
+      }
+    }
+  };
+
+  // Format typing users
+  const getTypingText = () => {
+    const typingUserNames = Object.values(typingUsers);
+    if (typingUserNames.length === 0) return '';
+    
+    if (typingUserNames.length === 1) {
+      return `${typingUserNames[0]} is typing...`;
+    } else if (typingUserNames.length === 2) {
+      return `${typingUserNames[0]} and ${typingUserNames[1]} are typing...`;
+    } else {
+      return `${typingUserNames[0]} and ${typingUserNames.length - 1} others are typing...`;
+    }
+  };
+
+  // Group messages by date
+  const groupMessagesByDate = (messages) => {
+    const groups = [];
+    let currentDate = null;
+    let currentGroup = [];
+
+    messages.forEach((message) => {
+      const messageDate = new Date(message.createdAt).toDateString();
+      
+      if (messageDate !== currentDate) {
+        if (currentGroup.length > 0) {
+          groups.push({ date: currentDate, messages: currentGroup });
+        }
+        currentDate = messageDate;
+        currentGroup = [message];
+      } else {
+        currentGroup.push(message);
+      }
+    });
+
+    if (currentGroup.length > 0) {
+      groups.push({ date: currentDate, messages: currentGroup });
+    }
+
+    return groups;
+  };
+
+  // Format date for display
+  const formatDateHeader = (dateString) => {
+    const date = new Date(dateString);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    if (date.toDateString() === today.toDateString()) {
+      return 'Today';
+    } else if (date.toDateString() === yesterday.toDateString()) {
+      return 'Yesterday';
+    } else {
+      return date.toLocaleDateString('en-US', { 
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    }
+  };
+
+  // Early return if no chat selected
+  if (!selectedChat) {
+    return (
+      <div className="flex flex-col h-full bg-gradient-to-br from-pink-50 to-red-50 items-center justify-center">
+        <div className="text-center">
+          <div className="w-24 h-24 mx-auto mb-6 bg-gradient-to-br from-pink-200 to-red-200 rounded-full flex items-center justify-center">
+            <svg className="w-12 h-12 text-pink-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+          </div>
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">Welcome to Messages</h3>
+          <p className="text-gray-600 max-w-md">Select a conversation from the list to start chatting or search for someone to begin a new conversation.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const { name, avatar, subtitle } = getChatDisplayInfo();
+  const messageGroups = groupMessagesByDate(allMessages);
+  const typingText = getTypingText();
+
+  return (
+    <div className="flex flex-col h-full bg-white">
+      {/* Header */}
+      <div className="flex items-center justify-between p-6 bg-gradient-to-r from-pink-500 to-red-500">
+        <div className="flex items-center space-x-4">
+          <div className="w-12 h-12 rounded-full bg-white/20 p-0.5">
+            <img
+              src={avatar || '/default-avatar.png'}
+              alt={name}
+              className="w-full h-full rounded-full object-cover"
+            />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-white">{name}</h2>
+            <div className="flex items-center space-x-2">
+              <p className="text-sm text-white/80">{subtitle}</p>
+              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-yellow-400'}`} />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <button className="p-3 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition-colors">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+            </svg>
+          </button>
+          <button className="p-3 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition-colors">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          </button>
+          <button className="p-3 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition-colors">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Messages Area */}
+      <div 
+        ref={messagesContainerRef}
+        className="flex-1 overflow-y-auto p-4 space-y-4"
+      >
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
+          </div>
+        ) : messageGroups.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-4">
+              <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No messages yet</h3>
+            <p className="text-gray-500 dark:text-gray-400">Start the conversation by sending a message below</p>
+          </div>
+        ) : (
+          messageGroups.map((group, groupIndex) => (
+            <div key={groupIndex}>
+              {/* Date Header */}
+              <div className="flex items-center justify-center mb-4">
+                <div className="px-3 py-1 bg-gray-100 dark:bg-gray-800 rounded-full text-xs text-gray-600 dark:text-gray-400">
+                  {formatDateHeader(group.date)}
+                </div>
+              </div>
+
+              {/* Messages */}
+              <div className="space-y-2">
+                {group.messages.map((message, messageIndex) => (
+                  <MessageBubble
+                    key={message.messageid}
+                    message={message}
+                    isOwn={message.sender.profileid === user.profileid}
+                    showAvatar={
+                      messageIndex === 0 || 
+                      group.messages[messageIndex - 1].sender.profileid !== message.sender.profileid
+                    }
+                    chat={selectedChat}
+                    onReply={handleReplyToMessage}
+                    onEdit={handleEditMessage}
+                    onDelete={handleDeleteMessage}
+                  />
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+
+        {/* Typing Indicator */}
+        {typingText && (
+          <div className="flex items-center space-x-2 text-gray-500 dark:text-gray-400 text-sm">
+            <div className="flex space-x-1">
+              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+              <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+            </div>
+            <span>{typingText}</span>
+          </div>
+        )}
+
+        {/* Scroll anchor */}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Message Input */}
+      <div className="border-t border-gray-200 dark:border-gray-700">
+        <MessageInput
+          onSendMessage={(content, attachments) => handleSendMessage(content, attachments, replyingTo?.messageid)}
+          chatid={selectedChat?.chatid}
+          placeholder={`Message ${name}...`}
+          socket={socket}
+          replyingTo={replyingTo}
+          onCancelReply={() => setReplyingTo(null)}
+        />
+      </div>
+    </div>
+  );
+}

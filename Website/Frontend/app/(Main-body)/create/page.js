@@ -2,6 +2,7 @@
 
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { useTheme } from '../../../Components/Helper/ThemeProvider';
+import SplashScreen from '../../../Components/shared/SplashScreen';
 
 // Lazy load CreatePostModal for better performance
 const CreatePostModal = lazy(() => import('../../../Components/MainComponents/Post/CreatePostModal'));
@@ -54,7 +55,7 @@ export default function CreatePage() {
       </div>
 
       {/* Create Post Modal with Suspense */}
-      <Suspense fallback={null}>
+      <Suspense fallback={<SplashScreen compact show />}>
         <CreatePostModal
           isOpen={showModal}
           onClose={handleClose}

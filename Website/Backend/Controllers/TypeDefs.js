@@ -66,9 +66,24 @@ type Posts {
 }
 type Story {
     storyid:String!
+    profileid:String!
+    profile:Profiles!
     mediaUrl:String!
     mediaType:String!
+    caption:String
+    viewers:[StoryViewer!]
+    viewersCount:Int!
+    isViewedByUser:Boolean!
+    isActive:Boolean!
+    expiresAt:String
     createdAt:String
+    updatedAt:String
+}
+
+type StoryViewer {
+    profileid:String!
+    profile:Profiles!
+    viewedAt:String
 }
 type Memory {
     memoryid:String!
@@ -119,6 +134,72 @@ type Mentions {
     contextid:String!
     isnotified:Boolean!
     isread:Boolean!
+    createdAt:String
+    updatedAt:String
+}
+
+type MessageAttachment {
+    type:String!
+    url:String!
+    filename:String
+    size:Int
+    mimetype:String
+}
+
+type MessageReaction {
+    profileid:String!
+    profile:Profiles!
+    emoji:String!
+    createdAt:String
+}
+
+type MessageReadStatus {
+    profileid:String!
+    profile:Profiles!
+    readAt:String
+}
+
+type MessageEditHistory {
+    content:String!
+    editedAt:String
+}
+
+type Message {
+    messageid:String!
+    chatid:String!
+    chat:Chat!
+    senderid:String!
+    sender:Profiles!
+    messageType:String!
+    content:String
+    attachments:[MessageAttachment!]
+    replyTo:Message
+    mentions:[Profiles!]
+    reactions:[MessageReaction!]
+    readBy:[MessageReadStatus!]
+    isEdited:Boolean
+    editHistory:[MessageEditHistory!]
+    isDeleted:Boolean
+    deletedBy:Profiles
+    deletedAt:String
+    messageStatus:String
+    createdAt:String
+    updatedAt:String
+}
+
+type Chat {
+    chatid:String!
+    participants:[Profiles!]!
+    chatType:String!
+    chatName:String
+    chatAvatar:String
+    lastMessage:Message
+    lastMessageAt:String
+    isActive:Boolean!
+    mutedBy:[Profiles!]
+    adminIds:[Profiles!]
+    createdBy:Profiles!
+    messages:[Message!]
     createdAt:String
     updatedAt:String
 }
@@ -174,6 +255,7 @@ type Profiles {
     restrictedAccounts:[RestrictedAccount!]
     mentions:[Mentions!]
     settings:UserSettings
+    stories:[Story!]
     # tagpost:[Posts!]
 }
 type Query{
@@ -219,6 +301,26 @@ hello: String
     
     # User Settings Queries
     getUserSettings(profileid:String!):UserSettings
+    
+    # Stories Queries
+    getStories(profileid:String):[Story!]
+    getActiveStories:[Story!]
+    getStoryById(storyid:String!):Story
+    getStoryViewers(storyid:String!):[StoryViewer!]
+    
+    # Chat Queries
+    getChats(profileid:String!):[Chat!]
+    getChatById(chatid:String!):Chat
+    getChatByParticipants(participants:[String!]!):Chat
+    
+    # Message Queries
+    getMessagesByChat(chatid:String!,limit:Int,offset:Int):[Message!]
+    getMessageById(messageid:String!):Message
+    searchMessages(chatid:String!,query:String!):[Message!]
+    
+    # Chat Statistics
+    getUnreadMessageCount(profileid:String!):Int
+    getChatUnreadCount(chatid:String!,profileid:String!):Int
 }
 
 type PostStats {
@@ -342,6 +444,71 @@ type Mutation {
         notificationsEnabled:Boolean,
         darkMode:Boolean
     ):UserSettings
+    
+    # Chat Mutations
+    CreateChat(
+        participants:[String!]!,
+        chatType:String!,
+        chatName:String,
+        chatAvatar:String
+    ):Chat
+    UpdateChat(
+        chatid:String!,
+        chatName:String,
+        chatAvatar:String
+    ):Chat
+    DeleteChat(chatid:String!):Chat
+    AddParticipantToChat(chatid:String!,profileid:String!):Chat
+    RemoveParticipantFromChat(chatid:String!,profileid:String!):Chat
+    MuteChat(chatid:String!,profileid:String!):Chat
+    UnmuteChat(chatid:String!,profileid:String!):Chat
+    
+    # Message Mutations
+    SendMessage(
+        chatid:String!,
+        messageType:String!,
+        content:String,
+        attachments:[MessageAttachmentInput!],
+        replyTo:String,
+        mentions:[String!]
+    ):Message
+    EditMessage(
+        messageid:String!,
+        content:String!
+    ):Message
+    DeleteMessage(messageid:String!):Message
+    ReactToMessage(
+        messageid:String!,
+        emoji:String!
+    ):Message
+    RemoveReaction(
+        messageid:String!,
+        emoji:String!
+    ):Message
+    MarkMessageAsRead(
+        messageid:String!
+    ):Message
+    MarkChatAsRead(
+        chatid:String!
+    ):[Message!]
+    
+    # Story Mutations
+    CreateStory(
+        profileid:String!,
+        mediaUrl:String!,
+        mediaType:String!,
+        caption:String
+    ):Story
+    DeleteStory(storyid:String!):Story
+    ViewStory(storyid:String!):Story
+}
+
+input MessageAttachmentInput {
+    type:String!
+    url:String!
+    filename:String
+    size:Int
+    mimetype:String
 }
 
 
