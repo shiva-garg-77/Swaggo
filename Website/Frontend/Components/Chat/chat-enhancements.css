@@ -1,0 +1,359 @@
+/* Chat Interface Enhanced Styles */
+
+/* Custom scrollbar for chat areas */
+.chat-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
+}
+
+.chat-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.chat-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.5);
+  border-radius: 2px;
+}
+
+.chat-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.7);
+}
+
+/* Animation for message sending */
+@keyframes messageSend {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.message-send-animation {
+  animation: messageSend 0.2s ease-out;
+}
+
+/* Typing indicator animation */
+@keyframes typingDot {
+  0%, 60%, 100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-10px);
+  }
+}
+
+.typing-indicator {
+  display: inline-flex;
+  gap: 2px;
+  padding: 8px 12px;
+}
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  background: #9CA3AF;
+  border-radius: 50%;
+  animation: typingDot 1.4s infinite;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+/* Voice message waveform animation */
+@keyframes waveformPulse {
+  0%, 100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.waveform-playing .waveform-bar {
+  animation: waveformPulse 0.8s infinite;
+}
+
+.waveform-bar:nth-child(2) { animation-delay: 0.1s; }
+.waveform-bar:nth-child(3) { animation-delay: 0.2s; }
+.waveform-bar:nth-child(4) { animation-delay: 0.3s; }
+.waveform-bar:nth-child(5) { animation-delay: 0.4s; }
+.waveform-bar:nth-child(6) { animation-delay: 0.5s; }
+.waveform-bar:nth-child(7) { animation-delay: 0.6s; }
+.waveform-bar:nth-child(8) { animation-delay: 0.7s; }
+
+/* Recording pulse animation */
+@keyframes recordingPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+.recording-pulse {
+  animation: recordingPulse 1.5s infinite;
+}
+
+/* Message status indicators */
+.message-status-sending {
+  color: #9CA3AF;
+}
+
+.message-status-sent {
+  color: #6B7280;
+}
+
+.message-status-delivered {
+  color: #3B82F6;
+}
+
+.message-status-read {
+  color: #10B981;
+}
+
+/* Hover effects for interactive elements */
+.chat-hover-effect {
+  transition: all 0.2s ease;
+}
+
+.chat-hover-effect:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Emoji picker enhancements */
+.emoji-picker-category {
+  transition: background-color 0.2s ease;
+}
+
+.emoji-picker-category.active {
+  background: linear-gradient(135deg, #3B82F6, #1D4ED8);
+}
+
+/* Sticker grid hover effects */
+.sticker-item {
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.sticker-item:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* GIF grid hover effects */
+.gif-item {
+  transition: all 0.2s ease;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.gif-item:hover {
+  transform: scale(1.02);
+}
+
+.gif-item::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.1);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.gif-item:hover::after {
+  opacity: 1;
+}
+
+/* File upload drag and drop styles */
+.file-drop-zone {
+  transition: all 0.3s ease;
+  border: 2px dashed transparent;
+}
+
+.file-drop-zone.drag-over {
+  border-color: #3B82F6;
+  background-color: rgba(59, 130, 246, 0.05);
+}
+
+/* Media preview modal enhancements */
+.media-preview-modal {
+  backdrop-filter: blur(8px);
+}
+
+/* Reaction picker animations */
+.reaction-picker-enter {
+  opacity: 0;
+  transform: scale(0.8);
+}
+
+.reaction-picker-enter-active {
+  opacity: 1;
+  transform: scale(1);
+  transition: all 0.2s ease;
+}
+
+/* Custom input field styles */
+.chat-input {
+  background: linear-gradient(135deg, #F3F4F6, #E5E7EB);
+  border: none;
+  transition: all 0.2s ease;
+}
+
+.chat-input:focus {
+  background: #FFFFFF;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Send button enhancement */
+.send-button-gradient {
+  background: linear-gradient(135deg, #3B82F6, #1D4ED8);
+  transition: all 0.2s ease;
+}
+
+.send-button-gradient:hover:not(:disabled) {
+  background: linear-gradient(135deg, #1D4ED8, #1E3A8A);
+  transform: scale(1.05);
+}
+
+.send-button-gradient:disabled {
+  background: #D1D5DB;
+  cursor: not-allowed;
+}
+
+/* Message bubble gradients */
+.message-bubble-own {
+  background: linear-gradient(135deg, #3B82F6, #1D4ED8);
+}
+
+.message-bubble-other {
+  background: #FFFFFF;
+  border: 1px solid #E5E7EB;
+}
+
+/* Thread view styles */
+.thread-indicator {
+  border-left: 3px solid #3B82F6;
+  padding-left: 12px;
+  margin-left: 8px;
+}
+
+/* Connection status indicator */
+.connection-indicator {
+  position: relative;
+}
+
+.connection-indicator::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 8px;
+  background: #10B981;
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+.connection-indicator.disconnected::after {
+  background: #EF4444;
+}
+
+/* Responsive design enhancements */
+@media (max-width: 768px) {
+  .chat-container {
+    flex-direction: column;
+  }
+  
+  .chat-sidebar {
+    order: 3;
+    flex-direction: row;
+    height: auto;
+    width: 100%;
+    padding: 8px;
+  }
+  
+  .chat-list {
+    order: 1;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  
+  .chat-interface {
+    order: 2;
+    flex: 1;
+  }
+}
+
+/* Dark mode support (optional) */
+@media (prefers-color-scheme: dark) {
+  .message-bubble-other {
+    background: #374151;
+    border-color: #4B5563;
+    color: #F9FAFB;
+  }
+  
+  .chat-input {
+    background: linear-gradient(135deg, #374151, #4B5563);
+    color: #F9FAFB;
+  }
+  
+  .emoji-panel,
+  .sticker-panel,
+  .gif-panel,
+  .attachment-panel {
+    background: #1F2937;
+    border-color: #374151;
+  }
+}
+
+/* Custom focus styles */
+.focus-ring:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Accessibility enhancements */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .message-bubble-own {
+    background: #000000;
+    color: #FFFFFF;
+    border: 2px solid #FFFFFF;
+  }
+  
+  .message-bubble-other {
+    background: #FFFFFF;
+    color: #000000;
+    border: 2px solid #000000;
+  }
+}

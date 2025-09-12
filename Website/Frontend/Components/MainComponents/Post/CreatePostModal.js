@@ -377,7 +377,7 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
         formData.append('file', fileToUpload);
         
         console.log('📏 Uploading file to server...');
-        const uploadResponse = await fetch(`http://localhost:45799/upload`, {
+        const uploadResponse = await fetch(`${process.env.NEXT_PUBLIC_SERVER_URL}/upload`, {
           method: 'POST',
           body: formData,
         });
@@ -497,7 +497,7 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
         const formData = new FormData();
         formData.append('file', fileToUpload);
         
-        const uploadResponse = await fetch(`http://localhost:45799/upload`, {
+        const uploadResponse = await fetch(`${process.env.NEXT_PUBLIC_SERVER_URL}/upload`, {
           method: 'POST',
           body: formData,
         });

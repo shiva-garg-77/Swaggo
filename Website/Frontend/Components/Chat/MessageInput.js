@@ -25,11 +25,15 @@ export default function MessageInput({
 
   // Handle typing indicators
   useEffect(() => {
-    if (!socket || !chatid) return;
+    if (!socket || !socket.connected || !chatid) return;
 
     if (message.length > 0 && !isTyping) {
       setIsTyping(true);
-      socket.emit('typing_start', chatid);
+      console.log('⌨️ Started typing in chat:', chatid);
+      socket.emit('typing_start', {
+        chatid: chatid,
+        isTyping: true
+      });
     }
 
     // Clear existing timeout
@@ -41,7 +45,11 @@ export default function MessageInput({
     typingTimeoutRef.current = setTimeout(() => {
       if (isTyping) {
         setIsTyping(false);
-        socket.emit('typing_stop', chatid);
+        console.log('⌨️ Stopped typing in chat:', chatid);
+        socket.emit('typing_stop', {
+          chatid: chatid,
+          isTyping: false
+        });
       }
     }, 1000);
 
@@ -68,12 +76,18 @@ export default function MessageInput({
 
   const handleSendMessage = () => {
     if (message.trim() || attachments.length > 0) {
+      console.log('📤 Sending message from input:', { message: message.trim(), attachments, chatid });
+      
       onSendMessage(message.trim(), attachments);
       setMessage('');
       setAttachments([]);
       setIsTyping(false);
-      if (socket && chatid) {
-        socket.emit('typing_stop', chatid);
+      
+      if (socket && socket.connected && chatid) {
+        socket.emit('typing_stop', {
+          chatid: chatid,
+          isTyping: false
+        });
       }
       
       // Clear reply state

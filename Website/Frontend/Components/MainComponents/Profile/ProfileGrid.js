@@ -191,9 +191,9 @@ function DraftGridItem({ draft, theme, onEdit, onDelete, onPublish }) {
       
       // Fix URL - handle localhost port issues
       if (mediaUrl && mediaUrl.includes('localhost:3001')) {
-        mediaUrl = mediaUrl.replace('localhost:3001', 'localhost:45799');
+        mediaUrl = mediaUrl.replace('localhost:3001', new URL(process.env.NEXT_PUBLIC_SERVER_URL).host);
       } else if (mediaUrl && mediaUrl.startsWith('/uploads/')) {
-        mediaUrl = `http://localhost:45799${mediaUrl}`;
+        mediaUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}${mediaUrl}`;
       }
       
       if (isVideo) {
@@ -212,10 +212,10 @@ function DraftGridItem({ draft, theme, onEdit, onDelete, onPublish }) {
               console.error('Original URL:', draft.postUrl || draft.mediaUrl);
               
               // Try alternative URL
-              const alternatives = [
-                mediaUrl.replace('localhost:45799', 'localhost:3001'),
-                mediaUrl.replace('45799', '3001')
-              ];
+              const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL;
+              const alternatives = serverUrl ? [
+                mediaUrl.replace(/localhost:\d+/, new URL(serverUrl).host)
+              ] : [];
               
               for (const altUrl of alternatives) {
                 if (altUrl !== mediaUrl) {
@@ -252,10 +252,10 @@ function DraftGridItem({ draft, theme, onEdit, onDelete, onPublish }) {
               console.error('Original URL:', draft.postUrl || draft.mediaUrl);
               
               // Try alternative URL
-              const alternatives = [
-                mediaUrl.replace('localhost:45799', 'localhost:3001'),
-                mediaUrl.replace('45799', '3001')
-              ];
+              const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL;
+              const alternatives = serverUrl ? [
+                mediaUrl.replace(/localhost:\d+/, new URL(serverUrl).host)
+              ] : [];
               
               for (const altUrl of alternatives) {
                 if (altUrl !== mediaUrl) {
@@ -457,9 +457,9 @@ function PostGridItem({ post, onClick, theme }) {
     
     // Handle different localhost port configurations
     if (mediaUrl && mediaUrl.includes('localhost:3001')) {
-      mediaUrl = mediaUrl.replace('localhost:3001', 'localhost:45799');
+      mediaUrl = mediaUrl.replace('localhost:3001', new URL(process.env.NEXT_PUBLIC_SERVER_URL).host);
     } else if (mediaUrl && mediaUrl.startsWith('/uploads/')) {
-      mediaUrl = `http://localhost:45799${mediaUrl}`;
+      mediaUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}${mediaUrl}`;
     }
     
     // Generate backup URLs to try on failure
@@ -485,9 +485,8 @@ function PostGridItem({ post, onClick, theme }) {
       
       // Try relative path
       const pathMatch = url.match(/\/uploads\/.*/);
-      if (pathMatch) {
-        backups.push(`http://localhost:45799${pathMatch[0]}`);
-        backups.push(`http://localhost:3001${pathMatch[0]}`);
+      if (pathMatch && process.env.NEXT_PUBLIC_SERVER_URL) {
+        backups.push(`${process.env.NEXT_PUBLIC_SERVER_URL}${pathMatch[0]}`);
       }
       
       return [...new Set(backups)]; // Remove duplicates
@@ -585,10 +584,10 @@ function PostGridItem({ post, onClick, theme }) {
             console.error('Original URL:', post.postUrl);
             
             // Try alternative URL before showing placeholder
-            const alternatives = [
-              mediaUrl.replace('localhost:3001', 'localhost:45799'),
-              mediaUrl.replace('localhost:45799', 'localhost:3001')
-            ];
+            const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL;
+            const alternatives = serverUrl ? [
+              mediaUrl.replace(/localhost:\d+/, new URL(serverUrl).host)
+            ] : [];
             
             for (const altUrl of alternatives) {
               if (altUrl !== mediaUrl) {

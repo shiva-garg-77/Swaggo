@@ -4,16 +4,19 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { useQuery, useMutation, useLazyQuery } from '@apollo/client';
 import { useAuth } from '../../../Components/Helper/AuthProvider';
 import { useSocket } from '../../../Components/Helper/SocketProvider';
+import { useTheme } from '../../../Components/Helper/ThemeProvider';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { GET_CHATS, CREATE_CHAT, GET_CHAT_BY_PARTICIPANTS } from '../../../Components/Chat/queries';
 import ChatSidebar from '../../../Components/Chat/ChatSidebar';
 import ChatList from '../../../Components/Chat/ChatList';
 import MessageArea from '../../../Components/Chat/MessageArea';
+import ComprehensiveChatInterface from '../../../Components/Chat/ComprehensiveChatInterface';
 import notificationService from '../../../Components/Helper/NotificationService';
 
 function MessagePageContent() {
   const { user, loading: authLoading } = useAuth();
   const { socket, isConnected } = useSocket();
+  const { theme } = useTheme();
   const router = useRouter();
   const searchParams = useSearchParams();
   
@@ -274,7 +277,9 @@ function MessagePageContent() {
 
   if (authLoading) {
     return (
-      <div className="h-screen bg-gray-50 flex items-center justify-center">
+      <div className={`h-screen flex items-center justify-center transition-colors duration-300 ${
+        theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'
+      }`}>
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
       </div>
     );
@@ -282,24 +287,31 @@ function MessagePageContent() {
 
   if (!user) {
     return (
-      <div className="h-screen bg-gray-50 flex items-center justify-center">
+      <div className={`h-screen flex items-center justify-center transition-colors duration-300 ${
+        theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'
+      }`}>
         <div className="text-center">
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Please log in to access messages</h2>
-          <p className="text-gray-600">You need to be authenticated to view your chats.</p>
+          <h2 className={`text-xl font-semibold mb-2 ${
+            theme === 'dark' ? 'text-white' : 'text-gray-900'
+          }`}>Please log in to access messages</h2>
+          <p className={theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}>
+            You need to be authenticated to view your chats.
+          </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-screen bg-gray-50 flex overflow-hidden">
-      {/* Left Sidebar - Navigation */}
-      <div className="w-16 bg-white border-r border-gray-200">
-        <ChatSidebar user={user} />
-      </div>
-
+    <div className={`h-full flex overflow-hidden ${
+      theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'
+    } transition-colors duration-300`}>
       {/* Middle Panel - Chat List */}
-      <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
+      <div className={`w-80 border-r flex flex-col transition-colors duration-300 ${
+        theme === 'dark' 
+          ? 'bg-gray-800 border-gray-700' 
+          : 'bg-white border-gray-200'
+      }`}>
         <ChatList
           chats={chats}
           selectedChat={selectedChat}
@@ -311,9 +323,11 @@ function MessagePageContent() {
         />
       </div>
 
-      {/* Right Panel - Message Area */}
-      <div className="flex-1 flex flex-col bg-white">
-        <MessageArea
+      {/* Right Panel - Comprehensive Chat Interface */}
+      <div className={`flex-1 flex flex-col transition-colors duration-300 ${
+        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
+      }`}>
+        <ComprehensiveChatInterface
           selectedChat={selectedChat}
           user={user}
           socket={socket}
@@ -329,11 +343,17 @@ function MessagePageContent() {
 }
 
 function MessagePageFallback() {
+  const { theme } = useTheme();
+  
   return (
-    <div className="h-screen bg-gray-50 flex items-center justify-center">
+    <div className={`h-screen flex items-center justify-center transition-colors duration-300 ${
+      theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'
+    }`}>
       <div className="text-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500 mx-auto"></div>
-        <p className="text-gray-600 mt-2">Loading messages...</p>
+        <p className={`mt-2 ${
+          theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+        }`}>Loading messages...</p>
       </div>
     </div>
   );

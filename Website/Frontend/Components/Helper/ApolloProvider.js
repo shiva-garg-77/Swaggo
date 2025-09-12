@@ -30,7 +30,7 @@ export default function CustomApolloProvider({ children }) {
     }
     
     const httpLink = createHttpLink({
-      uri: `http://localhost:45799/graphql`,
+      uri: process.env.NEXT_PUBLIC_GRAPHQL_URL,
       credentials: 'include',
       fetch: (uri, options) => {
         // Only log in development

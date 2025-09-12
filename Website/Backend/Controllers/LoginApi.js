@@ -220,7 +220,8 @@ const Mailsender = async (req, res) => {
             msg: "User already verify"
         });
     }
-    const msg = `<p>hii , ${userdata.username}</p><div>Click here to  <a href="http://localhost:${process.env.PORT}/api/mail-verification?_id=${userdata._id}"> verify</a>your email</div>`
+    const backendUrl = `http://localhost:${process.env.PORT}` || 'http://localhost:45799';
+    const msg = `<p>hii , ${userdata.username}</p><div>Click here to  <a href="${backendUrl}/api/mail-verification?_id=${userdata._id}"> verify</a>your email</div>`
 
     Sendmailer(email, "Mail verification", msg)
     return res.status(200).json({
@@ -234,7 +235,8 @@ const Mailverification = async (req, res) => {
     await User.findByIdAndUpdate({ _id }, {
         $set: { isVerify: true }
     })
-    res.redirect(`http://localhost:3000?_id=${_id}`)
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    res.redirect(`${frontendUrl}?_id=${_id}`)
 }
 
 const resetpasswordtoken = () => {
@@ -263,7 +265,8 @@ const forgetPassword = async (req, res) => {
     })
     await tempuser.save()
 
-    const msg = `<p>hii , ${userdata.username}</p><div>Click here to  <a href="http://localhost:3000/reset-password/${token}">Reset your Password</a></div>`
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const msg = `<p>hii , ${userdata.username}</p><div>Click here to  <a href="${frontendUrl}/reset-password/${token}">Reset your Password</a></div>`
 
     Sendmailer(email, "Reset password", msg)
     return res.status(200).json({

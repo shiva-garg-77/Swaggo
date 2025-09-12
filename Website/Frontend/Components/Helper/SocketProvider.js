@@ -117,7 +117,7 @@ export default function SocketProvider({ children }) {
     setConnectionStatus('connecting');
     
     // Create socket connection
-    const newSocket = io(process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:4000', {
+    const newSocket = io(process.env.NEXT_PUBLIC_SERVER_URL, {
       auth: {
         token: token
       },

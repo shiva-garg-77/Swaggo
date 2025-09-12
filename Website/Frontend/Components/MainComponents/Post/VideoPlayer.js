@@ -105,12 +105,10 @@ export default function VideoPlayer({
     
     // Try alternative URLs for localhost videos
     if (src && src.includes('localhost')) {
-      const alternatives = [
-        src.replace('localhost:45799', 'localhost:3001'),
-        src.replace('localhost:3001', 'localhost:45799'),
-        src.replace(':45799', ':3001'),
-        src.replace(':3001', ':45799')
-      ];
+      const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL;
+      const alternatives = serverUrl ? [
+        src.replace(/localhost:\d+/, new URL(serverUrl).host)
+      ] : [];
       
       const currentSrc = e.target.src;
       const nextUrl = alternatives.find(url => url !== currentSrc && url !== src);

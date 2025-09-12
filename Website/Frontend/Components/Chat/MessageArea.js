@@ -4,9 +4,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation } from '@apollo/client';
 import { useAuth } from '../Helper/AuthProvider';
 import { useSocket } from '../Helper/SocketProvider';
+import { useTheme } from '../Helper/ThemeProvider';
 import { GET_MESSAGES_BY_CHAT, SEND_MESSAGE, EDIT_MESSAGE, DELETE_MESSAGE } from './queries';
 import MessageInput from './MessageInput';
 import MessageBubble from './MessageBubble';
+import ChatInfoModal from './ChatInfoModal';
+import VoiceCallModal from './VoiceCallModal';
+import VideoCallModal from './VideoCallModal';
+import SocketDebug from './SocketDebug';
+import EnvCheck from './EnvCheck';
 
 export default function MessageArea({ 
   selectedChat, 
@@ -14,10 +20,19 @@ export default function MessageArea({
   socket,
   isConnected
 }) {
+  const { theme } = useTheme();
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [allMessages, setAllMessages] = useState([]);
   const [typingUsers, setTypingUsers] = useState({});
   const [replyingTo, setReplyingTo] = useState(null);
+  
+  // Modal states
+  const [showChatInfo, setShowChatInfo] = useState(false);
+  const [showVoiceCall, setShowVoiceCall] = useState(false);
+  const [showVideoCall, setShowVideoCall] = useState(false);
+  const [isInCall, setIsInCall] = useState(false);
+  const [callType, setCallType] = useState(null);
+  
   const messagesContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
 
@@ -61,42 +76,104 @@ export default function MessageArea({
     }
   });
 
+  // Join/Leave chat when selected chat changes
+  useEffect(() => {
+    if (socket && selectedChat?.chatid) {
+      console.log('Joining chat:', selectedChat.chatid);
+      socket.emit('join_chat', selectedChat.chatid);
+      
+      return () => {
+        console.log('Leaving chat:', selectedChat.chatid);
+        socket.emit('leave_chat', selectedChat.chatid);
+      };
+    }
+  }, [socket, selectedChat]);
+
   // Socket event handlers
   useEffect(() => {
     if (!socket) return;
 
     const handleNewMessage = (data) => {
-      if (data.chat.chatid === selectedChat?.chatid) {
-        setAllMessages(prev => [...prev, data.message]);
+      console.log('📩 New message received:', data);
+      if (data.chatid === selectedChat?.chatid || data.chat?.chatid === selectedChat?.chatid) {
+        const message = data.message || data;
+        setAllMessages(prev => {
+          // Avoid duplicate messages
+          if (prev.find(m => m.messageid === message.messageid)) {
+            return prev;
+          }
+          return [...prev, message];
+        });
       }
     };
 
     const handleUserTyping = (data) => {
-      setTypingUsers(prev => ({
-        ...prev,
-        [data.profileid]: data.isTyping ? data.username : undefined
-      }));
-      
-      // Clear typing after 3 seconds
-      if (data.isTyping) {
-        setTimeout(() => {
-          setTypingUsers(prev => {
-            const newTyping = { ...prev };
-            delete newTyping[data.profileid];
-            return newTyping;
-          });
-        }, 3000);
+      if (data.chatid === selectedChat?.chatid && data.profileid !== user.profileid) {
+        setTypingUsers(prev => ({
+          ...prev,
+          [data.profileid]: data.isTyping ? data.username : undefined
+        }));
+        
+        // Clear typing after 3 seconds
+        if (data.isTyping) {
+          setTimeout(() => {
+            setTypingUsers(prev => {
+              const newTyping = { ...prev };
+              delete newTyping[data.profileid];
+              return newTyping;
+            });
+          }, 3000);
+        }
       }
     };
 
+    const handleMessageDelivered = (data) => {
+      console.log('✅ Message delivered:', data);
+      // Update message status if needed
+    };
+
+    const handleCallIncoming = (data) => {
+      console.log('📞 Incoming call:', data);
+      if (data.type === 'voice') {
+        setShowVoiceCall(true);
+      } else if (data.type === 'video') {
+        setShowVideoCall(true);
+      }
+      setIsInCall(true);
+      setCallType(data.type);
+    };
+
+    const handleCallEnded = (data) => {
+      console.log('📵 Call ended:', data);
+      setIsInCall(false);
+      setShowVoiceCall(false);
+      setShowVideoCall(false);
+      setCallType(null);
+    };
+
+    // Register socket event listeners
     socket.on('new_message', handleNewMessage);
+    socket.on('message_received', handleNewMessage);
     socket.on('user_typing', handleUserTyping);
+    socket.on('typing_start', handleUserTyping);
+    socket.on('typing_stop', handleUserTyping);
+    socket.on('message_delivered', handleMessageDelivered);
+    socket.on('incoming_call', handleCallIncoming);
+    socket.on('call_started', handleCallIncoming);
+    socket.on('call_ended', handleCallEnded);
 
     return () => {
       socket.off('new_message', handleNewMessage);
+      socket.off('message_received', handleNewMessage);
       socket.off('user_typing', handleUserTyping);
+      socket.off('typing_start', handleUserTyping);
+      socket.off('typing_stop', handleUserTyping);
+      socket.off('message_delivered', handleMessageDelivered);
+      socket.off('incoming_call', handleCallIncoming);
+      socket.off('call_started', handleCallIncoming);
+      socket.off('call_ended', handleCallEnded);
     };
-  }, [socket, selectedChat]);
+  }, [socket, selectedChat, user]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -158,53 +235,112 @@ export default function MessageArea({
   const handleSendMessage = async (content, attachments = [], replyTo = null, mentions = []) => {
     if (!content.trim() && !attachments.length) return;
 
+    console.log('📤 Sending message:', { content, attachments, chatid: selectedChat.chatid });
+
     try {
       // Process attachments - upload files first
       const processedAttachments = [];
       
       for (const attachment of attachments) {
         if (attachment.file) {
-          // Upload the file
-          const uploadResult = await uploadFile(attachment.file);
-          processedAttachments.push({
-            type: attachment.type,
-            url: uploadResult.fileUrl,
-            filename: uploadResult.originalname,
-            size: uploadResult.size,
-            mimetype: attachment.mimetype
-          });
+          try {
+            // Upload the file
+            const uploadResult = await uploadFile(attachment.file);
+            processedAttachments.push({
+              type: attachment.type,
+              url: uploadResult.fileUrl,
+              filename: uploadResult.originalname,
+              size: uploadResult.size,
+              mimetype: attachment.mimetype
+            });
+          } catch (uploadError) {
+            console.error('File upload failed:', uploadError);
+            // Continue without attachment if upload fails
+          }
         } else {
           // Attachment already processed or URL-based
           processedAttachments.push(attachment);
         }
       }
+
+      const messageData = {
+        chatid: selectedChat.chatid,
+        messageType: processedAttachments.length > 0 ? processedAttachments[0].type : 'text',
+        content: content.trim(),
+        attachments: processedAttachments,
+        replyTo,
+        mentions,
+        clientMessageId: Date.now() + Math.random(),
+        timestamp: new Date().toISOString()
+      };
+
+      // Send via Socket.io for real-time delivery (Primary method)
+      if (socket && socket.connected) {
+        console.log('🔌 Sending via Socket.io:', messageData);
+        socket.emit('send_message', messageData, (acknowledgment) => {
+          if (acknowledgment?.success) {
+            console.log('✅ Message sent successfully via socket');
+          } else {
+            console.error('❌ Socket message send failed:', acknowledgment?.error);
+            // Fallback to GraphQL if socket fails
+            sendViaGraphQL(messageData);
+          }
+        });
+      } else {
+        console.log('🔌 Socket not connected, using GraphQL fallback');
+        // Fallback to GraphQL if no socket connection
+        await sendViaGraphQL(messageData);
+      }
       
-      // Send via GraphQL mutation
-      await sendMessageMutation({
+      // Optimistically add message to local state
+      const optimisticMessage = {
+        messageid: messageData.clientMessageId,
+        messageType: messageData.messageType,
+        content: messageData.content,
+        attachments: messageData.attachments,
+        sender: {
+          profileid: user.profileid,
+          username: user.username,
+          profilePic: user.profilePic,
+          name: user.name
+        },
+        replyTo: replyTo ? { messageid: replyTo, content: 'Reply' } : null,
+        mentions: mentions,
+        reactions: [],
+        readBy: [],
+        messageStatus: 'sending',
+        createdAt: new Date().toISOString(),
+        isOptimistic: true
+      };
+      
+      setAllMessages(prev => [...prev, optimisticMessage]);
+      scrollToBottom();
+      
+    } catch (error) {
+      console.error('❌ Failed to send message:', error);
+      // Show error notification to user
+      alert('Failed to send message. Please try again.');
+    }
+  };
+
+  // GraphQL fallback function
+  const sendViaGraphQL = async (messageData) => {
+    try {
+      console.log('🔍 Sending via GraphQL:', messageData);
+      const result = await sendMessageMutation({
         variables: {
-          chatid: selectedChat.chatid,
-          messageType: processedAttachments.length > 0 ? processedAttachments[0].type : 'text',
-          content: content.trim(),
-          attachments: processedAttachments,
-          replyTo,
-          mentions
+          chatid: messageData.chatid,
+          messageType: messageData.messageType,
+          content: messageData.content,
+          attachments: messageData.attachments,
+          replyTo: messageData.replyTo,
+          mentions: messageData.mentions
         }
       });
-
-      // Also send via Socket.io for real-time delivery
-      if (socket) {
-        socket.emit('send_message', {
-          chatid: selectedChat.chatid,
-          messageType: processedAttachments.length > 0 ? processedAttachments[0].type : 'text',
-          content: content.trim(),
-          attachments: processedAttachments,
-          replyTo,
-          mentions
-        });
-      }
+      console.log('✅ GraphQL message sent:', result);
     } catch (error) {
-      console.error('Failed to send message:', error);
-      // You could add user notification here
+      console.error('❌ GraphQL send failed:', error);
+      throw error;
     }
   };
 
@@ -244,6 +380,58 @@ export default function MessageArea({
         console.error('Failed to delete message:', error);
       }
     }
+  };
+
+  // Handle voice call
+  const handleVoiceCall = () => {
+    setCallType('voice');
+    setShowVoiceCall(true);
+    setIsInCall(true);
+    
+    // Emit call start event
+    if (socket) {
+      socket.emit('start_call', {
+        chatid: selectedChat.chatid,
+        type: 'voice',
+        participants: selectedChat.participants.map(p => p.profileid)
+      });
+    }
+  };
+
+  // Handle video call
+  const handleVideoCall = () => {
+    setCallType('video');
+    setShowVideoCall(true);
+    setIsInCall(true);
+    
+    // Emit call start event
+    if (socket) {
+      socket.emit('start_call', {
+        chatid: selectedChat.chatid,
+        type: 'video',
+        participants: selectedChat.participants.map(p => p.profileid)
+      });
+    }
+  };
+
+  // Handle end call
+  const handleEndCall = () => {
+    setIsInCall(false);
+    setShowVoiceCall(false);
+    setShowVideoCall(false);
+    setCallType(null);
+    
+    // Emit call end event
+    if (socket) {
+      socket.emit('end_call', {
+        chatid: selectedChat.chatid
+      });
+    }
+  };
+
+  // Handle chat info
+  const handleChatInfo = () => {
+    setShowChatInfo(true);
   };
 
   // Format typing users
@@ -351,21 +539,67 @@ export default function MessageArea({
         </div>
 
         <div className="flex items-center space-x-2">
-          <button className="p-3 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition-colors">
+          {/* Voice Call Button */}
+          <button 
+            onClick={handleVoiceCall}
+            disabled={isInCall}
+            className={`p-3 rounded-full transition-all duration-200 ${
+              isInCall 
+                ? 'text-white/50 cursor-not-allowed' 
+                : 'text-white/80 hover:text-white hover:bg-white/10 hover:scale-105'
+            }`}
+            title="Voice Call"
+          >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
             </svg>
           </button>
-          <button className="p-3 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition-colors">
+          
+          {/* Video Call Button */}
+          <button 
+            onClick={handleVideoCall}
+            disabled={isInCall}
+            className={`p-3 rounded-full transition-all duration-200 ${
+              isInCall 
+                ? 'text-white/50 cursor-not-allowed' 
+                : 'text-white/80 hover:text-white hover:bg-white/10 hover:scale-105'
+            }`}
+            title="Video Call"
+          >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
           </button>
-          <button className="p-3 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition-colors">
+          
+          {/* Chat Info Button */}
+          <button 
+            onClick={handleChatInfo}
+            className="p-3 text-white/80 hover:text-white hover:bg-white/10 rounded-full transition-all duration-200 hover:scale-105"
+            title="Chat Information"
+          >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </button>
+          
+          {/* Call Status Indicator */}
+          {isInCall && (
+            <div className="flex items-center space-x-2 px-3 py-1 bg-green-500/20 rounded-full">
+              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+              <span className="text-sm text-white font-medium">
+                {callType === 'voice' ? 'Voice Call' : 'Video Call'}
+              </span>
+              <button 
+                onClick={handleEndCall}
+                className="p-1 text-red-300 hover:text-red-200 rounded-full"
+                title="End Call"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -447,6 +681,34 @@ export default function MessageArea({
           onCancelReply={() => setReplyingTo(null)}
         />
       </div>
+      
+      {/* Modals */}
+      <ChatInfoModal
+        isOpen={showChatInfo}
+        onClose={() => setShowChatInfo(false)}
+        chat={selectedChat}
+        user={user}
+      />
+      
+      <VoiceCallModal
+        isOpen={showVoiceCall}
+        onClose={handleEndCall}
+        chat={selectedChat}
+        user={user}
+        socket={socket}
+      />
+      
+      <VideoCallModal
+        isOpen={showVideoCall}
+        onClose={handleEndCall}
+        chat={selectedChat}
+        user={user}
+        socket={socket}
+      />
+      
+      {/* Debug Components (Remove in production) */}
+      <EnvCheck />
+      <SocketDebug />
     </div>
   );
 }

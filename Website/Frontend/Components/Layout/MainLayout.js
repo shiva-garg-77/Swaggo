@@ -5,6 +5,7 @@ import { useTheme } from '../Helper/ThemeProvider';
 import { AuthContext } from '../Helper/AuthProvider';
 import ThemeToggle from '../Helper/ThemeToggle';
 import { useInvisibleSpeedBoost, InvisiblePreloader } from '../Helper/InvisibleSpeedBoost';
+import './compact-sidebar.css';
 
 export default function MainLayout({ children }) {
   const { theme } = useTheme();
@@ -21,11 +22,17 @@ export default function MainLayout({ children }) {
     if (pathname === '/create') return 'create';
     if (pathname === '/message') return 'message';
     if (pathname === '/Profile') return 'profile';
+    if (pathname === '/dashboard') return 'dashboard';
     if (pathname === '/reel') return 'moments';
     if (pathname === '/bonus') return 'bonus';
     if (pathname === '/game') return 'games';
+    if (pathname === '/debug') return 'debug';
     return 'home';
   })();
+  
+  // Check if current page should be full-screen (message page)
+  const isFullScreenPage = pathname === '/message';
+  
 
   const handleLogout = async () => {
     await logout();
@@ -40,6 +47,7 @@ export default function MainLayout({ children }) {
     preloadOnHover(route);
   };
 
+  // All navigation items (shown in compact mode as icons only)
   const navItems = [
     { id: 'home', label: 'Home', route: '/home', icon: <HomeIcon /> },
     { id: 'create', label: 'Create', route: '/create', icon: <CreateIcon /> },
@@ -50,7 +58,8 @@ export default function MainLayout({ children }) {
     { id: 'bonus', label: 'Bonus', route: '/bonus', icon: <BonusIcon /> },
     { id: 'games', label: 'Games', route: '/game', icon: <GamesIcon /> },
     { id: 'debug', label: 'Debug', route: '/debug', icon: <DebugIcon /> },
-  ].filter(Boolean); // Safety filter
+  ];
+  
   return (
     <>
       {/* Invisible background optimization - no UI changes */}
@@ -59,16 +68,20 @@ export default function MainLayout({ children }) {
       <div className={`min-h-screen h-screen flex transition-colors duration-300 overflow-hidden ${
         theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'
       }`}>
-      {/* Desktop Sidebar - Fixed */}
-      <aside className={`hidden lg:flex flex-col w-64 transition-colors duration-300 ${
-        theme === 'dark' ? 'bg-gray-900' : 'bg-white'
+      {/* Desktop Sidebar - Fixed - Always visible */}
+      <aside className={`hidden lg:flex flex-col transition-all duration-300 ${
+        isFullScreenPage ? 'w-20' : 'w-64'
+      } ${
+        theme === 'dark' ? 'bg-gray-900 border-r border-gray-800' : 'bg-white border-r border-gray-200'
       }`}>
         {/* Logo */}
-        <div className="flex items-center justify-center p-8">
+        <div className={`flex items-center justify-center ${
+          isFullScreenPage ? 'p-4' : 'p-8'
+        }`}>
           <img
             src={theme === 'light' ? '/logo_light.png' : '/Logo_dark1.png'}
             alt="Swaggo"
-            className="h-20 w-auto"
+            className={isFullScreenPage ? 'h-10 w-auto' : 'h-20 w-auto'}
           />
         </div>
         
@@ -79,60 +92,73 @@ export default function MainLayout({ children }) {
               <NavItem
                 key={item.id}
                 icon={item.icon}
-                text={item.label}
+                text={isFullScreenPage ? '' : item.label}
                 isActive={activeTab === item.id}
                 onClick={() => handleNavigation(item.route)}
                 onMouseEnter={() => handleNavHover(item.route)}
                 theme={theme}
+                isCompact={isFullScreenPage}
+                title={item.label}
               />
             ))}
           </div>
         </nav>
         
-        {/* Theme Toggle */}
-        <div className="px-4 pb-2">
-          <ThemeToggle />
-        </div>
+        {/* Theme Toggle - Hidden in compact mode */}
+        {!isFullScreenPage && (
+          <div className="px-4 pb-2">
+            <ThemeToggle />
+          </div>
+        )}
         
-        {/* Logout Button - Smaller */}
+        {/* Logout Button */}
         <div className="p-4">
           <button
             onClick={handleLogout}
-            className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white text-sm py-2.5 px-4 rounded-full transition-all duration-300 hover:shadow-lg flex items-center justify-center space-x-1.5 mx-auto"
+            className={`bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white text-sm py-2.5 rounded-full transition-all duration-300 hover:shadow-lg flex items-center justify-center mx-auto ${
+              isFullScreenPage ? 'px-2 w-12 h-12' : 'px-4 space-x-1.5'
+            }`}
+            title={isFullScreenPage ? 'Log out' : ''}
           >
             <LogoutIcon />
-            <span>Log out</span>
+            {!isFullScreenPage && <span>Log out</span>}
           </button>
         </div>
       </aside>
 
-      {/* Main Content Area - Scrollable */}
+      {/* Main Content Area */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden h-full">
         {/* Desktop Layout */}
         <div className="hidden lg:block flex-1">
-          
-            {/* Desktop Main Content - Scrollable with shadow separation */}
-          <div className="flex h-full">
-            {/* Content Area */}
-            <main className="flex-1 overflow-y-auto scrollbar-hide">
-              <div className={`mx-auto p-6 ${
-                pathname === '/Profile' ? 'max-w-4xl' : 'max-w-2xl'
-              }`}>
-                {children}
-              </div>
+          {isFullScreenPage ? (
+            /* Full-screen layout for message page */
+            <main className="flex-1 h-full overflow-hidden">
+              {children}
             </main>
-            
-            {/* Right Sidebar - Suggestions - Only show on home page */}
-            {pathname === '/home' && (
-              <aside className={`w-96 p-6 overflow-y-auto scrollbar-hide transition-colors duration-300 shadow-lg ${
-                theme === 'dark' ? 'bg-gray-900 shadow-gray-800/20' : 'bg-white shadow-gray-200/20'
-              }`}>
-                <div className="sticky top-0">
-                  <SuggestionsContent theme={theme} />
+          ) : (
+            /* Normal layout with content area and optional sidebar */
+            <div className="flex h-full">
+              {/* Content Area */}
+              <main className="flex-1 overflow-y-auto scrollbar-hide">
+                <div className={`mx-auto p-6 ${
+                  pathname === '/Profile' ? 'max-w-4xl' : 'max-w-2xl'
+                }`}>
+                  {children}
                 </div>
-              </aside>
-            )}
-          </div>
+              </main>
+              
+              {/* Right Sidebar - Suggestions - Only show on home page */}
+              {pathname === '/home' && (
+                <aside className={`w-96 p-6 overflow-y-auto scrollbar-hide transition-colors duration-300 shadow-lg ${
+                  theme === 'dark' ? 'bg-gray-900 shadow-gray-800/20' : 'bg-white shadow-gray-200/20'
+                }`}>
+                  <div className="sticky top-0">
+                    <SuggestionsContent theme={theme} />
+                  </div>
+                </aside>
+              )}
+            </div>
+          )}
         </div>
         
         {/* Mobile Layout */}
@@ -175,9 +201,8 @@ export default function MainLayout({ children }) {
           }`}>
             <div className="flex items-center justify-around">
               <MobileNavButton icon={<HomeIcon />} isActive={activeTab === 'home'} onClick={() => handleNavigation('/home')} theme={theme} />
-              <MobileNavButton icon={<SearchIcon />} isActive={activeTab === 'search'} onClick={() => handleNavigation('/search')} theme={theme} />
               <MobileNavButton icon={<CreateIcon />} isActive={activeTab === 'create'} onClick={() => handleNavigation('/create')} theme={theme} />
-              <MobileNavButton icon={<HeartIcon />} isActive={activeTab === 'activity'} onClick={() => handleNavigation('/activity')} theme={theme} />
+              <MobileNavButton icon={<MessageIcon />} isActive={activeTab === 'message'} onClick={() => handleNavigation('/message')} theme={theme} />
               <MobileNavButton icon={<UserIcon />} isActive={activeTab === 'profile'} onClick={() => handleNavigation('/Profile')} theme={theme} />
             </div>
           </nav>
@@ -190,24 +215,37 @@ export default function MainLayout({ children }) {
 }
 
 // Navigation Item Component with enhanced interactions
-function NavItem({ icon, text, isActive, onClick, onMouseEnter, theme }) {
+function NavItem({ icon, text, isActive, onClick, onMouseEnter, theme, isCompact = false, title = '' }) {
   return (
-    <button
-      onClick={onClick}
-      onMouseEnter={onMouseEnter}
-      className={`w-full flex items-center space-x-4 px-4 py-3 rounded-xl transition-all duration-200 text-left transform hover:scale-[1.02] ${
-        isActive 
-          ? 'bg-gradient-to-r from-red-500 to-red-600 text-white shadow-lg' 
-          : (theme === 'dark'
-              ? 'hover:bg-gray-800 text-gray-300 hover:text-white'
-              : 'hover:bg-gray-100 text-gray-600 hover:text-gray-900')
-      }`}
-    >
-      <div className="w-6 h-6 flex items-center justify-center flex-shrink-0">
-        {icon}
-      </div>
-      <span className="font-medium text-left">{text}</span>
-    </button>
+    <div className={isCompact ? 'compact-nav-item relative' : ''}>
+      <button
+        onClick={onClick}
+        onMouseEnter={onMouseEnter}
+        className={`w-full flex items-center rounded-xl transition-all duration-200 text-left transform hover:scale-[1.02] ${
+          isCompact 
+            ? 'justify-center p-3' 
+            : 'space-x-4 px-4 py-3'
+        } ${
+          isActive 
+            ? 'bg-gradient-to-r from-red-500 to-red-600 text-white shadow-lg' 
+            : (theme === 'dark'
+                ? 'hover:bg-gray-800 text-gray-300 hover:text-white'
+                : 'hover:bg-gray-100 text-gray-600 hover:text-gray-900')
+        }`}
+      >
+        <div className="w-6 h-6 flex items-center justify-center flex-shrink-0">
+          {icon}
+        </div>
+        {!isCompact && text && (
+          <span className="font-medium text-left">{text}</span>
+        )}
+      </button>
+      {isCompact && title && (
+        <div className="nav-tooltip">
+          {title}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -324,6 +362,15 @@ function DebugIcon() {
     </svg>
   );
 }
+
+function WarpIcon() {
+  return (
+    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+    </svg>
+  );
+}
+
 
 // Suggestions Content Component
 function SuggestionsContent({ theme }) {

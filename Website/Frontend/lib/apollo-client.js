@@ -3,7 +3,7 @@ import { setContext } from '@apollo/client/link/context';
 import { onError } from '@apollo/client/link/error';
 
 const httpLink = createHttpLink({
-  uri: process.env.NEXT_PUBLIC_GRAPHQL_URL || 'http://localhost:45799/graphql',
+  uri: process.env.NEXT_PUBLIC_GRAPHQL_URL,
 });
 
 // Auth link to attach JWT token to requests
