@@ -1,13 +1,13 @@
 'use client'
 
 import { useMemo } from 'react'
-import { useQuery, useMutation } from '@apollo/client'
+import { useQuery, useMutation } from '@apollo/client/react';
 import { ArrowLeft, UserX, Trash2 } from 'lucide-react'
-import { useAuth } from '../../Helper/AuthProvider'
+import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { GET_RESTRICTED_ACCOUNTS, UNRESTRICT_USER } from '../../../lib/graphql/profileQueries'
 
 export default function RestrictedAccounts({ onBack }) {
-  const { user } = useAuth()
+  const { user } = useSecureAuth()
   const profileid = user?.profileid
 
   const { data, loading, error, refetch } = useQuery(GET_RESTRICTED_ACCOUNTS, {

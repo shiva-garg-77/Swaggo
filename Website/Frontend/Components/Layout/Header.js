@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { useAuth } from '../../Components/Helper/AuthProvider';
+import { useFixedSecureAuth } from '../../context/FixedSecureAuthContext';
 import LoginModal from '../auth/LoginModal';
 import CreatePostModal from '../MainComponents/Post/CreatePostModal';
 
 const Header = () => {
-  const { user, accessToken, logout, loading } = useAuth();
-  const isAuthenticated = !!accessToken && !!user;
-  const isLoading = loading;
+  const { user, logout, isLoading: loading, isAuthenticated } = useFixedSecureAuth();
+  // isAuthenticated and loading already provided by useSecureAuth
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showCreatePost, setShowCreatePost] = useState(false);

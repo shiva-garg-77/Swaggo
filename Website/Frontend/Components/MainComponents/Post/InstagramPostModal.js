@@ -2,8 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useTheme } from '../../Helper/ThemeProvider';
-import { useMutation, useQuery } from '@apollo/client';
-import { useAuth } from '../../Helper/AuthProvider';
+import { useMutation, useQuery } from '@apollo/client/react';
+import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { gql } from '@apollo/client';
 import SimpleFlatCommentSystem from './SimpleFlatCommentSystem';
 
@@ -107,7 +107,7 @@ export default function InstagramPostModal({
   totalCount
 }) {
   const { theme } = useTheme();
-  const { user } = useAuth();
+  const { user } = useSecureAuth();
   const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);

@@ -1,18 +1,30 @@
 "use client";
-import { useContext, useEffect } from 'react';
+import { useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useTheme } from '../Helper/ThemeProvider';
-import { AuthContext } from '../Helper/AuthProvider';
+import { useFixedSecureAuth } from '../../context/FixedSecureAuthContext';
 import ThemeToggle from '../Helper/ThemeToggle';
 import { useInvisibleSpeedBoost, InvisiblePreloader } from '../Helper/InvisibleSpeedBoost';
+
+// 🚀 Enhanced Performance & Accessibility Integration
+import { useAccessibility } from '../Accessibility/AccessibilityFramework';
+import { usePerformanceMonitoring } from '../Performance/PerformanceMonitoringDashboard';
 import './compact-sidebar.css';
 
 export default function MainLayout({ children }) {
   const { theme } = useTheme();
-  const { logout } = useContext(AuthContext);
+  const { logout } = useFixedSecureAuth();
   const router = useRouter();
   const pathname = usePathname();
   const { fastNavigate, preloadOnHover } = useInvisibleSpeedBoost();
+  
+  // 🚀 Enhanced Performance & Accessibility Hooks
+  const { announceToScreenReader, setSkipTarget, addKeyboardShortcut } = useAccessibility();
+  const { updateMetric } = usePerformanceMonitoring();
+  
+  // State for accessibility and performance tracking
+  const [navigationHistory, setNavigationHistory] = useState([]);
+  const [lastNavigationTime, setLastNavigationTime] = useState(0);
   
   // No heavy preloading needed - invisible speed boost handles it
   
@@ -34,18 +46,57 @@ export default function MainLayout({ children }) {
   const isFullScreenPage = pathname === '/message';
   
 
-  const handleLogout = async () => {
+  // 🚀 Enhanced performance tracking for component renders
+  useEffect(() => {
+    updateMetric('MainLayout_lastRender', Date.now());
+    updateMetric('MainLayout_currentPath', pathname);
+  }, [pathname, theme, updateMetric]);
+  
+  // ♿ Enhanced accessibility announcements for route changes
+  useEffect(() => {
+    const routeNames = {
+      '/home': 'Home Feed',
+      '/create': 'Create Post',
+      '/message': 'Messages',
+      '/Profile': 'Profile',
+      '/dashboard': 'Dashboard',
+      '/reel': 'Moments',
+      '/bonus': 'Bonus',
+      '/game': 'Games',
+      '/debug': 'Debug Tools'
+    };
+    
+    const routeName = routeNames[pathname] || 'Page';
+    announceToScreenReader(`Navigated to ${routeName}`);
+    setSkipTarget('main-content');
+  }, [pathname, announceToScreenReader, setSkipTarget]);
+
+  const handleLogout = useCallback(async () => {
+    updateMetric('user_logout', Date.now());
+    announceToScreenReader('Logging out...');
     await logout();
     router.push('/');
-  };
+  }, [logout, router, updateMetric, announceToScreenReader]);
 
-  const handleNavigation = (route) => {
+  const handleNavigation = useCallback((route) => {
+    const startTime = performance.now();
+    
+    // Track navigation performance
+    updateMetric('lastNavigation', route);
+    updateMetric('lastNavigationTime', startTime);
+    
+    // Update navigation history for analytics
+    setNavigationHistory(prev => [...prev.slice(-9), { route, timestamp: Date.now() }]);
+    setLastNavigationTime(startTime);
+    
     fastNavigate(route);
-  };
+  }, [fastNavigate, pathname, updateMetric]);
 
-  const handleNavHover = (route) => {
+  const handleNavHover = useCallback((route) => {
     preloadOnHover(route);
-  };
+    // Track hover for preloading analytics
+    updateMetric('lastHoveredRoute', route);
+  }, [preloadOnHover, pathname, updateMetric]);
 
   // All navigation items (shown in compact mode as icons only)
   const navItems = [
@@ -85,10 +136,10 @@ export default function MainLayout({ children }) {
           />
         </div>
         
-        {/* Navigation */}
-        <nav className="flex-1 px-4 pb-4">
+        {/* Navigation - Enhanced with Accessibility */}
+        <nav className="flex-1 px-4 pb-4" id="navigation" role="tablist" aria-label="Main navigation">
           <div className="space-y-2">
-            {navItems.map((item) => (
+            {navItems.map((item, index) => (
               <NavItem
                 key={item.id}
                 icon={item.icon}
@@ -132,14 +183,14 @@ export default function MainLayout({ children }) {
         <div className="hidden lg:block flex-1">
           {isFullScreenPage ? (
             /* Full-screen layout for message page */
-            <main className="flex-1 h-full overflow-hidden">
+            <main className="flex-1 h-full overflow-hidden" id="main-content" role="main" aria-label="Main content area">
               {children}
             </main>
           ) : (
             /* Normal layout with content area and optional sidebar */
             <div className="flex h-full">
               {/* Content Area */}
-              <main className="flex-1 overflow-y-auto scrollbar-hide">
+              <main className="flex-1 overflow-y-auto scrollbar-hide" id="main-content" role="main" aria-label="Main content area">
                 <div className={`mx-auto p-6 ${
                   pathname === '/Profile' ? 'max-w-4xl' : 'max-w-2xl'
                 }`}>
@@ -214,14 +265,14 @@ export default function MainLayout({ children }) {
   );
 }
 
-// Navigation Item Component with enhanced interactions
+// Navigation Item Component with enhanced interactions and accessibility
 function NavItem({ icon, text, isActive, onClick, onMouseEnter, theme, isCompact = false, title = '' }) {
   return (
     <div className={isCompact ? 'compact-nav-item relative' : ''}>
       <button
         onClick={onClick}
         onMouseEnter={onMouseEnter}
-        className={`w-full flex items-center rounded-xl transition-all duration-200 text-left transform hover:scale-[1.02] ${
+        className={`w-full flex items-center rounded-xl transition-all duration-200 text-left transform hover:scale-[1.02] focus:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 ${
           isCompact 
             ? 'justify-center p-3' 
             : 'space-x-4 px-4 py-3'
@@ -229,19 +280,37 @@ function NavItem({ icon, text, isActive, onClick, onMouseEnter, theme, isCompact
           isActive 
             ? 'bg-gradient-to-r from-red-500 to-red-600 text-white shadow-lg' 
             : (theme === 'dark'
-                ? 'hover:bg-gray-800 text-gray-300 hover:text-white'
-                : 'hover:bg-gray-100 text-gray-600 hover:text-gray-900')
+                ? 'hover:bg-gray-800 text-gray-300 hover:text-white focus:bg-gray-800'
+                : 'hover:bg-gray-100 text-gray-600 hover:text-gray-900 focus:bg-gray-100')
+        } ${
+          theme === 'dark' ? 'focus:ring-offset-gray-900' : 'focus:ring-offset-white'
         }`}
+        // ♿ Enhanced accessibility attributes
+        role="tab"
+        aria-selected={isActive}
+        aria-label={title || text}
+        title={isCompact ? (title || text) : undefined}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick();
+          }
+        }}
       >
-        <div className="w-6 h-6 flex items-center justify-center flex-shrink-0">
+        <div className="w-6 h-6 flex items-center justify-center flex-shrink-0" aria-hidden="true">
           {icon}
         </div>
         {!isCompact && text && (
           <span className="font-medium text-left">{text}</span>
         )}
+        {/* Screen reader only status */}
+        {isActive && (
+          <span className="sr-only"> (current page)</span>
+        )}
       </button>
       {isCompact && title && (
-        <div className="nav-tooltip">
+        <div className="nav-tooltip" role="tooltip" aria-hidden="true">
           {title}
         </div>
       )}
@@ -341,7 +410,7 @@ function BonusIcon() {
 function GamesIcon() {
   return (
     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a1 1 0 01-1-1V9a1 1 0 011-1h1a2 2 0 100-4H4a1 1 0 01-1-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 001-1v-1a2 2 0 100-4H4a1 1 0 01-1-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
     </svg>
   );
 }

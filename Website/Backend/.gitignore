@@ -82,3 +82,17 @@ jspm_packages/
 .idea/
 *.swp
 *.swo
+
+# backup and temporary files
+*.bak
+*.backup
+*.old
+*.temp
+*.tmp
+
+# MongoDB memory server cache
+.cache/
+node_modules/.cache/
+
+# TypeScript
+*.tsbuildinfo

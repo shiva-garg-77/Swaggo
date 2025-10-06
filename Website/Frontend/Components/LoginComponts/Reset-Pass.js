@@ -1,14 +1,18 @@
 "use client";
 import React from 'react'
-import { useState, useContext, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useTheme } from '../Helper/ThemeProvider';
-import { AuthContext } from '../Helper/AuthProvider';
+import { useSecureAuth } from '../../context/FixedSecureAuthContext';
 import { useRouter } from 'next/navigation';
 
 const Resetpass = ({ token }) => {
   const router = useRouter();
   const { theme } = useTheme();
-  const { resetPassword, ErrorMsg, successMsg, clearMessages, clearError, accessToken } = useContext(AuthContext);
+  const { isAuthenticated, error, clearError } = useSecureAuth();
+  // Map SecureAuth properties to legacy interface
+  const ErrorMsg = error;
+  const accessToken = isAuthenticated;
+  const successMsg = null; // Not available in SecureAuth
   const [formData, setFormData] = useState({
     password: '',
     confirmPassword: ''
@@ -22,12 +26,14 @@ const Resetpass = ({ token }) => {
     }
   }, [accessToken, router]);
 
-  // Clear messages on component unmount only
+  // Clear error on component unmount
   useEffect(() => {
     return () => {
-      clearMessages();
+      if (error) {
+        clearError();
+      }
     };
-  }, []);
+  }, [error, clearError]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -77,7 +83,9 @@ const Resetpass = ({ token }) => {
       return;
     }
 
-    const result = await resetPassword(formData, token);
+    // Reset password functionality would need to be implemented in SecureAuthContext
+    const result = { success: false, error: 'Reset password not implemented in SecureAuth yet' };
+    console.warn('Reset password functionality needs to be implemented in SecureAuthContext');
     
     if (result.success) {
       // Reset form

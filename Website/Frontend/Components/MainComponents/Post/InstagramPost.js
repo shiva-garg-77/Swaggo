@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useRef } from 'react';
-import { useAuth } from '../../Helper/AuthProvider';
-import { useMutation, useQuery } from '@apollo/client';
+import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
+import { useMutation, useQuery } from '@apollo/client/react';
 import { gql } from '@apollo/client';
 import { BLOCK_USER, RESTRICT_USER } from '../../../lib/graphql/profileQueries';
 
@@ -74,7 +74,7 @@ export default function InstagramPost({
   className = "",
   onPostDeleted // Callback when post is deleted
 }) {
-  const { user } = useAuth();
+  const { user } = useSecureAuth();
   const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);

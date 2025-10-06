@@ -1,6 +1,6 @@
 "use client";
 import { motion, AnimatePresence } from 'framer-motion';
-import { useMutation } from '@apollo/client';
+import { useMutation } from '@apollo/client/react';
 import { 
   X, 
   Flag, 

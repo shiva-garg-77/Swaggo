@@ -48,7 +48,7 @@ export const GET_SIMPLE_PROFILE = gql`
 // Current user profile query - more specific
 export const GET_CURRENT_USER_PROFILE = gql`
   query GetCurrentUserProfile {
-    getUserbyUsername(username: null) {
+    getUserbyUsername {
       profileid
       username
       name
@@ -103,6 +103,13 @@ export const CHECK_PROFILE_EXISTS = gql`
       profileid
       username
     }
+  }
+`;
+
+// Test query to check GraphQL connectivity
+export const TEST_GRAPHQL = gql`
+  query TestGraphQL {
+    hello
   }
 `;
 

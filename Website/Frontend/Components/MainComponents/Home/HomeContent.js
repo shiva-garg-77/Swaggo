@@ -1,36 +1,67 @@
 "use client";
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTheme } from '../../Helper/ThemeProvider';
-import { useQuery, useMutation } from '@apollo/client';
-import { useAuth } from '../../Helper/AuthProvider';
+import { useQuery, useMutation } from '../../../lib/apollo-client-hooks';
+import { useFixedSecureAuth } from '../../../context/FixedSecureAuthContext';
+import { useRouter } from 'next/navigation';
 import { GET_ALL_POSTS, TOGGLE_POST_LIKE, TOGGLE_SAVE_POST } from '../../../lib/graphql/queries';
 import { triggerPostsRefetch } from '../../../lib/apollo/refetchHelper';
 import InstagramPostModal from '../Post/InstagramPostModal';
 import InstagramPost from '../Post/InstagramPost';
 import UserSearch from '../../Search/UserSearch';
 import SuggestedMoments from './SuggestedReels';
+import WindowsNetworkDiagnostic from '../../Debug/WindowsNetworkDiagnostic';
+import NetworkConnectivityHelper from '../../Debug/NetworkConnectivityHelper';
+// CRITICAL MEMORY LEAK FIXES
+import { useComprehensiveCleanup, useMemoryMonitoring } from '../../../utils/memoryLeakFixes';
+// import AuthTokenChecker from '../../Debug/AuthTokenChecker'; // Temporarily disabled
 
 export default function HomeContent() {
   const { theme } = useTheme();
-  const { user } = useAuth();
+  const { user, isAuthenticated, isLoading } = useFixedSecureAuth();
+  const router = useRouter();
   const [selectedPost, setSelectedPost] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
   const [showUserRecommendations, setShowUserRecommendations] = useState(true);
   
+  // 🔧 CRITICAL: Initialize comprehensive memory leak prevention
+  const cleanup = useComprehensiveCleanup();
+  
+  // 🔧 CRITICAL: Monitor memory usage and prevent leaks
+  useMemoryMonitoring({
+    alertThreshold: 50 * 1024 * 1024, // 50MB threshold
+    checkInterval: 30000, // Check every 30 seconds
+    onMemoryAlert: (memoryInfo) => {
+      console.warn('🚨 MEMORY ALERT in HomeContent:', {
+        used: `${(memoryInfo.used / 1024 / 1024).toFixed(2)}MB`,
+        percentage: `${memoryInfo.percentage.toFixed(1)}%`
+      });
+    }
+  });
+  
   // GraphQL Mutations
   const [togglePostLike] = useMutation(TOGGLE_POST_LIKE);
   const [toggleSavePost] = useMutation(TOGGLE_SAVE_POST);
   
+  // FIXED: Stop excessive fetching and fix data loading
   const { data, loading, error, refetch } = useQuery(GET_ALL_POSTS, {
-    errorPolicy: 'all',
-    fetchPolicy: 'cache-first', // Fast cache, fallback to network
-    notifyOnNetworkStatusChange: false
+    errorPolicy: 'all', // Return partial data even with GraphQL errors
+    fetchPolicy: 'cache-first', // FIXED: Use cache-first to prevent excessive fetching
+    notifyOnNetworkStatusChange: true, // Enable loading states for better UX
+    // Add retry configuration for network issues
+    context: {
+      headers: {
+        'X-Client-Info': 'HomeContent-Component',
+        'X-Request-Context': 'feed-posts'
+      }
+    },
+    // REMOVED: pollInterval to stop constant fetching
   });
   
 
-  // Use posts from database with minimal filtering for performance
-  const rawPosts = data?.getPosts || [];
+  // FIXED: Handle actual GraphQL response structure
+  const rawPosts = data?.getPosts || data?.posts || (data ? Object.values(data)[0] : []) || [];
   
   // Simple filter - only remove posts with truly empty URLs
   const posts = rawPosts.filter(post => {
@@ -38,18 +69,20 @@ export default function HomeContent() {
     return imageUrl && imageUrl.trim() && imageUrl !== 'null' && imageUrl !== 'undefined';
   });
   
-  // Debug posts loading
-  console.log('📄 Posts debug:', {
-    rawPostsCount: rawPosts.length,
-    filteredPostsCount: posts.length,
+  // Enhanced debug logging to see actual data structure
+  console.log('📄 ENHANCED Posts debug:', {
     loading,
     hasError: !!error,
     hasData: !!data,
+    dataKeys: data ? Object.keys(data) : 'No data',
+    fullData: data, // This will show us the complete data structure
+    rawPostsCount: rawPosts.length,
+    filteredPostsCount: posts.length,
     samplePost: posts[0] ? { id: posts[0].id || posts[0].postid, postUrl: posts[0].postUrl } : 'No posts'
   });
 
-  // Modal handlers
-  const openPostModal = (post) => {
+  // Modal handlers with memory leak prevention
+  const openPostModal = useCallback((post) => {
     console.log('🔴 openPostModal called with post:', post?.postid || post?.id);
     console.log('🔴 User state:', { hasUser: !!user, profileId: user?.profileid, username: user?.username });
     console.log('🔴 Full post data:', post);
@@ -58,14 +91,21 @@ export default function HomeContent() {
     console.log('🔴 Modal state set - isModalOpen:', true, 'selectedPost:', post?.postid || post?.id);
     // Prevent body scroll when modal is open
     document.body.style.overflow = 'hidden';
-  };
+  }, [user?.profileid, user?.username]);
 
-  const closePostModal = () => {
+  const closePostModal = useCallback(() => {
     setSelectedPost(null);
     setIsModalOpen(false);
     // Restore body scroll
     document.body.style.overflow = 'unset';
-  };
+  }, []);
+  
+  // 🔧 CRITICAL: Cleanup body overflow on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, []);
   
   // Like handler with proper cache updates
   const handlePostLike = async (postId) => {
@@ -199,17 +239,60 @@ export default function HomeContent() {
     setShowUserRecommendations(true);
   };
   
-  if (loading) {
+  // IMPROVED: Show loading only on initial load, not on every refetch
+  if (loading && !data) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
+        <span className="ml-3 text-gray-600">Loading posts...</span>
       </div>
     );
   }
 
   if (error) {
     console.error('Error loading posts:', error);
-    // Still show fallback posts on error
+    
+    // Show a user-friendly error message for network issues
+    if (error.networkError && error.networkError.message?.includes('fetch')) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen space-y-4">
+          <div className="text-center">
+            <svg className="w-16 h-16 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <h3 className={`text-lg font-medium mb-2 ${
+              theme === 'dark' ? 'text-white' : 'text-gray-900'
+            }`}>
+              Connection Error
+            </h3>
+            <p className={`text-sm mb-4 ${
+              theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+            }`}>
+              Unable to connect to the server. Please check your connection.
+            </p>
+            <div className="space-y-2">
+              <button
+                onClick={() => {
+                  console.log('🔄 Manual refetch initiated');
+                  refetch().catch(console.error);
+                }}
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Retry Connection
+              </button>
+              <p className="text-xs text-gray-500">
+                Error: {error.networkError?.message || error.message}
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    
+    // For other GraphQL errors, still show fallback posts
   }
 
   return (
@@ -317,7 +400,17 @@ export default function HomeContent() {
             theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
           }`}>
             <p className="text-lg mb-4">No posts found!</p>
-            <p className="text-sm">There are no posts to display at the moment.</p>
+            <p className="text-sm">Raw posts count: {rawPosts.length}</p>
+            <p className="text-xs mt-2">Data keys: {data ? JSON.stringify(Object.keys(data)) : 'No data'}</p>
+            <p className="text-xs">Loading: {loading ? 'Yes' : 'No'} | Error: {error ? 'Yes' : 'No'}</p>
+            {rawPosts.length > 0 && (
+              <div className="mt-4 text-xs">
+                <p>Sample raw post:</p>
+                <pre className="bg-gray-100 dark:bg-gray-800 p-2 rounded mt-2 text-left max-w-md mx-auto overflow-auto">
+                  {JSON.stringify(rawPosts[0], null, 2)}
+                </pre>
+              </div>
+            )}
           </div>
         ) : (
           posts.map((post) => {
@@ -345,6 +438,16 @@ export default function HomeContent() {
         isOpen={isModalOpen}
         onClose={closePostModal}
       />
+      
+      
+      {/* Windows Network Diagnostic */}
+      <WindowsNetworkDiagnostic />
+      
+      {/* Network Connectivity Helper - Shows network error notifications */}
+      <NetworkConnectivityHelper />
+      
+      {/* Auth Token Checker - Temporarily disabled */}
+      {/* <AuthTokenChecker /> */}
     </>
   );
 }

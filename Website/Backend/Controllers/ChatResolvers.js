@@ -1,6 +1,6 @@
-import Chat from '../models/FeedModels/Chat.js';
-import Message from '../models/FeedModels/Message.js';
-import Profile from '../models/FeedModels/Profile.js';
+import Chat from '../Models/FeedModels/Chat.js';
+import Message from '../Models/FeedModels/Message.js';
+import Profile from '../Models/FeedModels/Profile.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const ChatResolvers = {
@@ -8,7 +8,8 @@ const ChatResolvers = {
     Chat: {
         participants: async (parent) => {
             try {
-                const profiles = await Profile.find({ profileid: { $in: parent.participants } });
+                const participantIds = parent.participants.map(p => p.profileid);
+                const profiles = await Profile.find({ profileid: { $in: participantIds } });
                 return profiles;
             } catch (error) {
                 console.error('Error fetching chat participants:', error);
@@ -158,7 +159,7 @@ const ChatResolvers = {
                 }
 
                 const chats = await Chat.find({
-                    participants: profileid,
+                    'participants.profileid': profileid,
                     isActive: true
                 }).sort({ lastMessageAt: -1 });
 
@@ -178,7 +179,7 @@ const ChatResolvers = {
                 }
 
                 // Check if user is a participant
-                if (!chat.participants.includes(context.user.profileid)) {
+                if (!chat.isParticipant(context.user.profileid)) {
                     throw new Error('Unauthorized: Not a participant in this chat');
                 }
 
@@ -199,7 +200,7 @@ const ChatResolvers = {
                 // For direct chats, find existing chat
                 if (participants.length === 2) {
                     const chat = await Chat.findOne({
-                        participants: { $all: participants, $size: 2 },
+                        'participants.profileid': { $all: participants, $size: 2 },
                         chatType: 'direct',
                         isActive: true
                     });
@@ -208,7 +209,7 @@ const ChatResolvers = {
 
                 // For group chats, find exact match
                 const chat = await Chat.findOne({
-                    participants: { $all: participants, $size: participants.length },
+                    'participants.profileid': { $all: participants, $size: participants.length },
                     chatType: 'group',
                     isActive: true
                 });
@@ -225,7 +226,7 @@ const ChatResolvers = {
             try {
                 // Check if user has access to this chat
                 const chat = await Chat.findOne({ chatid, isActive: true });
-                if (!chat || !chat.participants.includes(context.user.profileid)) {
+                if (!chat || !chat.isParticipant(context.user.profileid)) {
                     throw new Error('Unauthorized: Cannot access this chat');
                 }
 
@@ -254,7 +255,7 @@ const ChatResolvers = {
 
                 // Check if user has access to this chat
                 const chat = await Chat.findOne({ chatid: message.chatid });
-                if (!chat || !chat.participants.includes(context.user.profileid)) {
+                if (!chat || !chat.isParticipant(context.user.profileid)) {
                     throw new Error('Unauthorized: Cannot access this message');
                 }
 
@@ -269,7 +270,7 @@ const ChatResolvers = {
             try {
                 // Check if user has access to this chat
                 const chat = await Chat.findOne({ chatid, isActive: true });
-                if (!chat || !chat.participants.includes(context.user.profileid)) {
+                if (!chat || !chat.isParticipant(context.user.profileid)) {
                     throw new Error('Unauthorized: Cannot search this chat');
                 }
 
@@ -296,7 +297,7 @@ const ChatResolvers = {
 
                 // Get all chats user participates in
                 const chats = await Chat.find({
-                    participants: profileid,
+                    'participants.profileid': profileid,
                     isActive: true
                 });
 
@@ -326,7 +327,7 @@ const ChatResolvers = {
 
                 // Check if user has access to this chat
                 const chat = await Chat.findOne({ chatid, isActive: true });
-                if (!chat || !chat.participants.includes(profileid)) {
+                if (!chat || !chat.isParticipant(profileid)) {
                     throw new Error('Unauthorized: Cannot access this chat');
                 }
 
@@ -346,9 +347,14 @@ const ChatResolvers = {
     },
 
     Mutation: {
-        // Chat mutations
-        CreateChat: async (parent, { participants, chatType, chatName, chatAvatar }, context) => {
+        // ⚠️ DUPLICATE RESOLVER - COMMENTED OUT
+        // This CreateChat resolver is a duplicate of the one in Resolver.js
+        // The Resolver.js version is the active one and includes smart userid->profileid conversion
+        // Keep this commented out to avoid conflicts
+        
+        /* CreateChat: async (parent, { participants, chatType, chatName, chatAvatar }, context) => {
             try {
+                console.log('🚀 CHAT CREATE: Starting chat creation:......................................', { participants, chatType, chatName, chatAvatar });
                 if (!context.user) {
                     throw new Error('Authentication required');
                 }
@@ -370,7 +376,7 @@ const ChatResolvers = {
                 // For direct chats, check if chat already exists
                 if (chatType === 'direct' && participants.length === 2) {
                     const existingChat = await Chat.findOne({
-                        participants: { $all: participants, $size: 2 },
+                        'participants.profileid': { $all: participants, $size: 2 },
                         chatType: 'direct',
                         isActive: true
                     });
@@ -381,23 +387,43 @@ const ChatResolvers = {
                 }
 
                 // Create new chat
+                const formattedParticipants = participants.map(profileid => ({
+                    profileid,
+                    role: profileid === context.user.profileid ? 'owner' : 'member',
+                    joinedAt: new Date(),
+                    permissions: profileid === context.user.profileid ? {
+                        canSendMessages: true,
+                        canAddMembers: true,
+                        canRemoveMembers: true,
+                        canEditChat: true,
+                        canDeleteMessages: true,
+                        canPinMessages: true
+                    } : {
+                        canSendMessages: true,
+                        canAddMembers: false,
+                        canRemoveMembers: false,
+                        canEditChat: false,
+                        canDeleteMessages: false,
+                        canPinMessages: false
+                    }
+                }));
+                
                 const newChat = new Chat({
                     chatid: uuidv4(),
-                    participants,
+                    participants: formattedParticipants,
                     chatType,
                     chatName: chatType === 'group' ? chatName || 'New Group' : null,
                     chatAvatar,
-                    createdBy: context.user.profileid,
-                    adminIds: chatType === 'group' ? [context.user.profileid] : []
+                    createdBy: context.user.profileid
                 });
 
                 await newChat.save();
                 return newChat;
             } catch (error) {
-                console.error('Error creating chat:', error);
+                console.error('Error creating chat:..............', error);
                 throw new Error('Failed to create chat');
             }
-        },
+        }, */
 
         UpdateChat: async (parent, { chatid, chatName, chatAvatar }, context) => {
             try {
@@ -412,7 +438,7 @@ const ChatResolvers = {
                     throw new Error('Unauthorized: Only admins can update group chat');
                 }
 
-                if (!chat.participants.includes(context.user.profileid)) {
+                if (!chat.isParticipant(context.user.profileid)) {
                     throw new Error('Unauthorized: Not a participant in this chat');
                 }
 
@@ -437,7 +463,7 @@ const ChatResolvers = {
 
                 // Check if user has access to this chat
                 const chat = await Chat.findOne({ chatid, isActive: true });
-                if (!chat || !chat.participants.includes(context.user.profileid)) {
+                if (!chat || !chat.isParticipant(context.user.profileid)) {
                     throw new Error('Unauthorized: Cannot send message to this chat');
                 }
 

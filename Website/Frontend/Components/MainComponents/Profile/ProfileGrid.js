@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import InstagramPostModal from '../Post/InstagramPostModal';
+// Import centralized environment configuration
+import { getConfig, apiConfig } from '../../../config/environment.js';
 
 export default function ProfileGrid({ posts, activeTab, loading, theme, currentUser, onEditDraft, onDeleteDraft, onPublishDraft }) {
   const [selectedPostIndex, setSelectedPostIndex] = useState(null);
@@ -190,10 +192,11 @@ function DraftGridItem({ draft, theme, onEdit, onDelete, onPublish }) {
       let mediaUrl = draft.postUrl || draft.mediaUrl;
       
       // Fix URL - handle localhost port issues
+      const serverUrl = getConfig('NEXT_PUBLIC_SERVER_URL') || apiConfig.baseUrl;
       if (mediaUrl && mediaUrl.includes('localhost:3001')) {
-        mediaUrl = mediaUrl.replace('localhost:3001', new URL(process.env.NEXT_PUBLIC_SERVER_URL).host);
+        mediaUrl = mediaUrl.replace('localhost:3001', new URL(serverUrl).host);
       } else if (mediaUrl && mediaUrl.startsWith('/uploads/')) {
-        mediaUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}${mediaUrl}`;
+        mediaUrl = `${serverUrl}${mediaUrl}`;
       }
       
       if (isVideo) {
@@ -212,7 +215,7 @@ function DraftGridItem({ draft, theme, onEdit, onDelete, onPublish }) {
               console.error('Original URL:', draft.postUrl || draft.mediaUrl);
               
               // Try alternative URL
-              const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL;
+              const serverUrl = getConfig('NEXT_PUBLIC_SERVER_URL') || apiConfig.baseUrl;
               const alternatives = serverUrl ? [
                 mediaUrl.replace(/localhost:\d+/, new URL(serverUrl).host)
               ] : [];
@@ -252,7 +255,7 @@ function DraftGridItem({ draft, theme, onEdit, onDelete, onPublish }) {
               console.error('Original URL:', draft.postUrl || draft.mediaUrl);
               
               // Try alternative URL
-              const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL;
+              const serverUrl = getConfig('NEXT_PUBLIC_SERVER_URL') || apiConfig.baseUrl;
               const alternatives = serverUrl ? [
                 mediaUrl.replace(/localhost:\d+/, new URL(serverUrl).host)
               ] : [];
@@ -454,12 +457,13 @@ function PostGridItem({ post, onClick, theme }) {
   const renderMedia = () => {
     // Fix URL - handle localhost port issues
     let mediaUrl = post.postUrl;
+    const serverUrl = getConfig('NEXT_PUBLIC_SERVER_URL') || apiConfig.baseUrl;
     
     // Handle different localhost port configurations
     if (mediaUrl && mediaUrl.includes('localhost:3001')) {
-      mediaUrl = mediaUrl.replace('localhost:3001', new URL(process.env.NEXT_PUBLIC_SERVER_URL).host);
+      mediaUrl = mediaUrl.replace('localhost:3001', new URL(serverUrl).host);
     } else if (mediaUrl && mediaUrl.startsWith('/uploads/')) {
-      mediaUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}${mediaUrl}`;
+      mediaUrl = `${serverUrl}${mediaUrl}`;
     }
     
     // Generate backup URLs to try on failure
@@ -484,9 +488,10 @@ function PostGridItem({ post, onClick, theme }) {
       }
       
       // Try relative path
-      const pathMatch = url.match(/\/uploads\/.*/);
-      if (pathMatch && process.env.NEXT_PUBLIC_SERVER_URL) {
-        backups.push(`${process.env.NEXT_PUBLIC_SERVER_URL}${pathMatch[0]}`);
+      const pathMatch = url.match(/\/uploads\/.*/);      
+      const serverUrl = getConfig('NEXT_PUBLIC_SERVER_URL') || apiConfig.baseUrl;
+      if (pathMatch && serverUrl) {
+        backups.push(`${serverUrl}${pathMatch[0]}`);
       }
       
       return [...new Set(backups)]; // Remove duplicates
@@ -584,7 +589,7 @@ function PostGridItem({ post, onClick, theme }) {
             console.error('Original URL:', post.postUrl);
             
             // Try alternative URL before showing placeholder
-            const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL;
+            const serverUrl = getConfig('NEXT_PUBLIC_SERVER_URL') || apiConfig.baseUrl;
             const alternatives = serverUrl ? [
               mediaUrl.replace(/localhost:\d+/, new URL(serverUrl).host)
             ] : [];

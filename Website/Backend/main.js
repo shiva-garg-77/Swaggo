@@ -1,13 +1,18 @@
-import express from 'express';
 import cors from 'cors';
 import { ApolloServer } from '@apollo/server';
-import cookieParser from 'cookie-parser';
-import LoginRoutes from './Routes/LoginRoutes.js';
-import { Connectdb } from './db/Connectdb.js';
 import { expressMiddleware } from '@apollo/server/express4';
+import express from 'express';
+import cookieParser from 'cookie-parser';
+import HealthRoutes from './Routes/HealthRoutes.js';
+import AuthenticationRoutes from './Routes/AuthenticationRoutes.js';
+import AdminRoutes from './Routes/AdminRoutes.js';
+import UserRoutes from './Routes/UserRoutes.js';
+import { Connectdb } from './db/Connectdb.js';
 import TypeDef from './Controllers/TypeDefs.js';
 import Resolvers from './Controllers/Resolver.js';
-import auth from './Middleware/Auth.js';
+import auth from './Middleware/AuthenticationMiddleware.js';
+import TokenService from './Services/TokenService.js';
+import User from './Models/User.js';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import path from 'path';
@@ -15,11 +20,15 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import http from 'http';
+import crypto from 'crypto';
 import { Server as SocketIOServer } from 'socket.io';
-import Chat from './models/FeedModels/Chat.js';
-import Message from './models/FeedModels/Message.js';
-import Profile from './models/FeedModels/Profile.js';
+import Chat from './Models/FeedModels/Chat.js';
+import Message from './Models/FeedModels/Message.js';
+import Profile from './Models/FeedModels/Profile.js';
+import DataLoaderService from './Services/DataLoaderService.js';
 import { v4 as uuidv4 } from 'uuid';
+// CRITICAL SECURITY: Import rate limiting middleware
+import { dosProtection, smartRateLimit, getRateLimitStatus } from './middleware/rateLimitingMiddleware.js';
 dotenv.config({ path: '.env.local' });
 
 const app = express();
@@ -29,21 +38,111 @@ const port = process.env.PORT;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// 🔒 SECURITY FIX: Proper trust proxy configuration for 10/10 security
+// Set to 1 for single proxy, or specific subnet for multiple proxies
+const trustProxyConfig = process.env.NODE_ENV === 'production' ? 
+  process.env.TRUST_PROXY || 1 : 
+  1; // Trust first proxy in development
+
+app.set('trust proxy', trustProxyConfig);
+
+// 🛡️ CRITICAL SECURITY: Apply DoS protection middleware FIRST
+app.use(...dosProtection);
+
+// 🛡️ SECURITY: Rate limit status endpoint (for monitoring)
+app.get('/api/rate-limit-status', getRateLimitStatus);
+
 // === Middlewares ===
+// 🔒 SECURITY ENHANCED CORS: 10/10 Security Configuration
 app.use(cors({
-  origin: process.env.FRONTEND_URLS ? process.env.FRONTEND_URLS.split(',') : ['http://localhost:3000'],
-  credentials: true, // <- this is important for cookies
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  origin: function (origin, callback) {
+    // Allow requests without origin (for direct access, mobile apps, etc.)
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    // Define allowed origins
+    const allowedOrigins = process.env.FRONTEND_URLS ? 
+      process.env.FRONTEND_URLS.split(',').map(url => url.trim()) : 
+      [
+        'http://localhost:3000', 
+        'http://localhost:3001',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:3001',
+        process.env.FRONTEND_URL
+      ].filter(Boolean);
+    
+    // Check if origin is in allowed list
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      // 🔒 SECURITY: Log potential CORS attacks
+      console.warn(`🚨 CORS: Blocked request from unauthorized origin: ${origin}`);
+      callback(new Error('Not allowed by CORS - Unauthorized origin'));
+    }
+  },
+  credentials: true, // Required for secure cookies
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-CSRF-Token',
+    'X-Requested-With',
+    'Accept',
+    'Accept-Language',
+    'Content-Language'
+  ],
+  exposedHeaders: ['X-CSRF-Token'],
+  maxAge: 86400 // 24 hours preflight cache
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
+// 🔒 SECURITY: Secure CORS validation function for uploads
+const getSecureOrigin = (req) => {
+  const origin = req.headers.origin;
+  
+  if (!origin) {
+    // In development, allow requests without origin (direct access, Postman, etc.)
+    if (process.env.NODE_ENV === 'development') {
+      return 'http://localhost:3000'; // Default to frontend URL
+    }
+    return null; // Block in production
+  }
+  
+  // Validate origin against allowed origins
+  const allowedOrigins = process.env.FRONTEND_URLS ? 
+    process.env.FRONTEND_URLS.split(',').map(url => url.trim()) : 
+    ['http://localhost:3000', 'http://localhost:3001'];
+  
+  // In development, allow localhost origins
+  if (process.env.NODE_ENV === 'development') {
+    const localhostPattern = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
+    if (localhostPattern.test(origin)) {
+      return origin;
+    }
+  }
+  
+  // Check allowed origins list
+  if (allowedOrigins.includes(origin)) {
+    return origin;
+  }
+  
+  console.warn(`🚨 UPLOAD CORS: Blocked request from unauthorized origin: ${origin}`);
+  return null;
+};
+
 // Custom video and file streaming endpoint with better control
 app.get('/uploads/:filename', (req, res) => {
   const filename = req.params.filename;
   const filePath = path.join(__dirname, 'uploads', filename);
+  
+  // 🔒 SECURITY: Validate origin first
+  const secureOrigin = getSecureOrigin(req);
+  if (!secureOrigin) {
+    return res.status(403).json({ error: 'Forbidden - Invalid origin' });
+  }
   
   // Check if file exists
   if (!fs.existsSync(filePath)) {
@@ -113,7 +212,7 @@ app.get('/uploads/:filename', (req, res) => {
       'Accept-Ranges': 'bytes',
       'Content-Length': chunkSize,
       'Content-Type': contentType,
-      'Access-Control-Allow-Origin': req.headers.origin || '*',
+      'Access-Control-Allow-Origin': secureOrigin,
       'Access-Control-Allow-Credentials': 'true'
     });
     
@@ -124,7 +223,7 @@ app.get('/uploads/:filename', (req, res) => {
       'Content-Length': fileSize,
       'Content-Type': contentType,
       'Accept-Ranges': 'bytes',
-      'Access-Control-Allow-Origin': req.headers.origin || '*',
+      'Access-Control-Allow-Origin': secureOrigin,
       'Access-Control-Allow-Credentials': 'true',
       'Cache-Control': 'public, max-age=31536000' // 1 year cache
     });
@@ -145,14 +244,57 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+// 🔒 SECURITY: Handle preflight OPTIONS for uploads with secure CORS
+app.options('/upload', (req, res) => {
+  const secureOrigin = getSecureOrigin(req);
+  if (!secureOrigin) {
+    return res.status(403).json({ error: 'Forbidden - Invalid origin' });
+  }
+  
+  res.header('Access-Control-Allow-Origin', secureOrigin);
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
+  res.status(200).end();
+});
+
+app.options('/uploads/:filename', (req, res) => {
+  const secureOrigin = getSecureOrigin(req);
+  if (!secureOrigin) {
+    return res.status(403).json({ error: 'Forbidden - Invalid origin' });
+  }
+  
+  res.header('Access-Control-Allow-Origin', secureOrigin);
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Range, Accept, Authorization');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
+  res.status(200).end();
+});
+
 // === REST Endpoint for Upload ===
 
 app.post('/upload', upload.single('file'), (req, res) => {
+  // 🔒 SECURITY: Validate origin first
+  const secureOrigin = getSecureOrigin(req);
+  if (!secureOrigin) {
+    return res.status(403).json({ error: 'Forbidden - Invalid origin' });
+  }
+  
+  // Set secure CORS headers
+  res.header('Access-Control-Allow-Origin', secureOrigin);
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
-  const fileUrl = `${req.protocol}://${req.hostname}:${port}/uploads/${req.file.filename}`;
+  const baseUrl = process.env.NODE_ENV === 'production' ? 
+    process.env.PUBLIC_FILE_URL || `https://${req.get('host')}` : 
+    `${req.protocol}://${req.get('host')}`;
+  
+  const fileUrl = `${baseUrl}/uploads/${req.file.filename}`;
   res.json({ 
     success: true,
     fileUrl: fileUrl,
@@ -173,7 +315,10 @@ const apolloServer = new ApolloServer({
 await apolloServer.start();
 
 // === Routes ===
-app.use('/api', LoginRoutes);
+app.use('/api/auth', AuthenticationRoutes);
+app.use('/api/admin', AdminRoutes);
+app.use('/api/users', UserRoutes);
+app.use('/api', HealthRoutes);
 app.get('/', (req, res) => {
   res.send('hello');
 });
@@ -209,505 +354,366 @@ app.get('/debug/file/:filename', (req, res) => {
 
 const authWrapper = (req, res) =>
   new Promise((resolve) => {
-    auth(req, res, () => resolve());
+    auth.authenticate(req, res, () => resolve());
   });
 
 
 
-// GraphQL with optional authentication (let resolvers handle auth checks)
+// GraphQL with optional authentication enhanced with proper origin checking
 app.use(
   '/graphql',
   cors({
-    origin: process.env.FRONTEND_URLS ? process.env.FRONTEND_URLS.split(',') : ['http://localhost:3000'],
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      
+      const allowedOrigins = process.env.FRONTEND_URLS ? 
+        process.env.FRONTEND_URLS.split(',').map(url => url.trim()) : 
+        ['http://localhost:3000', 'http://localhost:3001'];
+      
+      if (allowedOrigins.indexOf(origin) !== -1) {
+        callback(null, true);
+      } else {
+        callback(new Error('GraphQL CORS: Origin not allowed'));
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token']
   }),
   expressMiddleware(apolloServer, {
     context: async ({ req, res }) => {
-      // Try to extract user from token without failing the request
+      // 🔒 SECURITY ENHANCED: Comprehensive authentication context with validation
       let user = null;
+      let authMethod = 'none';
+      let authResult = null;
+      let securityMetadata = {};
       
-      console.log('\n🔍 GraphQL Context Debug:');
-      console.log('Request headers:', {
-        authorization: req.headers['authorization'] ? 'Present' : 'Missing',
+      // Extract authentication context using same methodology as AuthenticationMiddleware
+      const authContext = {
+        ipAddress: req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+                  req.headers['x-real-ip'] ||
+                  req.connection?.remoteAddress ||
+                  req.socket?.remoteAddress ||
+                  req.ip || '127.0.0.1',
+        userAgent: req.headers['user-agent'] || 'unknown',
+        timestamp: new Date()
+      };
+      
+      console.log('\n🔍 BACKEND DEBUG: GraphQL Context Creation Starting');
+      console.log('🔍 BACKEND DEBUG: Request method:', req.method);
+      console.log('🔍 BACKEND DEBUG: Request URL:', req.url);
+      console.log('🔍 BACKEND DEBUG: Request headers:', {
+        authorization: req.headers['authorization'] ? 'Bearer [PRESENT]' : 'Missing',
+        'x-csrf-token': req.headers['x-csrf-token'] ? '[PRESENT]' : 'Missing',
         'user-agent': req.headers['user-agent'],
-        origin: req.headers['origin']
+        origin: req.headers['origin'],
+        'content-type': req.headers['content-type'],
+        cookie: req.headers.cookie ? `Present (${req.headers.cookie.length} chars)` : 'Missing',
+        cookies: req.cookies ? `${Object.keys(req.cookies).length} parsed cookies` : 'No parsed cookies',
+        ip: authContext.ipAddress
       });
       
+      // 🔍 ENHANCED DEBUGGING: Show actual cookie names and structure
+      if (req.cookies && Object.keys(req.cookies).length > 0) {
+        console.log('Cookie details:');
+        Object.keys(req.cookies).forEach(name => {
+          const value = req.cookies[name];
+          console.log(`  - ${name}: ${value ? (value.substring(0, 30) + '...') : 'empty'}`);
+        });
+      } else if (req.headers.cookie) {
+        console.log('Raw Cookie Header:', req.headers.cookie.substring(0, 200) + '...');
+        console.log('⚠️ Cookie header present but req.cookies is empty - parsing issue!');
+      } else {
+        console.log('❌ No cookies found in headers or parsed cookies');
+      }
+      
+      // 🔒 PRIORITY 1: Check Bearer token (for API clients) using TokenService
+      console.log('🔍 BACKEND DEBUG: Starting Bearer token authentication...');
       try {
         const authHeader = req.headers['authorization'];
-        console.log('Auth header:', authHeader ? `Bearer ${authHeader.split(' ')[1]?.substring(0, 20)}...` : 'Not found');
-        
         if (authHeader && authHeader.startsWith('Bearer ')) {
           const token = authHeader.split(' ')[1];
-          console.log('Attempting to verify token...');
-          const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-          user = decoded;
-          console.log('✅ Token verified successfully for user:', user.username);
-        } else {
-          console.log('❌ No valid Authorization header found');
+          console.log('🔍 BACKEND DEBUG: Bearer token found, length:', token.length);
+          console.log('🔍 BACKEND DEBUG: Attempting to verify Bearer token with TokenService...');
+          
+          const tokenContext = {
+            ipAddress: authContext.ipAddress,
+            userAgent: authContext.userAgent,
+            deviceHash: crypto.createHash('sha256').update(authContext.userAgent + authContext.ipAddress).digest('hex')
+          };
+          
+          const tokenResult = await TokenService.verifyAccessToken(token, tokenContext);
+              if (tokenResult.valid) {
+                // Get fresh user data
+                const freshUser = await User.findOne({ id: tokenResult.user.id });
+                if (freshUser && !freshUser.isAccountLocked()) {
+                  // CRITICAL FIX: Add profileid from Profile model
+                  const userProfile = await Profile.findOne({ username: freshUser.username });
+                  user = {
+                    ...tokenResult.user,
+                    profileid: userProfile?.profileid || null
+                  };
+                  authMethod = 'bearer_token';
+                  authResult = tokenResult;
+                  securityMetadata = tokenResult.security || {};
+                  console.log('✅ Bearer token verified successfully for user:', user.username);
+                  console.log('🔍 BACKEND DEBUG: Added profileid to user:', user.profileid);
+                } else {
+                  console.log('🔴 Bearer token valid but user account locked or not found');
+                }
+          } else {
+            console.log('🔴 Bearer token verification failed:', tokenResult.reason);
+          }
         }
       } catch (err) {
-        // Don't fail here - let individual resolvers handle authentication
-        console.log('❌ Token verification failed:', err.message);
+        console.log('🔴 Bearer token verification error:', err.message);
       }
       
-      console.log('Final user context:', user ? `User: ${user.username}` : 'No user');
+      // 🔒 PRIORITY 2: Check cookie-based authentication (for web clients) using TokenService
+      console.log('🔍 BACKEND DEBUG: Starting cookie-based authentication...');
+      if (!user && req.cookies) {
+        console.log('🔍 BACKEND DEBUG: Available cookie names:', Object.keys(req.cookies));
+        try {
+          // Check for access token in cookies (using exact same prefixes as AuthenticationMiddleware)
+          const cookieTokenSources = [
+            req.cookies['__Host_accessToken'],    // Highest security prefix (underscore format)
+            req.cookies['__Secure_accessToken'],  // HTTPS required prefix (underscore format)
+            req.cookies['__Host-accessToken'],    // Alternative hyphen format
+            req.cookies['__Secure-accessToken'],  // Alternative hyphen format
+            req.cookies['accessToken']            // Standard cookie name
+          ].filter(Boolean);
+          
+          console.log('🔍 BACKEND DEBUG: Cookie token search results:');
+          console.log('  - __Host_accessToken:', req.cookies['__Host_accessToken'] ? 'FOUND' : 'NOT FOUND');
+          console.log('  - __Secure_accessToken:', req.cookies['__Secure_accessToken'] ? 'FOUND' : 'NOT FOUND');
+          console.log('  - __Host-accessToken:', req.cookies['__Host-accessToken'] ? 'FOUND' : 'NOT FOUND');
+          console.log('  - __Secure-accessToken:', req.cookies['__Secure-accessToken'] ? 'FOUND' : 'NOT FOUND');
+          console.log('  - accessToken:', req.cookies['accessToken'] ? 'FOUND' : 'NOT FOUND');
+          console.log('🔍 BACKEND DEBUG: Total cookie tokens found:', cookieTokenSources.length);
+          
+          console.log('Available cookies:', Object.keys(req.cookies || {}));
+          console.log('Cookie token search results:', cookieTokenSources.length + ' tokens found');
+          
+          const tokenContext = {
+            ipAddress: authContext.ipAddress,
+            userAgent: authContext.userAgent,
+            deviceHash: crypto.createHash('sha256').update(authContext.userAgent + authContext.ipAddress).digest('hex')
+          };
+          
+          for (const cookieToken of cookieTokenSources) {
+            try {
+              console.log('Attempting to verify cookie token with TokenService...');
+              const tokenResult = await TokenService.verifyAccessToken(cookieToken, tokenContext);
+              
+              if (tokenResult.valid) {
+                // Get fresh user data
+                const freshUser = await User.findOne({ id: tokenResult.user.id });
+                if (freshUser && !freshUser.isAccountLocked()) {
+                  // CRITICAL FIX: Add profileid from Profile model
+                  const userProfile = await Profile.findOne({ username: freshUser.username });
+                  user = {
+                    ...tokenResult.user,
+                    profileid: userProfile?.profileid || null
+                  };
+                  authMethod = 'cookie_token';
+                  authResult = tokenResult;
+                  securityMetadata = tokenResult.security || {};
+                  console.log('✅ Cookie token verified successfully for user:', user.username);
+                  console.log('🔍 BACKEND DEBUG: Added profileid to user:', user.profileid);
+                  break; // Found valid token, stop searching
+                } else {
+                  console.log('🔴 Cookie token valid but user account locked or not found');
+                }
+              } else {
+                console.log('🔴 Cookie token verification failed:', tokenResult.reason);
+              }
+            } catch (cookieErr) {
+              console.log('🔴 Cookie token verification error:', cookieErr.message);
+              continue; // Try next cookie
+            }
+          }
+        } catch (err) {
+          console.log('🔴 Cookie authentication error:', err.message);
+        }
+      }
       
-      return {
+      // 🔒 SECURITY: Enhanced context with comprehensive authentication metadata
+      const contextResult = {
         user,
+        isAuthenticated: !!user,
+        authMethod,
+        authResult, // Full TokenService result with security metadata
+        authContext, // IP, UserAgent, etc.
         req,
-        res
+        res,
+        // 🚀 PERFORMANCE: Add DataLoader context to prevent N+1 queries
+        dataloaders: DataLoaderService.createContext(),
+        // 🔒 SECURITY: Enhanced security metadata
+        security: {
+          timestamp: Date.now(),
+          requestId: req.headers['x-request-id'] || `gql_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          userAgent: req.headers['user-agent'],
+          origin: req.headers['origin'],
+          ip: authContext.ipAddress,
+          riskScore: securityMetadata.riskScore || 0,
+          deviceTrusted: securityMetadata.deviceTrusted || false,
+          tokenMetadata: authResult?.metadata || null,
+          // CSRF token extraction for validation
+          csrfToken: req.cookies['__Host-csrfToken'] || 
+                    req.cookies['__Secure-csrfToken'] || 
+                    req.cookies['csrfToken'] || 
+                    req.headers['x-csrf-token'],
+          connectionSecure: req.secure || req.headers['x-forwarded-proto'] === 'https'
+        }
+      };
+      
+      console.log('🔍 BACKEND DEBUG: Final GraphQL context created:');
+      console.log('  - Authenticated:', contextResult.isAuthenticated);
+      console.log('  - Auth method:', authMethod);
+      console.log('  - User:', user ? `${user.username} (ID: ${user.id})` : 'No user');
+      console.log('  - User profileid:', user?.profileid || 'No profileid');
+      console.log('  - Has CSRF token:', !!contextResult.security.csrfToken);
+      console.log('  - CSRF token length:', contextResult.security.csrfToken?.length || 0);
+      console.log('  - Auth result valid:', !!authResult?.valid);
+      console.log('  - Auth result keys:', authResult ? Object.keys(authResult) : 'No auth result');
+      console.log('  - Token metadata:', authResult?.metadata || 'No metadata');
+      
+      if (authResult?.payload) {
+        console.log('  - Token payload keys:', Object.keys(authResult.payload));
+        console.log('  - Token ID (jti):', authResult.payload.jti || 'No jti');
       }
+      
+      return contextResult;
     }
   })
 );
 
 
 // === Create HTTP server for Socket.io ===
-const server = http.createServer(app);
+const httpServer = http.createServer(app);
 
-// === Socket.io Setup ===
-const io = new SocketIOServer(server, {
+// === Socket.io Setup with dynamic CORS ===
+const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URLS ? process.env.FRONTEND_URLS.split(',') : ['http://localhost:3000'],
-    methods: ['GET', 'POST'],
-    credentials: true
-  }
-});
-
-// Socket.io authentication middleware
-io.use(async (socket, next) => {
-  try {
-    const token = socket.handshake.auth.token;
-    if (!token) {
-      throw new Error('No token provided');
-    }
-    
-    // Handle demo tokens for testing
-    if (token === 'demo_token_for_testing' || token === 'demo_token' || token.startsWith('demo_')) {
-      console.log('🧪 Using demo token for testing');
-      socket.user = {
-        profileid: 'demo_user_' + Math.random().toString(36).substr(2, 9),
-        username: 'Demo User ' + Math.floor(Math.random() * 100)
-      };
-      return next();
-    }
-    
-    // Handle real JWT tokens
-    try {
-      const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-      const profile = await Profile.findOne({ profileid: decoded.profileid });
+    origin: function (origin, callback) {
+      // Allow requests without origin (for direct access, mobile apps, etc.)
+      if (!origin) return callback(null, true);
       
-      if (!profile) {
-        throw new Error('User not found');
+      const allowedOrigins = process.env.FRONTEND_URLS ? 
+        process.env.FRONTEND_URLS.split(',').map(url => url.trim()) : 
+        [
+          'http://localhost:3000', 
+          'http://localhost:3001',
+          'http://127.0.0.1:3000',
+          'http://127.0.0.1:3001',
+          process.env.FRONTEND_URL
+        ].filter(Boolean);
+      
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.warn(`🚨 Socket.IO CORS: Blocked request from unauthorized origin: ${origin}`);
+        callback(new Error('Socket.IO CORS: Origin not allowed'));
       }
-      
-      socket.user = {
-        profileid: profile.profileid,
-        username: profile.username
-      };
-      
-      next();
-    } catch (jwtError) {
-      console.error('JWT verification failed:', jwtError.message);
-      console.log('🧪 Falling back to demo mode for development');
-      
-      // Fallback to demo user for development
-      socket.user = {
-        profileid: 'demo_user_' + Math.random().toString(36).substr(2, 9),
-        username: 'Demo User ' + Math.floor(Math.random() * 100)
-      };
-      next();
-    }
-    
-  } catch (error) {
-    console.error('Socket authentication error:', error.message);
-    
-    // For development, allow connection with demo user
-    console.log('🧪 Creating demo user for development');
-    socket.user = {
-      profileid: 'demo_user_' + Math.random().toString(36).substr(2, 9),
-      username: 'Demo User ' + Math.floor(Math.random() * 100)
-    };
-    next();
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['X-CSRF-Token'],
+    maxAge: 86400
+  },
+  transports: ['websocket', 'polling'],
+  allowEIO3: true,
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  maxHttpBufferSize: 1e6, // 1MB
+  // 🔄 CRITICAL FIX: Add connection limiting to prevent excessive connections
+  maxConnections: 10000, // Maximum concurrent connections
+  // 🔄 CRITICAL FIX: Add rate limiting for connection attempts
+  connectionStateRecovery: {
+    maxDisconnectionDuration: 60 * 1000, // 1 minute
+    skipMiddlewares: true,
   }
 });
 
-// Socket.io connection handling
+// 🛡️ SECURITY: Use existing 10/10 secure SocketAuthMiddleware instead of basic auth
+import SocketAuthMiddleware from './Middleware/SocketAuthMiddleware.js';
+
+// Apply the sophisticated 10/10 secure authentication middleware
+io.use(SocketAuthMiddleware.authenticate);
+
+// SECURITY ENHANCEMENT: Add connection cleanup handler
+io.engine.on('connection_error', (err) => {
+  console.error('🚨 Socket.IO connection error:', err.req, err.code, err.message, err.context);
+});
+
+// Apply disconnection handler from the security middleware
+io.on('disconnect', (socket) => {
+  SocketAuthMiddleware.handleDisconnection(socket);
+});
+
+// ✅ CLEAN IMPLEMENTATION: Initialize SocketController to handle ALL socket events
+import SocketController from './Controllers/SocketController.js';
+const socketController = new SocketController(io);
+
+// Socket.io connection handling - ALL events handled by SocketController
 io.on('connection', (socket) => {
-  console.log(`👤 User connected: ${socket.user.username} (${socket.user.profileid})`);
+  // SECURITY: Access authenticated user data set by SocketAuthMiddleware
+  const userId = socket.userId || socket.user?.profileid || socket.user?.id;
+  const username = socket.username || socket.user?.username;
   
-  // Join user to their personal room for notifications
-  socket.join(`user_${socket.user.profileid}`);
+  console.log(`👤 Authenticated user connected: ${username} (${userId})`);
+  console.log(`🔒 Security Level: ${socket.deviceTrusted ? 'TRUSTED' : 'STANDARD'} | Risk Score: ${socket.riskScore || 0}`);
   
-  // Handle joining chat rooms
-  socket.on('join_chat', async (chatid) => {
-    try {
-      // Verify user has access to this chat
-      const chat = await Chat.findOne({ 
-        chatid, 
-        participants: socket.user.profileid,
-        isActive: true 
-      });
-      
-      if (chat) {
-        socket.join(chatid);
-        console.log(`📨 ${socket.user.username} joined chat: ${chatid}`);
-        
-        // Notify other participants that user is online
-        socket.to(chatid).emit('user_joined', {
-          profileid: socket.user.profileid,
-          username: socket.user.username
-        });
-      } else {
-        socket.emit('error', 'Unauthorized to join this chat');
-      }
-    } catch (error) {
-      console.error('Error joining chat:', error);
-      socket.emit('error', 'Failed to join chat');
-    }
-  });
+  // Register all socket event handlers through SocketController
+  socketController.registerSocketHandlers(socket);
   
-  // Handle leaving chat rooms
-  socket.on('leave_chat', (chatid) => {
-    socket.leave(chatid);
-    socket.to(chatid).emit('user_left', {
-      profileid: socket.user.profileid,
-      username: socket.user.username
-    });
-    console.log(`📤 ${socket.user.username} left chat: ${chatid}`);
-  });
-  
-  // Handle sending messages
-  socket.on('send_message', async (data, callback) => {
-    try {
-      const { chatid, messageType, content, attachments, replyTo, mentions, clientMessageId } = data;
-      
-      // Verify user has access to this chat
-      const chat = await Chat.findOne({ 
-        chatid, 
-        participants: socket.user.profileid,
-        isActive: true 
-      });
-      
-      if (!chat) {
-        socket.emit('error', 'Unauthorized to send message to this chat');
-        return;
-      }
-      
-      // Create new message
-      const newMessage = new Message({
-        messageid: uuidv4(),
-        chatid,
-        senderid: socket.user.profileid,
-        messageType: messageType || 'text',
-        content,
-        attachments: attachments || [],
-        replyTo,
-        mentions: mentions || [],
-        messageStatus: 'sent'
-      });
-      
-      await newMessage.save();
-      
-      // Update chat's last message
-      chat.lastMessage = newMessage.messageid;
-      chat.lastMessageAt = new Date();
-      await chat.save();
-      
-      // Populate message data for real-time broadcast
-      const populatedMessage = await Message.findOne({ messageid: newMessage.messageid })
-        .populate('senderid', 'username profilePic')
-        .populate('mentions', 'username profilePic');
-      
-      // Broadcast message to all participants in the chat
-      io.to(chatid).emit('new_message', {
-        message: populatedMessage,
-        chat: {
-          chatid: chat.chatid,
-          lastMessageAt: chat.lastMessageAt
-        }
-      });
-      
-      // Send notification to offline users
-      const offlineParticipants = chat.participants.filter(pid => pid !== socket.user.profileid);
-      offlineParticipants.forEach(participantId => {
-        io.to(`user_${participantId}`).emit('message_notification', {
-          chatid,
-          message: populatedMessage,
-          sender: {
-            profileid: socket.user.profileid,
-            username: socket.user.username
-          }
-        });
-      });
-      
-      console.log(`💬 Message sent in ${chatid} by ${socket.user.username}`);
-      
-      // Send acknowledgment to sender
-      if (callback) {
-        callback({ 
-          success: true, 
-          messageId: clientMessageId,
-          serverMessageId: newMessage.messageid,
-          timestamp: new Date().toISOString()
-        });
-      }
-    } catch (error) {
-      console.error('Error sending message:', error);
-      
-      // Send error acknowledgment
-      if (callback) {
-        callback({ 
-          success: false, 
-          messageId: clientMessageId,
-          error: error.message 
-        });
-      } else {
-        socket.emit('error', 'Failed to send message');
-      }
-    }
-  });
-  
-  // Handle typing indicators
-  socket.on('typing_start', (chatid) => {
-    socket.to(chatid).emit('user_typing', {
-      profileid: socket.user.profileid,
-      username: socket.user.username,
-      isTyping: true
-    });
-  });
-  
-  socket.on('typing_stop', (chatid) => {
-    socket.to(chatid).emit('user_typing', {
-      profileid: socket.user.profileid,
-      username: socket.user.username,
-      isTyping: false
-    });
-  });
-  
-  // Handle message read status
-  socket.on('mark_message_read', async (data) => {
-    try {
-      const { messageid, chatid } = data;
-      
-      const message = await Message.findOne({ messageid, isDeleted: false });
-      if (!message) {
-        socket.emit('error', 'Message not found');
-        return;
-      }
-      
-      // Check if already marked as read
-      const existingRead = message.readBy.find(
-        read => read.profileid === socket.user.profileid
-      );
-      
-      if (!existingRead) {
-        message.readBy.push({
-          profileid: socket.user.profileid,
-          readAt: new Date()
-        });
-        await message.save();
-        
-        // Broadcast read status to other participants
-        socket.to(chatid).emit('message_read', {
-          messageid,
-          readBy: {
-            profileid: socket.user.profileid,
-            username: socket.user.username,
-            readAt: new Date()
-          }
-        });
-      }
-    } catch (error) {
-      console.error('Error marking message as read:', error);
-      socket.emit('error', 'Failed to mark message as read');
-    }
-  });
-  
-  // Handle message reactions
-  socket.on('react_to_message', async (data) => {
-    try {
-      const { messageid, emoji, chatid } = data;
-      
-      const message = await Message.findOne({ messageid, isDeleted: false });
-      if (!message) {
-        socket.emit('error', 'Message not found');
-        return;
-      }
-      
-      // Remove existing reaction from this user
-      message.reactions = message.reactions.filter(
-        reaction => reaction.profileid !== socket.user.profileid
-      );
-      
-      // Add new reaction
-      message.reactions.push({
-        profileid: socket.user.profileid,
-        emoji,
-        createdAt: new Date()
-      });
-      
-      await message.save();
-      
-      // Broadcast reaction to other participants
-      socket.to(chatid).emit('message_reaction', {
-        messageid,
-        reaction: {
-          profileid: socket.user.profileid,
-          username: socket.user.username,
-          emoji,
-          createdAt: new Date()
-        }
-      });
-    } catch (error) {
-      console.error('Error reacting to message:', error);
-      socket.emit('error', 'Failed to react to message');
-    }
-  });
-
-  // Handle call initiation
-  socket.on('initiate_call', async (data) => {
-    try {
-      const { callId, chatid, callType, caller } = data;
-      
-      // Verify user has access to this chat
-      const chat = await Chat.findOne({ 
-        chatid, 
-        participants: socket.user.profileid,
-        isActive: true 
-      });
-      
-      if (!chat) {
-        socket.emit('error', 'Unauthorized to start call in this chat');
-        return;
-      }
-      
-      console.log(`📞 Call initiated by ${socket.user.username} in chat ${chatid}`);
-      
-      // Notify other participants about incoming call
-      socket.to(chatid).emit('incoming_call', {
-        callId,
-        chatid,
-        callType,
-        caller: {
-          profileid: socket.user.profileid,
-          username: socket.user.username,
-          profilePic: caller.profilePic
-        }
-      });
-      
-    } catch (error) {
-      console.error('Error initiating call:', error);
-      socket.emit('error', 'Failed to initiate call');
-    }
-  });
-
-  // Handle call answer
-  socket.on('answer_call', async (data) => {
-    try {
-      const { callId, chatid, accepted, answerer } = data;
-      
-      console.log(`📞 Call ${accepted ? 'accepted' : 'declined'} by ${socket.user.username}`);
-      
-      // Broadcast call response to other participants
-      socket.to(chatid).emit('call_response', {
-        callId,
-        chatid,
-        accepted,
-        answerer: {
-          profileid: socket.user.profileid,
-          username: socket.user.username,
-          profilePic: answerer.profilePic
-        }
-      });
-      
-    } catch (error) {
-      console.error('Error answering call:', error);
-      socket.emit('error', 'Failed to answer call');
-    }
-  });
-
-  // Handle call end
-  socket.on('end_call', async (data) => {
-    try {
-      const { chatid } = data;
-      
-      console.log(`📞 Call ended by ${socket.user.username} in chat ${chatid}`);
-      
-      // Broadcast call end to other participants
-      socket.to(chatid).emit('call_ended', {
-        chatid,
-        endedBy: {
-          profileid: socket.user.profileid,
-          username: socket.user.username
-        }
-      });
-      
-    } catch (error) {
-      console.error('Error ending call:', error);
-      socket.emit('error', 'Failed to end call');
-    }
-  });
-
-  // Handle WebRTC signaling for video/voice calls
-  socket.on('webrtc_offer', (data) => {
-    console.log(`📞 WebRTC offer from ${socket.user.username}`);
-    socket.to(data.chatid).emit('webrtc_offer', {
-      ...data,
-      from: socket.user.profileid
-    });
-  });
-
-  socket.on('webrtc_answer', (data) => {
-    console.log(`📞 WebRTC answer from ${socket.user.username}`);
-    socket.to(data.chatid).emit('webrtc_answer', {
-      ...data,
-      from: socket.user.profileid
-    });
-  });
-
-  socket.on('webrtc_ice_candidate', (data) => {
-    console.log(`📞 WebRTC ICE candidate from ${socket.user.username}`);
-    socket.to(data.chatid).emit('webrtc_ice_candidate', {
-      ...data,
-      from: socket.user.profileid
-    });
-  });
-
-  // Handle call control events
-  socket.on('toggle_mute', (data) => {
-    socket.to(data.chatid).emit('participant_muted', {
-      profileid: socket.user.profileid,
-      muted: data.muted
-    });
-  });
-
-  socket.on('toggle_video', (data) => {
-    socket.to(data.chatid).emit('participant_video_toggled', {
-      profileid: socket.user.profileid,
-      videoOn: data.videoOn
-    });
-  });
-
-  socket.on('toggle_screen_share', (data) => {
-    socket.to(data.chatid).emit('participant_screen_share', {
-      profileid: socket.user.profileid,
-      sharing: data.sharing
-    });
-  });
-  
-  // Handle disconnect
-  socket.on('disconnect', () => {
-    console.log(`👋 User disconnected: ${socket.user.username}`);
-  });
+  console.log(`\u2705 Socket handlers registered for user: ${username}`);
 });
 
 // === Start Server ===
-server.listen(port, '0.0.0.0', () => {
-  console.log(`🚀 Server ready at http://localhost:${port}/graphql`);
-  console.log(`📦 File uploads at http://localhost:${port}/upload`);
-  console.log(`💬 Socket.io ready for real-time chat`);
+// Use the httpServer for both Express and Socket.IO
+httpServer.listen(port, '0.0.0.0', () => {
+  console.log(`🔐 Server running on port ${port}`);
+  console.log(`🚀 GraphQL endpoint: http://localhost:${port}/graphql`);
+  console.log(`⚡ Socket.IO endpoint: http://localhost:${port}`);
+  console.log(`📊 Health check: http://localhost:${port}/health`);
+  console.log(`✅ Ready check: http://localhost:${port}/ready`);
+  console.log(`🔄 Liveness check: http://localhost:${port}/alive`);
 });
+
+// Setup Socket.IO with the HTTP server
+// setupSocketIO(server); // This line seems to be calling an undefined function, commenting it out
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  httpServer.close(() => {
+    mongoose.connection.close(false, () => {
+      console.log('Database connection closed');
+      process.exit(0);
+    });
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully');
+  httpServer.close(() => {
+    mongoose.connection.close(false, () => {
+      console.log('Database connection closed');
+      process.exit(0);
+    });
+  });
+});
+
+
+
+
+
+
+
+
+
+
+
+

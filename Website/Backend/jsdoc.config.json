@@ -1,0 +1,55 @@
+{
+  "source": {
+    "include": [
+      "./",
+      "./Config/",
+      "./Controllers/",
+      "./Helper/",
+      "./Middleware/",
+      "./Models/",
+      "./Routes/",
+      "./Scripts/",
+      "./Security/",
+      "./Services/"
+    ],
+    "includePattern": "\\.(js|mjs)$",
+    "exclude": [
+      "node_modules/",
+      "tests/",
+      "coverage/",
+      "docs/",
+      "dist/",
+      "build/",
+      "logs/",
+      "uploads/",
+      "backups/",
+      "temp/"
+    ],
+    "excludePattern": "(test|spec)\\.js$"
+  },
+  "opts": {
+    "destination": "./docs/",
+    "recurse": true,
+    "readme": "./README.md"
+  },
+  "plugins": [
+    "plugins/markdown",
+    "plugins/summarize"
+  ],
+  "templates": {
+    "cleverLinks": false,
+    "monospaceLinks": false
+  },
+  "metadata": {
+    "title": "Swaggo Backend API Documentation",
+    "description": "Comprehensive API documentation for Swaggo backend services with advanced security and authentication features."
+  },
+  "tags": {
+    "allowUnknownTags": true,
+    "dictionaries": ["jsdoc", "closure"]
+  },
+  "markdown": {
+    "parser": "gfm",
+    "hardwrap": false
+  }
+}

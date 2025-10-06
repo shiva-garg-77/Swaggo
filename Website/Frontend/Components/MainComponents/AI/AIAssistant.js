@@ -48,6 +48,7 @@ export default function AIAssistant() {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const currentInput = inputValue.trim();
     setInputValue('');
     setIsTyping(true);
 
@@ -56,19 +57,253 @@ export default function AIAssistant() {
       textareaRef.current.style.height = '24px';
     }
 
-    // Simulate AI response
-    setTimeout(() => {
-      const aiResponse = generateAIResponse(userMessage.content);
+    try {
+      // First, let's analyze the user's input for content moderation and tagging
+      const analysisPromises = [
+        // Content moderation
+        fetch('http://localhost:5000/api/ai/moderate-content', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: currentInput, content_id: `user_msg_${Date.now()}` })
+        }),
+        // Intelligent tagging
+        fetch('http://localhost:5000/api/ai/generate-tags', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: currentInput, max_tags: 5 })
+        }),
+        // Sentiment analysis
+        fetch('http://localhost:5000/api/text/sentiment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: currentInput })
+        })
+      ];
+
+      const [moderationRes, tagsRes, sentimentRes] = await Promise.all(analysisPromises);
+      const [moderation, tags, sentiment] = await Promise.all([
+        moderationRes.json(),
+        tagsRes.json(),
+        sentimentRes.json()
+      ]);
+
+      // Generate AI response based on analysis
+      let aiResponse = '';
+      
+      // Check if content needs moderation
+      if (moderation.success && !moderation.moderation.is_safe) {
+        aiResponse = `I notice your message contains some content that might need review. Let me help you rephrase that in a more constructive way. ${moderation.moderation.explanation}`;
+      } else {
+        // Generate contextual response based on tags and sentiment
+        const detectedTags = tags.success ? tags.tags.map(tag => tag.tag) : [];
+        const sentimentData = sentiment.success ? sentiment.sentiment : null;
+        
+        // Track user interaction for personalization
+        const userId = 'demo_user_123'; // In real app, get from auth context
+        if (detectedTags.length > 0) {
+          fetch('http://localhost:5000/api/ai/personalize/update-profile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_id: userId,
+              content_tags: detectedTags,
+              interaction_type: 'message',
+              content_category: detectedTags[0]
+            })
+          }).catch(err => console.warn('Personalization update failed:', err));
+        }
+
+        // Generate intelligent response
+        aiResponse = generateIntelligentResponse(currentInput, detectedTags, sentimentData);
+      }
+
       const aiMessage = {
         id: Date.now() + 1,
         type: 'ai',
         content: aiResponse,
         timestamp: new Date(),
-        isMarkdown: aiResponse.includes('```') || aiResponse.includes('**') || aiResponse.includes('*')
+        isMarkdown: aiResponse.includes('```') || aiResponse.includes('**') || aiResponse.includes('*'),
+        analysis: {
+          tags: tags.success ? tags.tags : [],
+          sentiment: sentiment.success ? sentiment.sentiment : null,
+          moderation: moderation.success ? moderation.moderation : null
+        }
       };
       setMessages(prev => [...prev, aiMessage]);
       setIsTyping(false);
-    }, 1000 + Math.random() * 2000); // Random delay 1-3 seconds
+    } catch (error) {
+      console.error('AI processing error:', error);
+      // Fallback to original response generation
+      setTimeout(() => {
+        const aiResponse = generateAIResponse(currentInput);
+        const aiMessage = {
+          id: Date.now() + 1,
+          type: 'ai',
+          content: aiResponse,
+          timestamp: new Date(),
+          isMarkdown: aiResponse.includes('```') || aiResponse.includes('**') || aiResponse.includes('*')
+        };
+        setMessages(prev => [...prev, aiMessage]);
+        setIsTyping(false);
+      }, 1000);
+    }
+  };
+
+  const generateIntelligentResponse = (userInput, tags = [], sentiment = null) => {
+    const input = userInput.toLowerCase();
+    
+    // Use AI analysis to provide more contextual responses
+    let contextPrefix = '';
+    
+    // Add sentiment-aware prefix
+    if (sentiment) {
+      if (sentiment.polarity > 0.3) {
+        contextPrefix = "I can sense your positive energy! ";
+      } else if (sentiment.polarity < -0.3) {
+        contextPrefix = "I understand you might be facing some challenges. ";
+      }
+    }
+    
+    // Tag-based intelligent routing
+    const tagCategories = tags.map(tag => tag.category).filter(Boolean);
+    const topTags = tags.slice(0, 3).map(tag => tag.tag);
+    
+    // Technology-focused response
+    if (tagCategories.includes('technology') || topTags.some(tag => ['ai', 'machine learning', 'programming', 'coding', 'software', 'development'].includes(tag))) {
+      return contextPrefix + generateTechResponse(userInput, topTags);
+    }
+    
+    // Business-focused response
+    if (tagCategories.includes('business') || topTags.some(tag => ['startup', 'entrepreneur', 'marketing', 'strategy'].includes(tag))) {
+      return contextPrefix + generateBusinessResponse(userInput, topTags);
+    }
+    
+    // Education-focused response
+    if (tagCategories.includes('education') || topTags.some(tag => ['learning', 'study', 'course', 'skill'].includes(tag))) {
+      return contextPrefix + generateEducationResponse(userInput, topTags);
+    }
+    
+    // Fallback to original response with context
+    return contextPrefix + generateAIResponse(userInput);
+  };
+  
+  const generateTechResponse = (userInput, tags) => {
+    const techResponses = [
+      `Great question about ${tags[0] || 'technology'}! Let me break this down from a technical perspective:
+
+**Key Concepts:**
+- ${tags.join(', ')} are interconnected in modern development
+- Understanding the fundamentals is crucial for success
+- Practical application drives real learning
+
+**Recommended Approach:**
+1. **Learn by Building** - Start with small projects
+2. **Study Best Practices** - Follow industry standards
+3. **Join Communities** - Connect with other developers
+4. **Stay Updated** - Technology evolves rapidly
+
+What specific aspect would you like me to dive deeper into?`,
+      
+      `Excellent! I can see you're interested in ${tags.join(' and ')}. Here's my technical analysis:
+
+\`\`\`javascript
+// Modern approach to ${tags[0] || 'development'}
+const solution = {
+  approach: 'systematic',
+  tools: ['${tags.join("', '")}'],
+  outcome: 'scalable and maintainable'
+};
+\`\`\`
+
+**Technical Recommendations:**
+- Focus on **clean architecture** and **best practices**
+- Implement **testing strategies** early in development
+- Consider **performance optimization** from the start
+- Document your **learning journey** for future reference
+
+Would you like me to provide more specific guidance on any of these areas?`
+    ];
+    return techResponses[Math.floor(Math.random() * techResponses.length)];
+  };
+  
+  const generateBusinessResponse = (userInput, tags) => {
+    const businessResponses = [
+      `Interesting business insight about ${tags[0] || 'entrepreneurship'}! Here's my strategic analysis:
+
+**Business Framework:**
+- **Market Analysis**: Understanding your target audience
+- **Value Proposition**: What unique value do you provide?
+- **Execution Strategy**: How will you implement your vision?
+- **Growth Metrics**: What success indicators will you track?
+
+**Key Considerations for ${tags.join(', ')}:**
+✅ Validate assumptions early
+✅ Focus on customer feedback
+✅ Build minimum viable products
+✅ Iterate based on data
+
+What specific business challenge can I help you tackle?`,
+      
+      `Great business thinking around ${tags.join(' and ')}! Let me share some strategic insights:
+
+**Strategic Pillars:**
+1. **Vision & Mission** - Clear direction and purpose
+2. **Market Positioning** - Unique competitive advantage
+3. **Operational Excellence** - Efficient execution capabilities
+4. **Innovation Culture** - Continuous improvement mindset
+
+**Actionable Steps:**
+- Conduct thorough market research
+- Develop a solid business plan
+- Build strategic partnerships
+- Focus on customer success metrics
+
+Which area of your business strategy needs the most attention right now?`
+    ];
+    return businessResponses[Math.floor(Math.random() * businessResponses.length)];
+  };
+  
+  const generateEducationResponse = (userInput, tags) => {
+    const educationResponses = [
+      `Perfect learning opportunity with ${tags[0] || 'skill development'}! Here's my educational guidance:
+
+**Learning Framework:**
+- **Foundation Building** - Master the basics thoroughly
+- **Practical Application** - Learn through real projects
+- **Continuous Practice** - Consistency over intensity
+- **Knowledge Sharing** - Teach others to deepen understanding
+
+**Study Plan for ${tags.join(', ')}:**
+📚 **Phase 1**: Fundamental concepts and theory
+🛠️ **Phase 2**: Hands-on projects and exercises
+🤝 **Phase 3**: Collaborative learning and peer review
+📈 **Phase 4**: Advanced topics and specialization
+
+What's your current learning goal, and how can I help you achieve it?`,
+      
+      `Excellent learning focus on ${tags.join(' and ')}! Here's my educational roadmap:
+
+**Learning Strategies:**
+- **Active Learning**: Engage with material, don't just consume
+- **Spaced Repetition**: Review concepts at increasing intervals
+- **Project-Based Learning**: Apply knowledge to real scenarios
+- **Peer Collaboration**: Learn from and teach others
+
+**Resource Recommendations:**
+- Interactive tutorials and courses
+- Community forums and discussion groups
+- Practice platforms and coding challenges
+- Mentorship and expert guidance
+
+**Success Metrics:**
+- Track progress with measurable milestones
+- Build a portfolio of completed projects
+- Participate in relevant communities
+- Continuously update and expand skills
+
+What specific learning challenge can I help you overcome?`
+    ];
+    return educationResponses[Math.floor(Math.random() * educationResponses.length)];
   };
 
   const generateAIResponse = (userInput) => {

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { useMutation, gql, useApolloClient } from '@apollo/client';
-import { useAuth } from '../../Components/Helper/AuthProvider';
+import { useMutation, useApolloClient } from '@apollo/client/react';
+import { gql } from '@apollo/client';
+import { useSecureAuth } from '../../context/FixedSecureAuthContext';
 
 const BLOCK_USER = gql`
   mutation BlockUser($profileid: String!, $targetprofileid: String!, $reason: String) {
@@ -60,7 +61,7 @@ const BlockRestrictActions = ({
   className = "",
   variant = "dropdown" // "dropdown" | "buttons"
 }) => {
-  const { user, accessToken } = useAuth();
+  const { user, accessToken } = useSecureAuth();
   const isAuthenticated = !!accessToken && !!user;
   const client = useApolloClient();
   const [isLoading, setIsLoading] = useState(false);

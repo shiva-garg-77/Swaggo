@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, useEffect, useContext } from 'react'
-import { useLazyQuery, useMutation } from '@apollo/client'
+import { useState, useEffect } from 'react'
+import { useLazyQuery, useMutation } from '@apollo/client/react';
 import { ArrowLeft, AtSign, Tag, Bell, BellOff, Eye, EyeOff, Clock, MessageCircle, Image as ImageIcon, Video } from 'lucide-react'
-import { AuthContext } from '../../Helper/AuthProvider'
+import { useFixedSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { GET_MENTIONS, MARK_MENTION_AS_READ, GET_USER_SETTINGS, UPDATE_USER_SETTINGS } from '../../../lib/graphql/profileQueries'
 
 export default function TagsMentions({ onBack, isModal = false }) {
-  const { user } = useContext(AuthContext)
+  const { user } = useFixedSecureAuth()
   const [mentions, setMentions] = useState([])
   const [settings, setSettings] = useState({
     allowMentions: true,

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { useQuery, useMutation, gql } from '@apollo/client';
-import { useAuth } from '../../Components/Helper/AuthProvider';
+import { useQuery, useMutation } from '@apollo/client/react';
+import { gql } from '@apollo/client';
+import { useSecureAuth } from '../../context/FixedSecureAuthContext';
 
 const GET_BLOCKED_ACCOUNTS = gql`
   query GetBlockedAccounts($profileid: String!) {
@@ -63,7 +64,7 @@ const UNBLOCK_USER = gql`
 `;
 
 const BlockedAccountsEnhanced = () => {
-  const { user, accessToken } = useAuth();
+  const { user, accessToken } = useSecureAuth();
   const isAuthenticated = !!accessToken && !!user;
   const [unblockingIds, setUnblockingIds] = useState(new Set());
   const [searchTerm, setSearchTerm] = useState('');

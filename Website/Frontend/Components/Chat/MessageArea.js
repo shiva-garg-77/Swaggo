@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useQuery, useMutation } from '@apollo/client';
-import { useAuth } from '../Helper/AuthProvider';
-import { useSocket } from '../Helper/SocketProvider';
+import { useQuery, useMutation } from '@apollo/client/react';
+import { useSecureAuth } from '../../context/FixedSecureAuthContext';
+import { useSocket } from '../Helper/PerfectSocketProvider';
 import { useTheme } from '../Helper/ThemeProvider';
 import { GET_MESSAGES_BY_CHAT, SEND_MESSAGE, EDIT_MESSAGE, DELETE_MESSAGE } from './queries';
 import MessageInput from './MessageInput';
@@ -11,7 +11,6 @@ import MessageBubble from './MessageBubble';
 import ChatInfoModal from './ChatInfoModal';
 import VoiceCallModal from './VoiceCallModal';
 import VideoCallModal from './VideoCallModal';
-import SocketDebug from './SocketDebug';
 import EnvCheck from './EnvCheck';
 
 export default function MessageArea({ 
@@ -134,17 +133,116 @@ export default function MessageArea({
 
     const handleCallIncoming = (data) => {
       console.log('📞 Incoming call:', data);
-      if (data.type === 'voice') {
-        setShowVoiceCall(true);
-      } else if (data.type === 'video') {
-        setShowVideoCall(true);
+      
+      // Validate incoming call data
+      if (!data.callType || !data.caller) {
+        console.error('❌ Invalid incoming call data:', data);
+        return;
       }
+      
+      // Check if already in a call
+      if (isInCall) {
+        console.log('📞 Rejecting incoming call - already in call');
+        if (socket && data.callId) {
+          socket.emit('decline_call', {
+            callId: data.callId,
+            reason: 'busy'
+          });
+        }
+        return;
+      }
+      
+      // Set call state based on call type
+      const callType = data.callType.toLowerCase();
+      
+      if (callType === 'voice') {
+        setShowVoiceCall(true);
+        setCallType('voice');
+      } else if (callType === 'video') {
+        setShowVideoCall(true);
+        setCallType('video');
+      } else {
+        console.error('❌ Unknown call type:', data.callType);
+        return;
+      }
+      
       setIsInCall(true);
-      setCallType(data.type);
+      
+      // Store call data for later use
+      window.currentIncomingCall = data;
     };
 
     const handleCallEnded = (data) => {
       console.log('📵 Call ended:', data);
+      
+      // Show end reason if provided
+      if (data.reason && data.reason !== 'normal' && data.reason !== 'user_ended') {
+        let message = 'Call ended';
+        switch (data.reason) {
+          case 'no_answer':
+            message = 'Call ended - No answer';
+            break;
+          case 'declined':
+            message = 'Call declined by other party';
+            break;
+          case 'failed':
+            message = 'Call failed due to connection issues';
+            break;
+          case 'timeout':
+            message = 'Call ended - Connection timeout';
+            break;
+        }
+        
+        // Show brief notification
+        setTimeout(() => alert(message), 500);
+      }
+      
+      // Clean up call state
+      setIsInCall(false);
+      setShowVoiceCall(false);
+      setShowVideoCall(false);
+      setCallType(null);
+      
+      // Clean up stored call data
+      delete window.currentIncomingCall;
+    };
+    
+    // Handle call failure events
+    const handleCallFailed = (data) => {
+      console.error('📞 Call failed:', data);
+      
+      let errorMessage = 'Call failed';
+      if (data.reason) {
+        switch (data.reason) {
+          case 'receiver_offline':
+            errorMessage = 'User is currently offline';
+            break;
+          case 'network_error':
+            errorMessage = 'Network connection error';
+            break;
+          case 'busy':
+            errorMessage = 'User is currently busy';
+            break;
+          default:
+            errorMessage = `Call failed: ${data.reason}`;
+        }
+      }
+      
+      alert(errorMessage);
+      
+      // Reset call state
+      setIsInCall(false);
+      setShowVoiceCall(false);
+      setShowVideoCall(false);
+      setCallType(null);
+    };
+    
+    // Handle call timeout
+    const handleCallTimeout = (data) => {
+      console.log('⏰ Call timeout:', data);
+      alert('Call timed out - no response from other party');
+      
+      // Reset call state
       setIsInCall(false);
       setShowVoiceCall(false);
       setShowVideoCall(false);
@@ -161,6 +259,8 @@ export default function MessageArea({
     socket.on('incoming_call', handleCallIncoming);
     socket.on('call_started', handleCallIncoming);
     socket.on('call_ended', handleCallEnded);
+    socket.on('call_failed', handleCallFailed);
+    socket.on('call_timeout', handleCallTimeout);
 
     return () => {
       socket.off('new_message', handleNewMessage);
@@ -172,6 +272,8 @@ export default function MessageArea({
       socket.off('incoming_call', handleCallIncoming);
       socket.off('call_started', handleCallIncoming);
       socket.off('call_ended', handleCallEnded);
+      socket.off('call_failed', handleCallFailed);
+      socket.off('call_timeout', handleCallTimeout);
     };
   }, [socket, selectedChat, user]);
 
@@ -382,50 +484,202 @@ export default function MessageArea({
     }
   };
 
-  // Handle voice call
-  const handleVoiceCall = () => {
-    setCallType('voice');
-    setShowVoiceCall(true);
-    setIsInCall(true);
+  // Enhanced voice call handling with acknowledgment and error handling
+  const handleVoiceCall = async () => {
+    if (!socket || !socket.connected) {
+      alert('Connection unavailable. Please check your internet connection.');
+      return;
+    }
     
-    // Emit call start event
-    if (socket) {
-      socket.emit('start_call', {
-        chatid: selectedChat.chatid,
-        type: 'voice',
-        participants: selectedChat.participants.map(p => p.profileid)
+    if (!selectedChat || !selectedChat.participants) {
+      alert('Cannot initiate call: Chat information unavailable.');
+      return;
+    }
+    
+    try {
+      setCallType('voice');
+      setShowVoiceCall(true);
+      setIsInCall(true);
+      
+      // Find the other participant(s)
+      const otherParticipants = selectedChat.participants.filter(p => p.profileid !== user?.profileid);
+      
+      if (otherParticipants.length === 0) {
+        throw new Error('No other participants found in chat');
+      }
+      
+      const receiverId = otherParticipants[0].profileid; // For 1-on-1 chats
+      
+      // Emit call initiation with acknowledgment
+      const callInitiated = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Call initiation timeout'));
+        }, 10000); // 10 second timeout
+        
+        socket.emit('initiate_call', {
+          chatid: selectedChat.chatid,
+          callType: 'voice',
+          receiverId: receiverId,
+          callId: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        }, (acknowledgment) => {
+          clearTimeout(timeout);
+          if (acknowledgment && acknowledgment.success) {
+            resolve(acknowledgment);
+          } else {
+            reject(new Error(acknowledgment?.error || 'Call initiation failed'));
+          }
+        });
       });
+      
+      console.log('✅ Voice call initiated successfully:', callInitiated);
+      
+    } catch (error) {
+      console.error('❌ Failed to initiate voice call:', error);
+      
+      // Reset UI state
+      setIsInCall(false);
+      setShowVoiceCall(false);
+      setCallType(null);
+      
+      // Show user-friendly error message
+      let errorMessage = 'Failed to start call. ';
+      
+      if (error.message.includes('timeout')) {
+        errorMessage += 'Request timed out. Please try again.';
+      } else if (error.message.includes('offline')) {
+        errorMessage += 'The other user is currently offline.';
+      } else {
+        errorMessage += error.message;
+      }
+      
+      alert(errorMessage);
     }
   };
 
-  // Handle video call
-  const handleVideoCall = () => {
-    setCallType('video');
-    setShowVideoCall(true);
-    setIsInCall(true);
+  // Enhanced video call handling with acknowledgment and error handling
+  const handleVideoCall = async () => {
+    if (!socket || !socket.connected) {
+      alert('Connection unavailable. Please check your internet connection.');
+      return;
+    }
     
-    // Emit call start event
-    if (socket) {
-      socket.emit('start_call', {
-        chatid: selectedChat.chatid,
-        type: 'video',
-        participants: selectedChat.participants.map(p => p.profileid)
+    if (!selectedChat || !selectedChat.participants) {
+      alert('Cannot initiate call: Chat information unavailable.');
+      return;
+    }
+    
+    // Check if browser supports video calls
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert('Video calls are not supported in your browser.');
+      return;
+    }
+    
+    try {
+      // Request camera and microphone permissions first
+      console.log('🎥 Requesting video call permissions...');
+      
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: true, 
+        audio: true 
       });
+      
+      // Stop the test stream immediately
+      stream.getTracks().forEach(track => track.stop());
+      
+      setCallType('video');
+      setShowVideoCall(true);
+      setIsInCall(true);
+      
+      // Find the other participant(s)
+      const otherParticipants = selectedChat.participants.filter(p => p.profileid !== user?.profileid);
+      
+      if (otherParticipants.length === 0) {
+        throw new Error('No other participants found in chat');
+      }
+      
+      const receiverId = otherParticipants[0].profileid; // For 1-on-1 chats
+      
+      // Emit call initiation with acknowledgment
+      const callInitiated = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Call initiation timeout'));
+        }, 10000); // 10 second timeout
+        
+        socket.emit('initiate_call', {
+          chatid: selectedChat.chatid,
+          callType: 'video',
+          receiverId: receiverId,
+          callId: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        }, (acknowledgment) => {
+          clearTimeout(timeout);
+          if (acknowledgment && acknowledgment.success) {
+            resolve(acknowledgment);
+          } else {
+            reject(new Error(acknowledgment?.error || 'Call initiation failed'));
+          }
+        });
+      });
+      
+      console.log('✅ Video call initiated successfully:', callInitiated);
+      
+    } catch (error) {
+      console.error('❌ Failed to initiate video call:', error);
+      
+      // Reset UI state
+      setIsInCall(false);
+      setShowVideoCall(false);
+      setCallType(null);
+      
+      // Show user-friendly error message
+      let errorMessage = 'Failed to start video call. ';
+      
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        errorMessage += 'Camera and microphone access denied. Please allow permissions and try again.';
+      } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+        errorMessage += 'Camera or microphone not found. Please check your devices.';
+      } else if (error.message.includes('timeout')) {
+        errorMessage += 'Request timed out. Please try again.';
+      } else if (error.message.includes('offline')) {
+        errorMessage += 'The other user is currently offline.';
+      } else {
+        errorMessage += error.message;
+      }
+      
+      alert(errorMessage);
     }
   };
 
-  // Handle end call
-  const handleEndCall = () => {
-    setIsInCall(false);
-    setShowVoiceCall(false);
-    setShowVideoCall(false);
-    setCallType(null);
-    
-    // Emit call end event
-    if (socket) {
-      socket.emit('end_call', {
-        chatid: selectedChat.chatid
-      });
+  // Enhanced call ending with acknowledgment
+  const handleEndCall = async () => {
+    try {
+      console.log('📵 Ending call...');
+      
+      // Emit call end event with acknowledgment if socket is available
+      if (socket && socket.connected) {
+        await new Promise((resolve) => {
+          const timeout = setTimeout(resolve, 3000); // Don't wait more than 3 seconds
+          
+          socket.emit('end_call', {
+            chatid: selectedChat.chatid,
+            reason: 'user_ended'
+          }, (acknowledgment) => {
+            clearTimeout(timeout);
+            resolve();
+          });
+        });
+      }
+      
+      console.log('✅ Call ended successfully');
+      
+    } catch (error) {
+      console.error('❌ Error ending call:', error);
+      // Continue with cleanup even if server communication fails
+    } finally {
+      // Always reset UI state
+      setIsInCall(false);
+      setShowVoiceCall(false);
+      setShowVideoCall(false);
+      setCallType(null);
     }
   };
 
@@ -706,9 +960,8 @@ export default function MessageArea({
         socket={socket}
       />
       
-      {/* Debug Components (Remove in production) */}
-      <EnvCheck />
-      <SocketDebug />
+      {/* Debug Components (Hidden in production) */}
+      {process.env.NODE_ENV === 'development' && false && <EnvCheck />}
     </div>
   );
 }

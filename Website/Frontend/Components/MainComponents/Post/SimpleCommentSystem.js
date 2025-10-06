@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useRef, useMemo } from 'react';
-import { useQuery, useMutation } from '@apollo/client';
+import { useQuery, useMutation } from '@apollo/client/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from '../../Helper/ThemeProvider';
-import { useAuth } from '../../Helper/AuthProvider';
+import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { 
   GET_POST_COMMENTS, 
   CREATE_COMMENT, 
@@ -191,7 +191,7 @@ export default function SimpleCommentSystem({
   onCommentUpdate
 }) {
   const { theme } = useTheme();
-  const { user } = useAuth();
+  const { user } = useSecureAuth();
   const actualTheme = propTheme || theme;
   const [newComment, setNewComment] = useState('');
   const [replyingTo, setReplyingTo] = useState(null);

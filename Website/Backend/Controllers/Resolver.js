@@ -1,26 +1,31 @@
-import Profile from '../models/FeedModels/Profile.js'
-import Comment from '../models/FeedModels/Comments.js'
-import Post from '../models/FeedModels/Post.js';
-import Draft from '../models/FeedModels/Draft.js';
-import Followers from '../models/FeedModels/Followers.js';
-import Following from '../models/FeedModels/Following.js';
-import Likes from '../models/FeedModels/Likes.js';
-import TagPost from '../models/FeedModels/Tagpost.js';
-import LikedPost from '../models/FeedModels/LikedPost.js';
-import SavedPost from '../models/FeedModels/SavedPost.js';
-import Memory from '../models/FeedModels/Memory.js';
-import BlockedAccount from '../models/FeedModels/BlockedAccounts.js';
-import RestrictedAccount from '../models/FeedModels/RestrictedAccounts.js';
-import CloseFriends from '../models/FeedModels/CloseFriends.js';
-import Mentions from '../models/FeedModels/Mentions.js';
-import UserSettings from '../models/FeedModels/UserSettings.js';
-import User from '../models/LoginModels/User.js';
-import Chat from '../models/FeedModels/Chat.js';
-import Message from '../models/FeedModels/Message.js';
-import Story from '../models/FeedModels/Story.js';
+import Profile from '../Models/FeedModels/Profile.js'
+import Comment from '../Models/FeedModels/Comments.js'
+import Post from '../Models/FeedModels/Post.js';
+import Draft from '../Models/FeedModels/Draft.js';
+import Followers from '../Models/FeedModels/Followers.js';
+import Following from '../Models/FeedModels/Following.js';
+import Likes from '../Models/FeedModels/Likes.js';
+import TagPost from '../Models/FeedModels/Tagpost.js';
+import LikedPost from '../Models/FeedModels/LikedPost.js';
+import SavedPost from '../Models/FeedModels/SavedPost.js';
+import Memory from '../Models/FeedModels/Memory.js';
+import BlockedAccount from '../Models/FeedModels/BlockedAccounts.js';
+import RestrictedAccount from '../Models/FeedModels/RestrictedAccounts.js';
+import CloseFriends from '../Models/FeedModels/CloseFriends.js';
+import Mentions from '../Models/FeedModels/Mentions.js';
+import UserSettings from '../Models/FeedModels/UserSettings.js';
+import User from '../Models/User.js';
+import SearchResolvers from './SearchResolvers.js';
+import GraphQLAuth from '../utils/GraphQLAuthHelper.js';
+import Message from '../Models/FeedModels/Message.js';
+import Story from '../Models/FeedModels/Story.js';
+import Highlight from '../Models/FeedModels/Highlight.js';
+import StoryResolvers from './StoryResolvers.js';
+import HighlightResolvers from './HighlightResolvers.js';
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import Chat from '../Models/FeedModels/Chat.js';
 import {
     getPostLikeCount,
     getCommentLikeCount,
@@ -33,9 +38,58 @@ import {
     getPostStats
 } from '../Helper/LikeCommentHelpers.js';
 
+// 🛡️ AUTHENTICATION HELPERS FOR RESOLVERS
+const requireAuth = (context) => {
+  if (!context.isAuthenticated) {
+    throw new Error('Authentication required');
+  }
+  return context.user;
+};
+
+// 🔄 Helper to resolve user ID vs profileid confusion
+const validateUserAccess = (user, requestedId) => {
+  if (!user) {
+    throw new Error('Authentication required');
+  }
+  
+  // Allow access if the requestedId matches either user.id or user.profileid
+  const hasAccess = (user.id === requestedId || user.profileid === requestedId);
+  
+  if (!hasAccess) {
+    console.log('❌ Authorization failed:');
+    console.log('  - user.id:', user.id);
+    console.log('  - user.profileid:', user.profileid);
+    console.log('  - requested ID:', requestedId);
+    throw new Error('Unauthorized - you can only access your own data');
+  }
+  
+  return true;
+};
+
+// 🔄 Helper to get the correct profileid for database queries
+const resolveProfileId = (user, requestedId) => {
+  // If frontend passed user.id but we need user.profileid for DB queries, convert it
+  if (requestedId === user.id && user.profileid) {
+    console.log('🔄 Converting user.id to user.profileid for database query:', user.profileid);
+    return user.profileid;
+  }
+  return requestedId;
+};
+
+const requireRole = (context, roles) => {
+  const user = requireAuth(context);
+  const userRole = user.permissions?.role || 'user';
+  const allowedRoles = Array.isArray(roles) ? roles : [roles];
+  
+  if (!allowedRoles.includes(userRole)) {
+    throw new Error('Insufficient permissions');
+  }
+  return user;
+};
+
 // Helper function to extract mentions from text
 const extractMentions = (text) => {
-    const mentionRegex = /@([a-zA-Z0-9_\.]+)/g;
+    const mentionRegex = /@([a-zA-Z0-9_.]+)/g;
     const mentions = [];
     let match;
     
@@ -228,7 +282,6 @@ const Resolvers = {
 
     },
 
-
     Posts: {
         profile: async (Parent) => {
             try {
@@ -247,8 +300,10 @@ const Resolvers = {
         },
         like: async (Parent) => {
             try {
-                const likes = await Likes.find({ postid: Parent.postid, commentid: { $exists: false } });
-                return likes || [];
+                // Manual filtering approach to avoid Mongoose casting issues
+                const allPostLikes = await Likes.find({ postid: Parent.postid }).exec();
+                const postOnlyLikes = allPostLikes.filter(like => !like.commentid || like.commentid === null || like.commentid === undefined);
+                return postOnlyLikes || [];
             } catch (err) {
                 throw new Error(`Error fetching likes for post with id ${Parent.postid}: ${err.message}`);
             }
@@ -485,58 +540,67 @@ const Resolvers = {
         },
 
         // make it like this async (_,args,{user})
-        getUserbyUsername: async (_, args, { user }) => {
+        getUserbyUsername: async (_, args, { user, isAuthenticated }) => {
             try {
-                const username = args.username;
+                const requestedUsername = args.username;
                 
-                // If no username provided and no user authenticated, get all profiles for testing
-                if (!username && !user) {
-                    const profiles = await Profile.find({}).limit(1);
-                    if (profiles.length > 0) {
-                        return profiles[0];
+                console.log('\n🔍 getUserbyUsername Debug:');
+                console.log('- Requested username:', requestedUsername);
+                console.log('- User authenticated:', isAuthenticated);
+                console.log('- User context:', user ? `${user.username} (id: ${user.id}, profileid: ${user.profileid})` : 'No user');
+                
+                // 🔒 SECURITY ENHANCED: Proper authentication and profile resolution
+                
+                // Case 1: No username requested - return current user's profile (if authenticated)
+                if (!requestedUsername) {
+                    if (!isAuthenticated || !user) {
+                        throw new Error('Authentication required to get current user profile');
                     }
-                    // Create a test profile
-                    const testProfile = new Profile({
-                        profileid: uuidv4(),
-                        username: 'testuser',
-                        name: 'Test User',
-                        bio: 'This is a test profile',
-                        profilePic: null,
-                        isPrivate: false,
-                        isVerified: false
-                    });
-                    await testProfile.save();
-                    console.log('Created test profile');
-                    return testProfile;
+                    
+                    console.log('✅ Fetching current user profile for:', user.username);
+                    
+                    // Look for existing profile by username
+                    let profile = await Profile.findOne({ username: user.username });
+                    
+                    // If profile doesn't exist, create it from authenticated user data
+                    if (!profile && user.username) {
+                        console.log('🆕 Creating new profile for authenticated user:', user.username);
+                        profile = new Profile({
+                            profileid: uuidv4(),
+                            username: user.username,
+                            name: user.displayName || user.name || user.username,
+                            email: user.email || null,
+                            bio: null,
+                            profilePic: 'https://www.tenforums.com/attachments/user-accounts-family-safety/322690d1615743307t-user-account-image-log-user.png',
+                            isPrivate: false,
+                            isVerified: false,
+                            isActive: true,
+                            accountStatus: 'active',
+                            role: user.role || 'user'
+                        });
+                        await profile.save();
+                        console.log(`✅ Auto-created profile for user: ${user.username} with profileid: ${profile.profileid}`);
+                    }
+                    
+                    if (!profile) {
+                        throw new Error(`Profile not found for authenticated user: ${user.username}`);
+                    }
+                    
+                    return profile;
                 }
                 
-                const searchUsername = username || user?.username;
-                if (!searchUsername) {
-                    throw new Error("Username is required");
-                }
+                // Case 2: Specific username requested - find that user's profile
+                console.log('✅ Fetching profile for requested username:', requestedUsername);
                 
-                let profile = await Profile.findOne({ username: searchUsername });
-                
-                // If profile doesn't exist but user is authenticated, create one
-                if (!profile && user?.username) {
-                    profile = new Profile({
-                        profileid: uuidv4(),
-                        username: user.username,
-                        name: user.name || null,
-                        bio: null,
-                        profilePic: null,
-                        isPrivate: false,
-                        isVerified: false
-                    });
-                    await profile.save();
-                    console.log(`Auto-created profile for user: ${user.username}`);
-                }
-                
+                const profile = await Profile.findOne({ username: requestedUsername });
                 if (!profile) {
-                    throw new Error(`User with username ${searchUsername} not found`);
+                    throw new Error(`User with username ${requestedUsername} not found`);
                 }
+                
                 return profile;
+                
             } catch (err) {
+                console.error('❌ getUserbyUsername error:', err.message);
                 throw new Error(`Error fetching user: ${err.message}`);
             }
         },
@@ -688,7 +752,10 @@ const Resolvers = {
         },
         getLikesByPost: async (_, { postid }) => {
             try {
-                return await Likes.find({ postid, commentid: { $exists: false } });
+                // Manual filtering approach to avoid Mongoose casting issues
+                const allPostLikes = await Likes.find({ postid }).exec();
+                const postOnlyLikes = allPostLikes.filter(like => !like.commentid || like.commentid === null || like.commentid === undefined);
+                return postOnlyLikes;
             } catch (err) {
                 throw new Error(`Error fetching post likes: ${err.message}`);
             }
@@ -768,51 +835,12 @@ const Resolvers = {
         },
         searchUsers: async (_, { query, limit = 10 }) => {
             try {
-                if (!query || query.trim().length < 1) {
-                    return [];
-                }
-                
-                const searchTerm = query.trim();
-                
-                const users = await Profile.find({
-                    $or: [
-                        { username: { $regex: searchTerm, $options: 'i' } },
-                        { name: { $regex: searchTerm, $options: 'i' } },
-                        { bio: { $regex: searchTerm, $options: 'i' } }
-                    ]
-                }).limit(limit);
-                
-                const usersWithCounts = await Promise.all(users.map(async (user) => {
-                    try {
-                        const [followersCount, followingCount, postsCount] = await Promise.all([
-                            Followers.countDocuments({ profileid: user.profileid }),
-                            Following.countDocuments({ profileid: user.profileid }),
-                            Post.countDocuments({ profileid: user.profileid })
-                        ]);
-                        
-                        return {
-                            ...user.toObject(),
-                            followersCount,
-                            followingCount,
-                            postsCount
-                        };
-                    } catch (countError) {
-                        return {
-                            ...user.toObject(),
-                            followersCount: 0,
-                            followingCount: 0,
-                            postsCount: 0
-                        };
-                    }
-                }));
-                
-                return usersWithCounts.sort((a, b) => {
-                    if (a.isVerified && !b.isVerified) return -1;
-                    if (!a.isVerified && b.isVerified) return 1;
-                    return a.username.localeCompare(b.username);
-                });
+                // Use optimized search resolver with timeout handling
+                return await SearchResolvers.searchUsers(query, limit);
             } catch (err) {
-                throw new Error(`Error searching users: ${err.message}`);
+                console.error('Search users resolver error:', err.message);
+                // Return empty array instead of throwing to prevent UI crashes
+                return [];
             }
         },
         // User Settings Queries
@@ -837,20 +865,118 @@ const Resolvers = {
         
         // Chat queries
         getChats: async (_, { profileid }, { user }) => {
+            console.log('\n============================== , profileid:', profileid);
+            console.log('\n🔍 getChats called' ,user);
             try {
-                if (!user || user.profileid !== profileid) {
-                    throw new Error('Unauthorized: Cannot access other user\'s chats');
-                }
-
+                // 🛡️ Validate user access using helper
+                validateUserAccess(user, profileid);
+                
+                // 🔄 Resolve the correct profileid for database search
+                const searchProfileId = resolveProfileId(user, profileid);
+                
+                // Chat query resolved successfully
+                console.log('  - Requested Profile ID:', profileid);
+                console.log('  - Search Profile ID:', searchProfileId);
+                console.log('  - User context available:', !!user);
+                
+                // Find chats with proper object-based participants
                 const chats = await Chat.find({
-                    participants: profileid,
+                    'participants.profileid': searchProfileId,
                     isActive: true
-                }).sort({ lastMessageAt: -1 });
+                })
+                .sort({ lastMessageAt: -1 })
+                .lean();
 
-                return chats;
+                console.log('🔧 Raw chats found:', chats.length);
+                chats.forEach((chat, index) => {
+                    console.log(`  Chat ${index + 1}:`, {
+                        chatid: chat.chatid,
+                        participantsCount: chat.participants?.length || 0,
+                        firstParticipant: chat.participants?.[0],
+                        firstParticipantType: typeof chat.participants?.[0]
+                    });
+                });
+
+                // Format chats to ensure proper structure for GraphQL
+                const formattedChats = await Promise.all(chats.map(async (chat) => {
+                    try {
+                        // Get participant profile data
+                        const participantIds = chat.participants.map(p => p.profileid).filter(Boolean);
+                        const profiles = await Profile.find({ profileid: { $in: participantIds } }).lean();
+                        
+                        // Create profile lookup map
+                        const profileMap = profiles.reduce((acc, profile) => {
+                            acc[profile.profileid] = profile;
+                            return acc;
+                        }, {});
+
+                        // Format participants for GraphQL
+                        const formattedParticipants = chat.participants.map(p => {
+                            const profile = profileMap[p.profileid];
+                            return {
+                                profileid: p.profileid,
+                                username: profile?.username || 'Unknown',
+                                profilePic: profile?.profilePic || null,
+                                name: profile?.name || profile?.username || 'Unknown'
+                            };
+                        });
+
+                        // Format last message if exists
+                        let formattedLastMessage = null;
+                        if (chat.lastMessage) {
+                            const lastMessage = await Message.findOne({ messageid: chat.lastMessage }).lean();
+                            if (lastMessage) {
+                                const senderProfile = profileMap[lastMessage.senderid];
+                                formattedLastMessage = {
+                                    messageid: lastMessage.messageid,
+                                    content: lastMessage.content || '',
+                                    messageType: lastMessage.messageType || 'text',
+                                    createdAt: lastMessage.createdAt,
+                                    sender: {
+                                        profileid: lastMessage.senderid,
+                                        username: senderProfile?.username || 'Unknown',
+                                        profilePic: senderProfile?.profilePic || null
+                                    }
+                                };
+                            }
+                        }
+
+                        return {
+                            chatid: chat.chatid,
+                            chatType: chat.chatType,
+                            chatName: chat.chatName,
+                            chatAvatar: chat.chatAvatar,
+                            lastMessageAt: chat.lastMessageAt,
+                            participants: formattedParticipants,
+                            lastMessage: formattedLastMessage,
+                            mutedBy: [], // Will be resolved by Chat resolver if needed
+                            createdAt: chat.createdAt,
+                            updatedAt: chat.updatedAt
+                        };
+                    } catch (formatError) {
+                        console.error('❌ Error formatting chat:', formatError);
+                        // Return minimal chat structure to prevent complete failure
+                        return {
+                            chatid: chat.chatid,
+                            chatType: chat.chatType || 'direct',
+                            chatName: chat.chatName,
+                            chatAvatar: chat.chatAvatar,
+                            lastMessageAt: chat.lastMessageAt,
+                            participants: [],
+                            lastMessage: null,
+                            mutedBy: [],
+                            createdAt: chat.createdAt,
+                            updatedAt: chat.updatedAt
+                        };
+                    }
+                }));
+
+                console.log('✅ Found chats:', formattedChats.length);
+                return formattedChats;
+
             } catch (error) {
-                console.error('Error fetching chats:', error);
-                throw new Error('Failed to fetch chats');
+                console.error('❌ getChats error:', error);
+                throw new Error(`Failed to fetch chats: ${error.message}`);
             }
         },
 
@@ -862,15 +988,15 @@ const Resolvers = {
                     throw new Error('Chat not found');
                 }
 
-                // Check if user is a participant
-                if (!chat.participants.includes(user.profileid)) {
+                // Check if user is a participant using the new schema
+                if (!chat.isParticipant(user.profileid)) {
                     throw new Error('Unauthorized: Not a participant in this chat');
                 }
 
                 return chat;
             } catch (error) {
                 console.error('Error fetching chat by ID:', error);
-                throw new Error('Failed to fetch chat');
+                throw new Error('Failed to fetch chat: ' + error.message);
             }
         },
 
@@ -884,7 +1010,8 @@ const Resolvers = {
                 // For direct chats, find existing chat
                 if (participants.length === 2) {
                     const chat = await Chat.findOne({
-                        participants: { $all: participants, $size: 2 },
+                        'participants.profileid': { $all: participants },
+                        participants: { $size: 2 },
                         chatType: 'direct',
                         isActive: true
                     });
@@ -893,7 +1020,8 @@ const Resolvers = {
 
                 // For group chats, find exact match
                 const chat = await Chat.findOne({
-                    participants: { $all: participants, $size: participants.length },
+                    'participants.profileid': { $all: participants },
+                    participants: { $size: participants.length },
                     chatType: 'group',
                     isActive: true
                 });
@@ -901,7 +1029,7 @@ const Resolvers = {
                 return chat;
             } catch (error) {
                 console.error('Error fetching chat by participants:', error);
-                throw new Error('Failed to fetch chat');
+                throw new Error('Failed to fetch chat: ' + error.message);
             }
         },
 
@@ -910,7 +1038,7 @@ const Resolvers = {
             try {
                 // Check if user has access to this chat
                 const chat = await Chat.findOne({ chatid, isActive: true });
-                if (!chat || !chat.participants.includes(user.profileid)) {
+                if (!chat || !chat.isParticipant(user.profileid)) {
                     throw new Error('Unauthorized: Cannot access this chat');
                 }
 
@@ -925,7 +1053,7 @@ const Resolvers = {
                 return messages.reverse(); // Return in chronological order
             } catch (error) {
                 console.error('Error fetching messages:', error);
-                throw new Error('Failed to fetch messages');
+                throw new Error('Failed to fetch messages: ' + error.message);
             }
         },
 
@@ -939,7 +1067,7 @@ const Resolvers = {
 
                 // Check if user has access to this chat
                 const chat = await Chat.findOne({ chatid: message.chatid });
-                if (!chat || !chat.participants.includes(user.profileid)) {
+                if (!chat || !chat.isParticipant(user.profileid)) {
                     throw new Error('Unauthorized: Cannot access this message');
                 }
 
@@ -954,7 +1082,7 @@ const Resolvers = {
             try {
                 // Check if user has access to this chat
                 const chat = await Chat.findOne({ chatid, isActive: true });
-                if (!chat || !chat.participants.includes(user.profileid)) {
+                if (!chat || !chat.isParticipant(user.profileid)) {
                     throw new Error('Unauthorized: Cannot search this chat');
                 }
 
@@ -975,13 +1103,15 @@ const Resolvers = {
         // Chat statistics
         getUnreadMessageCount: async (_, { profileid }, { user }) => {
             try {
-                if (!user || user.profileid !== profileid) {
-                    throw new Error('Unauthorized');
-                }
+                // 🛡️ Validate user access using helper
+                validateUserAccess(user, profileid);
+                
+                // 🔄 Resolve the correct profileid for database search
+                const searchProfileId = resolveProfileId(user, profileid);
 
                 // Get all chats user participates in
                 const chats = await Chat.find({
-                    participants: profileid,
+                    'participants.profileid': searchProfileId,
                     isActive: true
                 });
 
@@ -989,8 +1119,8 @@ const Resolvers = {
                 for (const chat of chats) {
                     const count = await Message.countDocuments({
                         chatid: chat.chatid,
-                        senderid: { $ne: profileid },
-                        'readBy.profileid': { $ne: profileid },
+                        senderid: { $ne: searchProfileId },
+                        'readBy.profileid': { $ne: searchProfileId },
                         isDeleted: false
                     });
                     unreadCount += count;
@@ -1005,20 +1135,22 @@ const Resolvers = {
 
         getChatUnreadCount: async (_, { chatid, profileid }, { user }) => {
             try {
-                if (!user || user.profileid !== profileid) {
-                    throw new Error('Unauthorized');
-                }
+                // 🛡️ Validate user access using helper
+                validateUserAccess(user, profileid);
+                
+                // 🔄 Resolve the correct profileid for database search
+                const searchProfileId = resolveProfileId(user, profileid);
 
                 // Check if user has access to this chat
                 const chat = await Chat.findOne({ chatid, isActive: true });
-                if (!chat || !chat.participants.includes(profileid)) {
+                if (!chat || !chat.isParticipant(searchProfileId)) {
                     throw new Error('Unauthorized: Cannot access this chat');
                 }
 
                 const count = await Message.countDocuments({
                     chatid,
-                    senderid: { $ne: profileid },
-                    'readBy.profileid': { $ne: profileid },
+                    senderid: { $ne: searchProfileId },
+                    'readBy.profileid': { $ne: searchProfileId },
                     isDeleted: false
                 });
 
@@ -1045,35 +1177,6 @@ const Resolvers = {
             }
         },
 
-        getActiveStories: async (_, args, { user }) => {
-            try {
-                if (!user) {
-                    throw new Error('Authentication required');
-                }
-
-                const stories = await Story.find({
-                    isActive: true,
-                    expiresAt: { $gt: new Date() }
-                }).sort({ createdAt: -1 });
-
-                // Group by profile
-                const storiesByProfile = {};
-                stories.forEach(story => {
-                    if (!storiesByProfile[story.profileid]) {
-                        storiesByProfile[story.profileid] = [];
-                    }
-                    storiesByProfile[story.profileid].push(story);
-                });
-
-                // Return latest story from each profile
-                const latestStories = Object.values(storiesByProfile).map(profileStories => profileStories[0]);
-                
-                return latestStories;
-            } catch (error) {
-                console.error('Error fetching active stories:', error);
-                throw new Error('Failed to fetch active stories');
-            }
-        },
 
         getStoryById: async (_, { storyid }) => {
             try {
@@ -1120,6 +1223,13 @@ const Resolvers = {
                 throw new Error('Failed to fetch story viewers');
             }
         },
+
+        // Highlight queries
+        ...HighlightResolvers.Query,
+        
+        // Story queries  
+        ...StoryResolvers.Query,
+
     },
 
 
@@ -1182,72 +1292,69 @@ const Resolvers = {
                 throw new Error(`Error updating profile: ${err.message}`);
             }
         },
-        CreatePost: async (_, { profileid, postUrl, title, Description, postType, location, taggedPeople, tags, allowComments, hideLikeCount, autoPlay, isCloseFriendOnly }, { user }) => {
-            try {
-                console.log('\n📝 CreatePost Debug:');
-                console.log('User context received:', user ? `Username: ${user.username}, ID: ${user._id}` : 'NULL');
-                console.log('Arguments received:', { profileid, postUrl, title, postType });
-                
-                // Check if user is authenticated
-                if (!user) {
-                    console.log('❌ Authentication failed: No user context');
-                    throw new Error('User not logged in. Please refresh and try again.');
-                }
-                
-                if (!profileid) {
-                    throw new Error('Profile ID is required');
-                }
-                
-                console.log('✅ User authenticated:', user.username);
-                
-                // Verify that the profileid matches the authenticated user's profile
-                if (user.profileid !== profileid) {
-                    throw new Error('You can only create posts for your own profile');
-                }
-                
-                // Verify the profile exists in database
-                const userProfile = await Profile.findOne({ profileid });
-                if (!userProfile) {
-                    throw new Error('Profile not found');
-                }
-                // Enhanced validation for postUrl and postType
-                if (!postUrl || postUrl.replace(/\s+/g, '') === "") {
-                    throw new Error("Post URL cannot be empty");
-                }
-                
-                // Validate postType
-                if (!postType || !['IMAGE', 'VIDEO', 'TEXT'].includes(postType)) {
-                    throw new Error("Post type must be IMAGE, VIDEO, or TEXT");
-                }
-                
-                // Validate media URL format for media posts
-                if (['IMAGE', 'VIDEO'].includes(postType) && postUrl === 'text-post-placeholder') {
-                    throw new Error("Media posts require a valid media URL");
-                }
+        CreatePost: GraphQLAuth.requireAuth(
+            GraphQLAuth.requireCSRF(
+                GraphQLAuth.logOperation('mutation')(
+                    GraphQLAuth.validateArgs({
+                        profileid: { required: true, type: 'string' },
+                        postUrl: { required: true, type: 'string', minLength: 1 },
+                        postType: { required: true, type: 'string' }
+                    })(
+                        async (_, { profileid, postUrl, title, Description, postType, location, taggedPeople, tags, allowComments, hideLikeCount, autoPlay, isCloseFriendOnly }, context) => {
+                            try {
+                                console.log('\n📝 CreatePost Debug:');
+                                console.log('User context received:', context.user ? `Username: ${context.user.username}, ID: ${context.user.id}` : 'NULL');
+                                console.log('Arguments received:', { profileid, postUrl, title, postType });
+                                
+                                // Verify that the profileid matches the authenticated user's profile
+                                if (context.user.profileid !== profileid) {
+                                    throw new Error('You can only create posts for your own profile');
+                                }
+                                
+                                // Verify the profile exists in database
+                                const userProfile = await Profile.findOne({ profileid });
+                                if (!userProfile) {
+                                    throw new Error('Profile not found');
+                                }
+                                
+                                // Validate postType
+                                if (!['IMAGE', 'VIDEO', 'TEXT'].includes(postType)) {
+                                    throw new Error("Post type must be IMAGE, VIDEO, or TEXT");
+                                }
+                                
+                                // Validate media URL format for media posts
+                                if (['IMAGE', 'VIDEO'].includes(postType) && postUrl === 'text-post-placeholder') {
+                                    throw new Error("Media posts require a valid media URL");
+                                }
 
-                const newPost = new Post({
-                    postid: uuidv4(),
-                    profileid: profileid, // Use the provided profile ID
-                    postUrl,
-                    postType,
-                    title: title || null,
-                    Description: Description || null,
-                    location: location || null,
-                    taggedPeople: taggedPeople || [],
-                    tags: tags || [],
-                    allowComments: allowComments !== undefined ? allowComments : true,
-                    hideLikeCount: hideLikeCount !== undefined ? hideLikeCount : false,
-                    autoPlay: autoPlay !== undefined ? autoPlay : false,
-                    isCloseFriendOnly: isCloseFriendOnly !== undefined ? isCloseFriendOnly : false
-                })
-                await newPost.save()
-                console.log('Created post:', newPost);
-                return newPost;
-            } catch (err) {
-                console.error('Error in CreatePost resolver:', err);
-                throw new Error(`Error creating post: ${err.message}`);
-            }
-        },
+                                const newPost = new Post({
+                                    postid: uuidv4(),
+                                    profileid: profileid,
+                                    postUrl,
+                                    postType,
+                                    title: title || null,
+                                    Description: Description || null,
+                                    location: location || null,
+                                    taggedPeople: taggedPeople || [],
+                                    tags: tags || [],
+                                    allowComments: allowComments !== undefined ? allowComments : true,
+                                    hideLikeCount: hideLikeCount !== undefined ? hideLikeCount : false,
+                                    autoPlay: autoPlay !== undefined ? autoPlay : false,
+                                    isCloseFriendOnly: isCloseFriendOnly !== undefined ? isCloseFriendOnly : false
+                                });
+                                
+                                await newPost.save();
+                                console.log('✅ Post created successfully:', newPost.postid);
+                                return newPost;
+                            } catch (err) {
+                                console.error('❌ Error in CreatePost resolver:', err);
+                                throw new Error(`Error creating post: ${err.message}`);
+                            }
+                        }
+                    )
+                )
+            )
+        ),
         DeletePost: async (_, { postid }) => {
             try {
                 const post = await Post.findOneAndDelete({ postid })
@@ -1421,51 +1528,52 @@ const Resolvers = {
                 throw new Error(`Error updating comment: ${err.message}`);
             }
         },
-        TogglePostLike: async (_, { profileid, postid }, { user }) => {
-            try {
-                // Check if user is authenticated
-                if (!user) {
-                    throw new Error('User not logged in. Please refresh and try again.');
-                }
-                
-                // Verify the user owns the profile
-                if (user.profileid !== profileid) {
-                    throw new Error('You can only like posts with your own profile');
-                }
-                
-                // Check if the post exists
-                const post = await Post.findOne({ postid });
-                if (!post) {
-                    throw new Error(`Post with id ${postid} not found`);
-                }
-                
-                // Check if user already liked the post (no commentid means post like)
-                const existingLike = await Likes.findOne({ 
-                    postid, 
-                    profileid, 
-                    commentid: { $exists: false } 
-                });
-                
-                let result;
-                if (existingLike) {
-                    // Unlike the post
-                    await Likes.deleteOne({ postid, profileid, commentid: { $exists: false } });
-                    await LikedPost.deleteOne({ postid, profileid });
-                    result = existingLike;
-                } else {
-                    // Like the post
-                    const newLike = new Likes({ postid, profileid });
-                    const newLikedPost = new LikedPost({ postid, profileid });
-                    await newLike.save();
-                    await newLikedPost.save();
-                    result = newLike;
-                }
-                
-                return result;
-            } catch (err) {
-                throw new Error(`Error toggling post like: ${err.message}`);
-            }
-        },
+        TogglePostLike: GraphQLAuth.requireAuth(
+            GraphQLAuth.logOperation('mutation')(
+                GraphQLAuth.validateArgs({
+                    profileid: { required: true, type: 'string' },
+                    postid: { required: true, type: 'string' }
+                })(
+                    async (_, { profileid, postid }, context) => {
+                        try {
+                            // Verify the user owns the profile
+                            if (context.user.profileid !== profileid) {
+                                throw new Error('You can only like posts with your own profile');
+                            }
+                            
+                            // Check if the post exists
+                            const post = await Post.findOne({ postid });
+                            if (!post) {
+                                throw new Error(`Post with id ${postid} not found`);
+                            }
+                            
+                            // Check if user already liked the post (no commentid means post like)
+                            const userPostLikes = await Likes.find({ postid, profileid }).exec();
+                            const existingLike = userPostLikes.find(like => !like.commentid || like.commentid === null || like.commentid === undefined);
+                            
+                            let result;
+                            if (existingLike) {
+                                // Unlike the post
+                                await Likes.deleteOne({ _id: existingLike._id });
+                                await LikedPost.deleteOne({ postid, profileid });
+                                result = existingLike;
+                            } else {
+                                // Like the post
+                                const newLike = new Likes({ postid, profileid });
+                                const newLikedPost = new LikedPost({ postid, profileid });
+                                await newLike.save();
+                                await newLikedPost.save();
+                                result = newLike;
+                            }
+                            
+                            return result;
+                        } catch (err) {
+                            throw new Error(`Error toggling post like: ${err.message}`);
+                        }
+                    }
+                )
+            )
+        ),
         ToggleCommentLike: async (_, { profileid, commentid }, { user }) => {
             try {
                 // Check if user is authenticated
@@ -2125,41 +2233,94 @@ const Resolvers = {
         // Chat mutations
         CreateChat: async (_, { participants, chatType, chatName, chatAvatar }, { user }) => {
             try {
+                console.log('🔍 [DEBUG] CreateChat called with:..................', { participants, chatType, chatName, user ,userProfileid: user?.profileid });
+                
                 if (!user) {
                     throw new Error('Authentication required');
                 }
-
+                
                 // Ensure current user is in participants
                 if (!participants.includes(user.profileid)) {
                     participants.push(user.profileid);
                 }
+
+
+                if (participants.includes(user.id)) {
+                     participants = participants.filter(id => id !== user.id);
+                }
+
+               
+                console.log('🔍 [DEBUG] Final participants list:', participants);
 
                 // Validate participants exist
                 const validParticipants = await Profile.find({
                     profileid: { $in: participants }
                 });
 
+                console.log('🔍 [DEBUG] Valid participants found:', validParticipants.length, 'of', participants.length);
+
                 if (validParticipants.length !== participants.length) {
-                    throw new Error('Some participants do not exist');
+                    const foundIds = validParticipants.map(p => p.profileid);
+                    const missingIds = participants.filter(id => !foundIds.includes(id));
+                    console.error('❌ [DEBUG] Missing participant profiles:', missingIds);
+                    throw new Error(`Some participants do not exist: ${missingIds.join(', ')}`);
                 }
 
                 // For direct chats, check if chat already exists
                 if (chatType === 'direct' && participants.length === 2) {
-                    const existingChat = await Chat.findOne({
-                        participants: { $all: participants, $size: 2 },
+                    console.log('🔄 [DEBUG] Checking for existing direct chat...');
+                    console.log('🔍 [DEBUG] Participants to check:', participants);
+                    
+                    // Query for existing direct chat with these two participants
+                    // We need to find chats where both participants are present
+                    let existingChat = await Chat.findOne({
                         chatType: 'direct',
-                        isActive: true
+                        isActive: true,
+                        $and: [
+                            { 'participants.profileid': participants[0] },
+                            { 'participants.profileid': participants[1] }
+                        ],
+                        'participants': { $size: 2 }
                     });
-
+                    
+                    console.log('🔍 [DEBUG] Existing chat query result:', existingChat ? existingChat.chatid : 'none found');
+                    
                     if (existingChat) {
+                        console.log('✅ [DEBUG] Found existing direct chat:', existingChat.chatid);
                         return existingChat;
+                    } else {
+                        console.log('🔄 [DEBUG] No existing direct chat found, will create new one');
                     }
                 }
+
+                console.log('🔄 [DEBUG] Creating new chat...');
+                
+                // Create participant objects with roles and permissions
+                const participantObjects = participants.map(profileId => ({
+                    profileid: profileId,
+                    role: chatType === 'group' && profileId === user.profileid ? 'owner' : 'member',
+                    joinedAt: new Date(),
+                    permissions: chatType === 'group' && profileId === user.profileid ? {
+                        canSendMessages: true,
+                        canAddMembers: true,
+                        canRemoveMembers: true,
+                        canEditChat: true,
+                        canDeleteMessages: true,
+                        canPinMessages: true
+                    } : {
+                        canSendMessages: true,
+                        canAddMembers: false,
+                        canRemoveMembers: false,
+                        canEditChat: false,
+                        canDeleteMessages: false,
+                        canPinMessages: false
+                    }
+                }));
 
                 // Create new chat
                 const newChat = new Chat({
                     chatid: uuidv4(),
-                    participants,
+                    participants: participantObjects,
                     chatType,
                     chatName: chatType === 'group' ? chatName || 'New Group' : null,
                     chatAvatar,
@@ -2167,11 +2328,26 @@ const Resolvers = {
                     adminIds: chatType === 'group' ? [user.profileid] : []
                 });
 
+                console.log('\ud83d\udd27 [DEBUG] Saving new chat with data:', {
+                    chatid: newChat.chatid,
+                    participantCount: newChat.participants.length,
+                    chatType: newChat.chatType,
+                    createdBy: newChat.createdBy
+                });
+                
                 await newChat.save();
+                console.log('\u2705 [DEBUG] Chat created successfully:', newChat.chatid);
+                
                 return newChat;
             } catch (error) {
-                console.error('Error creating chat:', error);
-                throw new Error('Failed to create chat');
+                console.error('\u274c [DEBUG] CreateChat error details:........................', {
+                    error: error.message,
+                    stack: error.stack,
+                    participants,
+                    chatType,
+                    userProfileid: user?.profileid
+                });
+                throw new Error(`Failed to create chat: ${error.message}`);
             }
         },
 
@@ -2188,7 +2364,7 @@ const Resolvers = {
                     throw new Error('Unauthorized: Only admins can update group chat');
                 }
 
-                if (!chat.participants.includes(user.profileid)) {
+                if (!chat.isParticipant(user.profileid)) {
                     throw new Error('Unauthorized: Not a participant in this chat');
                 }
 
@@ -2213,7 +2389,7 @@ const Resolvers = {
 
                 // Check if user has access to this chat
                 const chat = await Chat.findOne({ chatid, isActive: true });
-                if (!chat || !chat.participants.includes(user.profileid)) {
+                if (!chat || !chat.isParticipant(user.profileid)) {
                     throw new Error('Unauthorized: Cannot send message to this chat');
                 }
 
@@ -2307,7 +2483,7 @@ const Resolvers = {
 
                 // Check if user has access to this chat
                 const chat = await Chat.findOne({ chatid: message.chatid });
-                if (!chat || !chat.participants.includes(user.profileid)) {
+                if (!chat || !chat.isParticipant(user.profileid)) {
                     throw new Error('Unauthorized: Cannot react to this message');
                 }
 
@@ -2362,7 +2538,7 @@ const Resolvers = {
 
                 // Check if user has access to this chat
                 const chat = await Chat.findOne({ chatid: message.chatid });
-                if (!chat || !chat.participants.includes(user.profileid)) {
+                if (!chat || !chat.isParticipant(user.profileid)) {
                     throw new Error('Unauthorized: Cannot mark this message as read');
                 }
 
@@ -2390,7 +2566,7 @@ const Resolvers = {
             try {
                 // Check if user has access to this chat
                 const chat = await Chat.findOne({ chatid, isActive: true });
-                if (!chat || !chat.participants.includes(user.profileid)) {
+                if (!chat || !chat.isParticipant(user.profileid)) {
                     throw new Error('Unauthorized: Cannot access this chat');
                 }
 
@@ -2583,16 +2759,78 @@ const Resolvers = {
             }
         },
 
+        // Highlight mutations
+        ...HighlightResolvers.Mutation,
+        
+        // Story mutations
+        ...StoryResolvers.Mutation,
+
     },
 
     // Chat field resolvers
     Chat: {
         participants: async (parent) => {
             try {
-                const profiles = await Profile.find({ profileid: { $in: parent.participants } });
+                console.log('🔍 [DEBUG] Chat participants resolver called for chatid:', parent.chatid);
+                console.log('🔍 [DEBUG] Raw participants data:', JSON.stringify(parent.participants, null, 2));
+                
+                // Handle both old string array format and new object format
+                let participantIds = [];
+                
+                if (Array.isArray(parent.participants)) {
+                    if (parent.participants.length === 0) {
+                        console.warn('⚠️ [DEBUG] Empty participants array for chat:', parent.chatid);
+                        return [];
+                    }
+                    
+                    // Check if participants are objects or strings
+                    if (typeof parent.participants[0] === 'object' && parent.participants[0] !== null) {
+                        // New object format: extract profileids from participant objects
+                        participantIds = parent.participants
+                            .map(p => p && p.profileid ? p.profileid : null)
+                            .filter(id => id !== null);
+                        console.log('🔍 [DEBUG] Extracted participant IDs from objects:', participantIds);
+                    } else if (typeof parent.participants[0] === 'string') {
+                        // Old string format: use directly
+                        participantIds = parent.participants.filter(p => p && typeof p === 'string');
+                        console.log('🔍 [DEBUG] Using string participant IDs:', participantIds);
+                    } else {
+                        console.warn('⚠️ [DEBUG] Mixed or unknown participant format:', parent.participants);
+                        // Try to handle mixed format
+                        participantIds = parent.participants
+                            .map(p => {
+                                if (typeof p === 'string') return p;
+                                if (p && typeof p === 'object' && p.profileid) return p.profileid;
+                                return null;
+                            })
+                            .filter(id => id !== null);
+                    }
+                } else {
+                    console.error('❌ [DEBUG] Participants is not an array for chat:', parent.chatid, typeof parent.participants);
+                    return [];
+                }
+                
+                if (participantIds.length === 0) {
+                    console.warn('⚠️ [DEBUG] No valid participant IDs found for chat:', parent.chatid);
+                    return [];
+                }
+                
+                console.log('🔍 [DEBUG] Querying profiles for IDs:', participantIds);
+                const profiles = await Profile.find({ profileid: { $in: participantIds } });
+                console.log('🔍 [DEBUG] Found profiles count:', profiles.length);
+                
+                if (profiles.length !== participantIds.length) {
+                    const foundIds = profiles.map(p => p.profileid);
+                    const missingIds = participantIds.filter(id => !foundIds.includes(id));
+                    console.warn('⚠️ [DEBUG] Some profiles not found. Missing IDs:', missingIds);
+                }
+                
                 return profiles;
             } catch (error) {
-                console.error('Error fetching chat participants:', error);
+                console.error('❌ [DEBUG] Error fetching chat participants for chatid:', parent.chatid, {
+                    error: error.message,
+                    participantsData: parent.participants
+                });
                 return [];
             }
         },
@@ -2775,6 +3013,22 @@ const Resolvers = {
                 console.error('Error fetching story viewer profile:', error);
                 return null;
             }
+        }
+    },
+
+    // Highlight field resolvers
+    Highlight: {
+        profile: async (parent) => {
+            try {
+                const profile = await Profile.findOne({ profileid: parent.profileid });
+                return profile;
+            } catch (error) {
+                console.error('Error fetching highlight profile:', error);
+                return null;
+            }
+        },
+        storyCount: (parent) => {
+            return parent.stories ? parent.stories.length : 0;
         }
     }
 

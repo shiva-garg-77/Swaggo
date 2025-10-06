@@ -1,15 +1,15 @@
 "use client";
 
 import { useState, useCallback } from 'react';
-import { useQuery, useMutation } from '@apollo/client';
+import { useQuery, useMutation } from '@apollo/client/react';
 import { useTheme } from '../../Helper/ThemeProvider';
-import { useAuth } from '../../Helper/AuthProvider';
+import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { GET_MEMORIES, CREATE_MEMORY, ADD_STORY_TO_MEMORY } from '../../../lib/graphql/profileQueries';
 
 export default function MemorySection({ className = "" }) {
   const { theme } = useTheme();
-  const { user } = useAuth();
+  const { user } = useSecureAuth();
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newMemoryTitle, setNewMemoryTitle] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);

@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useMemo } from 'react';
-import { useQuery } from '@apollo/client';
+import { useQuery } from '@apollo/client/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from '../../Helper/ThemeProvider';
-import { useAuth } from '../../Helper/AuthProvider';
+import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { GET_ALL_POSTS } from '../../../lib/graphql/queries';
 import SimpleFlatCommentSystem from './SimpleFlatCommentSystem';
 import InstagramPost from './InstagramPost';
@@ -32,7 +32,7 @@ export default function PostTabsContainer({
   initialTab = 'all'
 }) {
   const { theme } = useTheme();
-  const { user } = useAuth();
+  const { user } = useSecureAuth();
   const [activeTab, setActiveTab] = useState(initialTab);
   const [selectedPost, setSelectedPost] = useState(null);
   const [showComments, setShowComments] = useState({});

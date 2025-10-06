@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { useQuery, useMutation } from '@apollo/client';
-import { useAuth } from '../../Helper/AuthProvider';
+import { useQuery, useMutation } from '@apollo/client/react';
+import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { gql } from '@apollo/client';
 
 // Define queries directly to avoid import issues
@@ -85,7 +85,7 @@ export default function InstagramCommentSection({
   theme = "light",
   onCommentUpdate 
 }) {
-  const { user } = useAuth();
+  const { user } = useSecureAuth();
   const [newComment, setNewComment] = useState('');
   const [replyText, setReplyText] = useState('');
   const [replyingTo, setReplyingTo] = useState(null);

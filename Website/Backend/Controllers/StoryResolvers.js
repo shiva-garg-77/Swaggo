@@ -1,5 +1,5 @@
-import Story from '../models/FeedModels/Story.js';
-import Profile from '../models/FeedModels/Profile.js';
+import Story from '../Models/FeedModels/Story.js';
+import Profile from '../Models/FeedModels/Profile.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const StoryResolvers = {
@@ -59,7 +59,9 @@ const StoryResolvers = {
                     profileid: profileid || context.user.profileid,
                     isActive: true,
                     expiresAt: { $gt: new Date() }
-                }).sort({ createdAt: -1 });
+                })
+                .lean()
+                .sort({ createdAt: -1 });
 
                 return stories;
             } catch (error) {
@@ -82,10 +84,17 @@ const StoryResolvers = {
                 }
 
                 // For now, get all active stories (later filter by following)
-                const stories = await Story.find({
-                    isActive: true,
-                    expiresAt: { $gt: new Date() }
-                }).sort({ createdAt: -1 });
+                // Use aggregation pipeline to avoid date casting issues
+                const stories = await Story.aggregate([
+                    {
+                        $match: {
+                            isActive: true,
+                            expiresAt: { $gt: new Date() }
+                        }
+                    },
+                    { $sort: { createdAt: -1 } },
+                    { $limit: 20 }
+                ]);
 
                 // Group by profile
                 const storiesByProfile = {};
@@ -113,7 +122,8 @@ const StoryResolvers = {
                     storyid, 
                     isActive: true,
                     expiresAt: { $gt: new Date() }
-                });
+                })
+                .lean();
 
                 if (!story) {
                     throw new Error('Story not found or expired');

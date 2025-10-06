@@ -193,6 +193,7 @@ export const CREATE_CHAT = gql`
         username
       }
       createdAt
+      lastMessageAt
     }
   }
 `;

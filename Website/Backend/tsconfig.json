@@ -1,0 +1,98 @@
+{
+  "compilerOptions": {
+    // Target and module settings
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "lib": ["ES2022"],
+    
+    // JavaScript support for gradual migration
+    "allowJs": true,
+    "checkJs": false,
+    "declaration": true,
+    "declarationMap": true,
+    "emitDeclarationOnly": false,
+    
+    // Output settings
+    "outDir": "./dist",
+    "rootDir": "./",
+    "sourceMap": true,
+    "removeComments": false,
+    "importHelpers": true,
+    
+    // Module resolution
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    
+    // Strict type checking (relaxed for JS files)
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    
+    // Additional checks (relaxed for JS files)
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "useUnknownInCatchVariables": true,
+    
+    // Advanced features
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    
+    // Node.js specific
+    "skipLibCheck": true,
+    "types": ["node", "jest"],
+    
+    // Path mapping
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"],
+      "@/config/*": ["./Config/*"],
+      "@/controllers/*": ["./Controllers/*"],
+      "@/models/*": ["./Models/*"],
+      "@/middleware/*": ["./Middleware/*"],
+      "@/routes/*": ["./Routes/*"],
+      "@/services/*": ["./Services/*"],
+      "@/security/*": ["./Security/*"],
+      "@/utils/*": ["./Helper/*"],
+      "@/types/*": ["./types/*"]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "types/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "coverage",
+    "docs",
+    "logs",
+    "temp",
+    "uploads",
+    "backups",
+    "tests/**/*.test.js",
+    "tests/**/*.spec.js"
+  ],
+  "ts-node": {
+    "esm": true,
+    "compilerOptions": {
+      "module": "ESNext",
+      "target": "ES2022"
+    }
+  },
+  "compileOnSave": false
+}

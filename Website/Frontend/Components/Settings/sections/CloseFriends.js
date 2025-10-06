@@ -1,14 +1,14 @@
 'use client'
 
-import { useState, useEffect, useContext } from 'react'
-import { useLazyQuery, useMutation } from '@apollo/client'
+import { useState, useEffect } from 'react'
+import { useLazyQuery, useMutation } from '@apollo/client/react';
 import { ArrowLeft, Search, UserMinus, UserPlus, Users, Star, CheckCircle, Hash, User, Heart, Eye } from 'lucide-react'
-import { AuthContext } from '../../Helper/AuthProvider'
+import { useFixedSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { GET_CLOSE_FRIENDS, ADD_CLOSE_FRIEND, REMOVE_CLOSE_FRIEND, GET_ALL_USERS } from '../../../lib/graphql/profileQueries'
 import { SEARCH_USERS } from '../../../lib/graphql/queries'
 
 export default function CloseFriends({ onBack, isModal = false }) {
-  const { user } = useContext(AuthContext)
+  const { user } = useFixedSecureAuth()
   const [closeFriends, setCloseFriends] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])

@@ -1,6 +1,6 @@
 "use client";
 import { useState } from 'react';
-import { useQuery, useMutation } from '@apollo/client';
+import { useQuery, useMutation } from '@apollo/client/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Send, Heart, Smile, MessageCircle, User } from 'lucide-react';
 import { GET_POST_COMMENTS, CREATE_COMMENT, CREATE_COMMENT_REPLY, TOGGLE_COMMENT_LIKE } from '../../../lib/graphql/queries';

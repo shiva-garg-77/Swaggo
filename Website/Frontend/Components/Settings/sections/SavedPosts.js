@@ -1,15 +1,15 @@
 'use client'
 
 import { ArrowLeft, Bookmark, Heart, MessageCircle, MoreHorizontal } from 'lucide-react'
-import { useQuery, useMutation } from '@apollo/client'
+import { useQuery, useMutation } from '@apollo/client/react';
 import { GET_USER_BY_USERNAME, TOGGLE_SAVE_POST, TOGGLE_POST_LIKE } from '@/lib/graphql/queries'
-import { useContext, useState } from 'react'
-import { AuthContext } from '../../Helper/AuthProvider'
+import { useState } from 'react'
+import { useFixedSecureAuth } from '../../../context/FixedSecureAuthContext';
 import Image from 'next/image'
 import InstagramPostModal from '../../MainComponents/Post/InstagramPostModal'
 
 export default function SavedPosts({ onBack, isModal = false }) {
-  const { user } = useContext(AuthContext)
+  const { user } = useFixedSecureAuth()
   const [selectedPost, setSelectedPost] = useState(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   

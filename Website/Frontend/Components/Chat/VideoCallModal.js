@@ -6,9 +6,25 @@ import { useTheme } from '../Helper/ThemeProvider';
 // WebRTC configuration
 const rtcConfiguration = {
   iceServers: [
+    // Google STUN servers
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-  ]
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    // Additional STUN servers
+    { urls: 'stun:stun.stunprotocol.org:3478' },
+    { urls: 'stun:openrelay.metered.ca:80' },
+    // Free TURN server for NAT traversal
+    {
+      urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
+  ],
+  iceCandidatePoolSize: 10,
+  bundlePolicy: 'max-bundle',
+  rtcpMuxPolicy: 'require'
 };
 
 export default function VideoCallModal({ isOpen, onClose, chat, user, socket }) {
@@ -20,6 +36,7 @@ export default function VideoCallModal({ isOpen, onClose, chat, user, socket }) 
   const [callDuration, setCallDuration] = useState(0);
   const [participants, setParticipants] = useState([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showDebug, setShowDebug] = useState(process.env.NODE_ENV === 'development');
   
   const callStartTime = useRef(null);
   const durationInterval = useRef(null);
@@ -50,11 +67,51 @@ export default function VideoCallModal({ isOpen, onClose, chat, user, socket }) 
     try {
       console.log('🎥 Initializing video call...');
       
-      // Get user media
-      localStream.current = await navigator.mediaDevices.getUserMedia({
-        video: isVideoOn,
-        audio: !isMuted
-      });
+      // Check if media devices are available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Media devices not supported by this browser');
+      }
+      
+      // Try to get user media with error handling
+      try {
+        localStream.current = await navigator.mediaDevices.getUserMedia({
+          video: isVideoOn ? { 
+            width: { min: 320, ideal: 640, max: 1280 },
+            height: { min: 240, ideal: 480, max: 720 },
+            frameRate: { min: 15, ideal: 30, max: 60 }
+          } : false,
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
+        console.log('📷 Got user media successfully');
+      } catch (mediaError) {
+        console.warn('❌ Failed to get media with ideal constraints, trying fallback...', mediaError.message);
+        
+        // Try fallback constraints
+        try {
+          localStream.current = await navigator.mediaDevices.getUserMedia({
+            video: isVideoOn ? { width: 640, height: 480 } : false,
+            audio: true
+          });
+          console.log('📷 Got user media with fallback constraints');
+        } catch (fallbackError) {
+          console.error('❌ Failed to get user media even with fallback:', fallbackError.message);
+          
+          if (fallbackError.name === 'NotAllowedError') {
+            alert('Please allow camera and microphone access to join the video call.');
+          } else if (fallbackError.name === 'NotFoundError') {
+            alert('Camera or microphone not found. Please check your devices.');
+          } else {
+            alert('Failed to access camera/microphone: ' + fallbackError.message);
+          }
+          
+          setCallStatus('ended');
+          return;
+        }
+      }
       
       // Display local video
       if (localVideoRef.current && localStream.current) {
@@ -63,6 +120,7 @@ export default function VideoCallModal({ isOpen, onClose, chat, user, socket }) 
       
       // Create peer connection
       peerConnection.current = new RTCPeerConnection(rtcConfiguration);
+      console.log('🔗 Created peer connection with configuration:', rtcConfiguration);
       
       // Add local stream to peer connection
       localStream.current.getTracks().forEach(track => {
@@ -95,23 +153,58 @@ export default function VideoCallModal({ isOpen, onClose, chat, user, socket }) 
         if (peerConnection.current.connectionState === 'connected') {
           setCallStatus('connected');
           startDurationTimer();
-        } else if (peerConnection.current.connectionState === 'disconnected' || 
-                   peerConnection.current.connectionState === 'failed') {
+          console.log('✨ Video call connected successfully!');
+        } else if (peerConnection.current.connectionState === 'connecting') {
+          console.log('🔄 Establishing connection...');
+        } else if (peerConnection.current.connectionState === 'disconnected') {
+          console.warn('⚠️ Connection disconnected');
           setCallStatus('ended');
+        } else if (peerConnection.current.connectionState === 'failed') {
+          console.error('❌ Connection failed');
+          setCallStatus('ended');
+          alert('Video call connection failed. Please try again.');
         }
       };
       
-      // Set up WebRTC signaling listeners
+      // Handle ICE connection state changes
+      peerConnection.current.oniceconnectionstatechange = () => {
+        console.log('🧨 ICE connection state:', peerConnection.current.iceConnectionState);
+        if (peerConnection.current.iceConnectionState === 'failed') {
+          console.error('❌ ICE connection failed');
+          // Try to restart ICE
+          peerConnection.current.restartIce();
+        }
+      };
+      
+      // Handle ICE gathering state
+      peerConnection.current.onicegatheringstatechange = () => {
+        console.log('🧨 ICE gathering state:', peerConnection.current.iceGatheringState);
+      };
+      
+      // Set up WebRTC signaling listeners first
       if (socket) {
+        // Remove any existing listeners to prevent duplicates
+        socket.off('webrtc_offer', handleOffer);
+        socket.off('webrtc_answer', handleAnswer);
+        socket.off('webrtc_ice_candidate', handleIceCandidate);
+        socket.off('call_ended', handleCallEnded);
+        
+        // Add fresh listeners
         socket.on('webrtc_offer', handleOffer);
         socket.on('webrtc_answer', handleAnswer);
         socket.on('webrtc_ice_candidate', handleIceCandidate);
         socket.on('call_ended', handleCallEnded);
         
-        // Create and send offer if we're the caller
-        // (The logic for who creates the offer can be based on user IDs or other criteria)
+        console.log('📡 Socket listeners set up for WebRTC signaling');
+        
+        // Create and send offer if we're the caller (after a short delay to ensure everything is set up)
         if (shouldCreateOffer()) {
-          createOffer();
+          setTimeout(() => {
+            console.log('📤 Starting call as initiator');
+            createOffer();
+          }, 500);
+        } else {
+          console.log('📥 Waiting for incoming offer');
         }
       }
       
@@ -146,10 +239,23 @@ export default function VideoCallModal({ isOpen, onClose, chat, user, socket }) 
   const handleOffer = async (data) => {
     try {
       console.log('📥 Received WebRTC offer');
-      await peerConnection.current.setRemoteDescription(data.offer);
+      
+      if (!peerConnection.current) {
+        console.error('No peer connection available to handle offer');
+        return;
+      }
+      
+      if (peerConnection.current.signalingState === 'closed') {
+        console.error('Peer connection is closed, cannot handle offer');
+        return;
+      }
+      
+      await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.offer));
+      console.log('✅ Set remote description from offer');
       
       const answer = await peerConnection.current.createAnswer();
       await peerConnection.current.setLocalDescription(answer);
+      console.log('✅ Created and set local answer');
       
       console.log('📤 Sending WebRTC answer');
       socket.emit('webrtc_answer', {
@@ -158,15 +264,31 @@ export default function VideoCallModal({ isOpen, onClose, chat, user, socket }) 
       });
     } catch (error) {
       console.error('🔥 Error handling offer:', error);
+      alert('Failed to process incoming call. Please try again.');
+      setCallStatus('ended');
     }
   };
   
   const handleAnswer = async (data) => {
     try {
       console.log('📥 Received WebRTC answer');
-      await peerConnection.current.setRemoteDescription(data.answer);
+      
+      if (!peerConnection.current) {
+        console.error('No peer connection available to handle answer');
+        return;
+      }
+      
+      if (peerConnection.current.signalingState === 'closed') {
+        console.error('Peer connection is closed, cannot handle answer');
+        return;
+      }
+      
+      await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+      console.log('✅ Set remote description from answer');
     } catch (error) {
       console.error('🔥 Error handling answer:', error);
+      alert('Failed to establish call connection. Please try again.');
+      setCallStatus('ended');
     }
   };
   
@@ -543,6 +665,18 @@ export default function VideoCallModal({ isOpen, onClose, chat, user, socket }) 
           )}
         </div>
       </div>
+      
+      
+      {/* Debug Toggle (only in development) */}
+      {process.env.NODE_ENV === 'development' && (
+        <button
+          onClick={() => setShowDebug(!showDebug)}
+          className="fixed bottom-4 left-4 bg-gray-800 text-white p-2 rounded-full z-50 text-sm"
+          title="Toggle WebRTC Debug"
+        >
+          🐛
+        </button>
+      )}
     </div>
   );
 }

@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { useQuery, useMutation } from '@apollo/client';
-import { useAuth } from '../Helper/AuthProvider';
+import { useQuery, useMutation } from '@apollo/client/react';
+import { useSecureAuth } from '../../context/FixedSecureAuthContext';
 import { SEARCH_USERS, CREATE_CHAT } from './queries';
 
 export default function ChatSidebar({ 
@@ -13,7 +13,7 @@ export default function ChatSidebar({
   loading, 
   isConnected 
 }) {
-  const { user } = useAuth();
+  const { user } = useSecureAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [showUserSearch, setShowUserSearch] = useState(false);
   const [searchUsers, setSearchUsers] = useState([]);
@@ -22,11 +22,24 @@ export default function ChatSidebar({
   const searchInputRef = useRef(null);
 
   // Search users for new chat
-  const { data: searchData, refetch: refetchUsers } = useQuery(SEARCH_USERS, {
+  const { data: searchData, refetch: refetchUsers, loading: searchLoading, error: searchError } = useQuery(SEARCH_USERS, {
     variables: { query: searchQuery, limit: 10 },
     skip: !searchQuery || searchQuery.length < 2,
     onCompleted: (data) => {
+      console.log('🔍 User search completed:', {
+        query: searchQuery,
+        resultsCount: data?.searchUsers?.length || 0,
+        results: data?.searchUsers?.map(u => ({ username: u.username, profileid: u.profileid })) || []
+      });
       setSearchUsers(data.searchUsers || []);
+    },
+    onError: (error) => {
+      console.error('❌ User search error:', {
+        query: searchQuery,
+        error: error.message,
+        graphQLErrors: error.graphQLErrors,
+        networkError: error.networkError
+      });
     }
   });
 
@@ -54,6 +67,7 @@ export default function ChatSidebar({
     if (query.length >= 2) {
       setShowUserSearch(true);
       const timeout = setTimeout(() => {
+        console.log('🔍 Triggering user search for:', query);
         refetchUsers();
       }, 300);
       setSearchTimeout(timeout);
@@ -65,12 +79,27 @@ export default function ChatSidebar({
 
   // Handle user selection for new chat
   const handleUserSelect = async (selectedUser) => {
-    if (selectedUser.profileid === user.profileid) return;
+    // Get consistent user ID (profileid or id)
+    const currentUserId = user?.profileid || user?.id;
+    const selectedUserId = selectedUser?.profileid || selectedUser?.id;
+    
+    console.log('🔍 Creating chat:', {
+      currentUserId,
+      selectedUserId,
+      selectedUserName: selectedUser?.username,
+      userKeys: user ? Object.keys(user) : 'No user',
+      selectedUserKeys: selectedUser ? Object.keys(selectedUser) : 'No selected user'
+    });
+    
+    if (!currentUserId || !selectedUserId || selectedUserId === currentUserId) {
+      console.warn('⚠️ Cannot create chat - invalid user IDs');
+      return;
+    }
 
     try {
       await createChat({
         variables: {
-          participants: [user.profileid, selectedUser.profileid],
+          participants: [currentUserId, selectedUserId],
           chatType: 'direct'
         }
       });
@@ -106,7 +135,10 @@ export default function ChatSidebar({
       };
     } else {
       // Direct chat - find the other participant
-      const otherParticipant = chat.participants.find(p => p.profileid !== user.profileid);
+      const currentUserId = user?.profileid || user?.id;
+      const otherParticipant = chat.participants.find(p => 
+        (p.profileid || p.id) !== currentUserId
+      );
       return {
         name: otherParticipant?.name || otherParticipant?.username || 'Unknown User',
         avatar: otherParticipant?.profilePic,
@@ -168,36 +200,51 @@ export default function ChatSidebar({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           
-          {/* Search Results Dropdown */}
-          {showUserSearch && searchUsers && searchUsers.length > 0 && (
+          {/* Search Results Dropdown - Force show for debugging */}
+          {(showUserSearch || searchQuery.length >= 2) && (
             <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 max-h-64 overflow-y-auto">
-              {searchUsers.map((searchUser) => (
-                <button
-                  key={searchUser.profileid}
-                  onClick={() => handleUserSelect(searchUser)}
-                  className="w-full p-3 flex items-center space-x-3 hover:bg-gray-50 dark:hover:bg-gray-700 first:rounded-t-lg last:rounded-b-lg"
-                  disabled={searchUser.profileid === user.profileid}
-                >
-                  <img
-                    src={searchUser.profilePic || '/default-avatar.png'}
-                    alt={searchUser.username}
-                    className="w-8 h-8 rounded-full object-cover"
-                  />
-                  <div className="flex-1 text-left">
-                    <div className="flex items-center space-x-1">
-                      <span className="text-sm font-medium text-gray-900 dark:text-white">
-                        {searchUser.name || searchUser.username}
-                      </span>
-                      {searchUser.isVerified && (
-                        <svg className="w-4 h-4 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                      )}
+              {searchLoading ? (
+                <div className="p-4 text-center text-gray-500 dark:text-gray-400">
+                  <div className="animate-spin w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full mx-auto mb-2"></div>
+                  Searching users...
+                </div>
+              ) : searchError ? (
+                <div className="p-4 text-center text-red-500">
+                  ❌ Search failed: {searchError.message}
+                </div>
+              ) : searchUsers && searchUsers.length > 0 ? (
+                searchUsers.map((searchUser) => (
+                  <button
+                    key={searchUser.profileid || searchUser.id}
+                    onClick={() => handleUserSelect(searchUser)}
+                    className="w-full p-3 flex items-center space-x-3 hover:bg-gray-50 dark:hover:bg-gray-700 first:rounded-t-lg last:rounded-b-lg"
+                    disabled={(searchUser.profileid || searchUser.id) === (user?.profileid || user?.id)}
+                  >
+                    <img
+                      src={searchUser.profilePic || '/default-avatar.png'}
+                      alt={searchUser.username}
+                      className="w-8 h-8 rounded-full object-cover"
+                    />
+                    <div className="flex-1 text-left">
+                      <div className="flex items-center space-x-1">
+                        <span className="text-sm font-medium text-gray-900 dark:text-white">
+                          {searchUser.name || searchUser.username}
+                        </span>
+                        {searchUser.isVerified && (
+                          <svg className="w-4 h-4 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">@{searchUser.username}</span>
                     </div>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">@{searchUser.username}</span>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                ))
+              ) : searchQuery.length >= 2 ? (
+                <div className="p-4 text-center text-gray-500 dark:text-gray-400">
+                  🔍 No users found for "{searchQuery}"
+                </div>
+              ) : null}
             </div>
           )}
         </div>

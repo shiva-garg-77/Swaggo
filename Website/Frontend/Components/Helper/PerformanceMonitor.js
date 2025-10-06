@@ -2,11 +2,12 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { usePathname } from 'next/navigation';
 
-// Performance metrics collector
-class PerformanceCollector {
+// Lightweight performance metrics collector
+class LightweightPerformanceCollector {
   constructor() {
     this.metrics = new Map();
     this.routeTimings = new Map();
+    // Disable in production for better performance
     this.isEnabled = process.env.NODE_ENV === 'development';
   }
 
@@ -20,8 +21,6 @@ class PerformanceCollector {
       route,
       type: 'route-transition'
     });
-    
-    console.log(`⏱️ Started timing route transition: ${route}`);
   }
 
   // End timing and calculate metrics
@@ -35,24 +34,17 @@ class PerformanceCollector {
       const endTime = performance.now();
       const duration = endTime - metric.startTime;
       
-      // Store route timing
       if (!this.routeTimings.has(route)) {
         this.routeTimings.set(route, []);
       }
       
       this.routeTimings.get(route).push(duration);
       
-      // Keep only last 10 measurements
+      // Keep only last 5 measurements
       const timings = this.routeTimings.get(route);
-      if (timings.length > 10) {
+      if (timings.length > 5) {
         timings.shift();
       }
-      
-      console.log(`✅ Route transition completed: ${route} in ${duration.toFixed(2)}ms`);
-      
-      // Calculate average
-      const average = timings.reduce((a, b) => a + b, 0) / timings.length;
-      console.log(`📊 Average time for ${route}: ${average.toFixed(2)}ms`);
       
       this.metrics.delete(key);
       return duration;
@@ -61,221 +53,90 @@ class PerformanceCollector {
     return null;
   }
 
-  // Measure component render time
+  // Measure component render time (lightweight)
   measureComponent(name, fn) {
-    if (!this.isEnabled) return fn();
+    // Completely disabled in production for maximum performance
+    if (process.env.NODE_ENV !== 'development') return fn();
     
     const startTime = performance.now();
     const result = fn();
     const endTime = performance.now();
     
-    console.log(`🔧 Component "${name}" rendered in ${(endTime - startTime).toFixed(2)}ms`);
     return result;
   }
 
-  // Measure async operation
+  // Measure async operation (lightweight)
   async measureAsync(name, asyncFn) {
-    if (!this.isEnabled) return await asyncFn();
+    // Completely disabled in production for maximum performance
+    if (process.env.NODE_ENV !== 'development') return await asyncFn();
     
     const startTime = performance.now();
     const result = await asyncFn();
     const endTime = performance.now();
     
-    console.log(`⚡ Async operation "${name}" completed in ${(endTime - startTime).toFixed(2)}ms`);
     return result;
   }
 
-  // Get Web Vitals
-  getWebVitals() {
-    if (!this.isEnabled || typeof window === 'undefined') return {};
-    
-    const navigation = performance.getEntriesByType('navigation')[0];
-    const paint = performance.getEntriesByType('paint');
-    
-    return {
-      // Time to First Byte
-      ttfb: navigation?.responseStart - navigation?.requestStart,
-      // First Contentful Paint
-      fcp: paint.find(p => p.name === 'first-contentful-paint')?.startTime,
-      // Largest Contentful Paint (requires observer)
-      lcp: this.lcpValue || null,
-      // Cumulative Layout Shift (requires observer)
-      cls: this.clsValue || null,
-      // First Input Delay (requires observer)
-      fid: this.fidValue || null
-    };
-  }
-
-  // Get route performance summary
-  getRoutePerformance() {
-    const summary = {};
-    
-    this.routeTimings.forEach((timings, route) => {
-      const average = timings.reduce((a, b) => a + b, 0) / timings.length;
-      const min = Math.min(...timings);
-      const max = Math.max(...timings);
-      
-      summary[route] = {
-        average: parseFloat(average.toFixed(2)),
-        min: parseFloat(min.toFixed(2)),
-        max: parseFloat(max.toFixed(2)),
-        samples: timings.length
-      };
-    });
-    
-    return summary;
-  }
-
-  // Initialize Web Vitals observers
+  // Initialize Web Vitals observers (lightweight)
   initWebVitals() {
-    if (!this.isEnabled || typeof window === 'undefined') return;
+    // Disable in production for better performance
+    if (process.env.NODE_ENV !== 'development' || typeof window === 'undefined') return;
     
     try {
-      // Largest Contentful Paint
+      // Only initialize critical Web Vitals
       if (window.PerformanceObserver) {
+        // Largest Contentful Paint
         const lcpObserver = new PerformanceObserver((list) => {
           const entries = list.getEntries();
           const lastEntry = entries[entries.length - 1];
-          this.lcpValue = lastEntry.startTime;
-          console.log(`🎨 LCP: ${lastEntry.startTime.toFixed(2)}ms`);
         });
         lcpObserver.observe({ type: 'largest-contentful-paint', buffered: true });
-
-        // Cumulative Layout Shift
-        const clsObserver = new PerformanceObserver((list) => {
-          let clsValue = 0;
-          for (const entry of list.getEntries()) {
-            if (!entry.hadRecentInput) {
-              clsValue += entry.value;
-            }
-          }
-          this.clsValue = clsValue;
-          console.log(`📐 CLS: ${clsValue.toFixed(4)}`);
-        });
-        clsObserver.observe({ type: 'layout-shift', buffered: true });
-
-        // First Input Delay
-        const fidObserver = new PerformanceObserver((list) => {
-          for (const entry of list.getEntries()) {
-            this.fidValue = entry.processingStart - entry.startTime;
-            console.log(`⚡ FID: ${this.fidValue.toFixed(2)}ms`);
-          }
-        });
-        fidObserver.observe({ type: 'first-input', buffered: true });
       }
     } catch (error) {
-      console.error('Failed to initialize Web Vitals observers:', error);
+      // Silent error handling
     }
-  }
-
-  // Generate performance report
-  generateReport() {
-    if (!this.isEnabled) return null;
-    
-    const webVitals = this.getWebVitals();
-    const routePerf = this.getRoutePerformance();
-    
-    const report = {
-      timestamp: new Date().toISOString(),
-      webVitals,
-      routePerformance: routePerf,
-      recommendations: this.generateRecommendations(webVitals, routePerf)
-    };
-    
-    console.log('📋 Performance Report:', report);
-    return report;
-  }
-
-  // Generate performance recommendations
-  generateRecommendations(webVitals, routePerf) {
-    const recommendations = [];
-    
-    // Web Vitals recommendations
-    if (webVitals.lcp && webVitals.lcp > 2500) {
-      recommendations.push({
-        type: 'LCP',
-        issue: 'Largest Contentful Paint is slow',
-        suggestion: 'Consider lazy loading images and optimizing largest elements'
-      });
-    }
-    
-    if (webVitals.fid && webVitals.fid > 100) {
-      recommendations.push({
-        type: 'FID',
-        issue: 'First Input Delay is high',
-        suggestion: 'Reduce JavaScript execution time and split large bundles'
-      });
-    }
-    
-    if (webVitals.cls && webVitals.cls > 0.1) {
-      recommendations.push({
-        type: 'CLS',
-        issue: 'Cumulative Layout Shift is high',
-        suggestion: 'Set dimensions for images and avoid inserting content above existing content'
-      });
-    }
-    
-    // Route performance recommendations
-    Object.entries(routePerf).forEach(([route, metrics]) => {
-      if (metrics.average > 1000) {
-        recommendations.push({
-          type: 'Route Performance',
-          issue: `Route ${route} is slow (${metrics.average}ms average)`,
-          suggestion: 'Consider code splitting, lazy loading, or caching optimizations'
-        });
-      }
-    });
-    
-    return recommendations;
   }
 }
 
-// Global performance collector
-const performanceCollector = new PerformanceCollector();
+// Create singleton instance
+const performanceCollector = new LightweightPerformanceCollector();
 
-// React hook for performance monitoring
-export const usePerformanceMonitor = (routeName) => {
+// Export the collector
+export default performanceCollector;
+
+// Hook for measuring component performance
+export const usePerformanceMonitor = () => {
   const pathname = usePathname();
-  const startTimeRef = useRef(null);
+  const routeStartRef = useRef(null);
   
+  // Start route transition timing
   useEffect(() => {
-    // Initialize Web Vitals on first mount
-    performanceCollector.initWebVitals();
-  }, []);
-
-  useEffect(() => {
-    // Start timing when route changes
-    if (routeName || pathname) {
-      const route = routeName || pathname;
-      performanceCollector.startRouteTransition(route);
-      startTimeRef.current = performance.now();
+    if (pathname) {
+      performanceCollector.startRouteTransition(pathname);
+      routeStartRef.current = Date.now();
     }
-
+  }, [pathname]);
+  
+  // End route transition timing
+  useEffect(() => {
     return () => {
-      // End timing when component unmounts or route changes
-      if (routeName || pathname) {
-        const route = routeName || pathname;
-        performanceCollector.endRouteTransition(route);
+      if (pathname && routeStartRef.current) {
+        performanceCollector.endRouteTransition(pathname);
       }
     };
-  }, [routeName, pathname]);
-
-  const measureRender = useCallback((name, fn) => {
-    return performanceCollector.measureComponent(name, fn);
+  }, [pathname]);
+  
+  const measureRender = useCallback((componentName, renderFn) => {
+    return performanceCollector.measureComponent(componentName, renderFn);
   }, []);
-
-  const measureAsync = useCallback((name, asyncFn) => {
-    return performanceCollector.measureAsync(name, asyncFn);
+  
+  const measureAsync = useCallback(async (operationName, asyncFn) => {
+    return await performanceCollector.measureAsync(operationName, asyncFn);
   }, []);
-
-  const getReport = useCallback(() => {
-    return performanceCollector.generateReport();
-  }, []);
-
+  
   return {
     measureRender,
-    measureAsync,
-    getReport
+    measureAsync
   };
 };
 
@@ -333,11 +194,4 @@ export const PerformanceMetrics = ({ show = false }) => {
   }, [show, getReport]);
 
   return null;
-};
-
-export default {
-  usePerformanceMonitor,
-  PerformanceDebugger,
-  PerformanceMetrics,
-  performanceCollector
 };

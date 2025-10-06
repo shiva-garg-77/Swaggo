@@ -1,13 +1,17 @@
 "use client";
-import { useState, useContext, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from '../Helper/ThemeProvider';
-import { AuthContext } from '../Helper/AuthProvider';
+import { useFixedSecureAuth } from '../../context/FixedSecureAuthContext';
 import Link from 'next/link';
 
 export default function Signup() {
   const { theme } = useTheme();
-  const { signup, ErrorMsg, successMsg, clearMessages, clearError, accessToken } = useContext(AuthContext);
+  const { signup, isAuthenticated, isLoading, error, clearError } = useFixedSecureAuth();
+  // Map SecureAuth properties to legacy interface
+  const ErrorMsg = error;
+  const accessToken = isAuthenticated; // Use authentication state instead of token
+  const successMsg = null; // Not available in SecureAuth context
 
   const router = useRouter();
   const [formData, setFormData] = useState({
@@ -17,6 +21,7 @@ export default function Signup() {
     dateOfBirth: ''
   });
   const [fieldErrors, setFieldErrors] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Redirect to home if already authenticated
   useEffect(() => {
@@ -25,12 +30,14 @@ export default function Signup() {
     }
   }, [accessToken, router]);
 
-  // Clear messages on component unmount only
+  // Clear error on component unmount
   useEffect(() => {
     return () => {
-      clearMessages();
+      if (error) {
+        clearError();
+      }
     };
-  }, []);
+  }, [error, clearError]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -55,6 +62,7 @@ export default function Signup() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setIsSubmitting(true);
 
     // Clear previous field errors
     setFieldErrors({});
@@ -76,33 +84,49 @@ export default function Signup() {
     
     if (!formData.password) {
       errors.password = 'Password is required';
-    } else if (formData.password.length < 6) {
-      errors.password = 'Password must be at least 6 characters long';
+    } else if (formData.password.length < 8) {
+      errors.password = 'Password must be at least 8 characters long';
+    } else if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/.test(formData.password)) {
+      errors.password = 'Password must contain at least one uppercase letter, lowercase letter, number, and special character';
     }
-    
+
     if (!formData.dateOfBirth) {
       errors.dateOfBirth = 'Date of birth is required';
+    } else {
+      const birthDate = new Date(formData.dateOfBirth);
+      const today = new Date();
+      const age = today.getFullYear() - birthDate.getFullYear();
+      if (age < 13) {
+        errors.dateOfBirth = 'You must be at least 13 years old to create an account';
+      }
     }
     
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
+      setIsSubmitting(false);
       return;
     }
 
-    const result = await signup(formData);
+    try {
+      // Use the secure signup method
+      const result = await signup(formData);
 
-    if (result.success) {
-      // Reset form
-      setFormData({
-        email: '',
-        username: '',
-        password: '',
-        dateOfBirth: ''
-      });
-      // Redirect will be handled by useEffect when accessToken is set
-      setTimeout(() => {
+      if (result.success) {
+        // Reset form
+        setFormData({
+          email: '',
+          username: '',
+          password: '',
+          dateOfBirth: ''
+        });
+        
+        // Redirect to home page
         router.push('/home');
-      }, 500);
+      }
+    } catch (err) {
+      console.error('Signup failed:', err);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -186,6 +210,7 @@ export default function Signup() {
             )}
           </div>
 
+
           <div className="mb-3 text-left">
             <label htmlFor="dateOfBirth" className="block text-gray-700 dark:text-gray-200 font-medium mb-2 text-sm transition-colors duration-300">
               Date of Birth
@@ -209,9 +234,14 @@ export default function Signup() {
 
           <button
             type="submit"
-            className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold py-3 px-9 rounded-3xl transition-all duration-300 mb-5 cursor-pointer hover:transform hover:-translate-y-1 hover:shadow-2xl hover:shadow-red-500/30"
+            disabled={isSubmitting || isLoading}
+            className={`bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold py-3 px-9 rounded-3xl transition-all duration-300 mb-5 ${
+              isSubmitting || isLoading
+                ? 'opacity-50 cursor-not-allowed' 
+                : 'hover:transform hover:-translate-y-1 hover:shadow-2xl hover:shadow-red-500/30'
+            }`}
           >
-            Sign Up
+            {isSubmitting || isLoading ? 'Creating Account...' : 'Sign Up'}
           </button>
         </form>
 

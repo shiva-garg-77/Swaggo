@@ -1,26 +1,27 @@
 "use client";
-import { useContext, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { AuthContext } from './AuthProvider';
+import { useFixedSecureAuth } from '../../context/FixedSecureAuthContext';
 
 export default function ProtectedRoute({ children }) {
-  const { accessToken, initialized } = useContext(AuthContext);
+  const { isAuthenticated, isLoading } = useFixedSecureAuth();
   const router = useRouter();
+  const initialized = !isLoading;
 
   useEffect(() => {
-    // Only redirect if initialized and no access token
-    if (initialized && !accessToken) {
+    // Only redirect if initialized and not authenticated
+    if (initialized && !isAuthenticated) {
       router.push('/');
     }
-  }, [initialized, accessToken, router]);
+  }, [initialized, isAuthenticated, router]);
 
   // Show nothing until initialized
   if (!initialized) {
     return null;
   }
 
-  // If initialized but no token, show nothing (will redirect)
-  if (!accessToken) {
+  // If initialized but not authenticated, show nothing (will redirect)
+  if (!isAuthenticated) {
     return null;
   }
 

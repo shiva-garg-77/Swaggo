@@ -1,10 +1,10 @@
 "use client";
-import { useState, useEffect, useRef, useContext } from 'react';
-import { useQuery, useMutation } from '@apollo/client';
+import { useState, useEffect, useRef } from 'react';
+import { useQuery, useMutation } from '@apollo/client/react';
 import { useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from '../../Helper/ThemeProvider';
-import { AuthContext } from '../../Helper/AuthProvider';
+import { useFixedSecureAuth } from '../../../context/FixedSecureAuthContext';
 import VideoPlayer from '../Post/VideoPlayer';
 import ReelComments from './ReelComments';
 import ReelBalance from './ReelBalance';
@@ -37,7 +37,7 @@ import { BLOCK_USER, RESTRICT_USER } from '../../../lib/graphql/profileQueries';
 
 const MomentsContent = () => {
   const { theme } = useTheme();
-  const { user } = useContext(AuthContext);
+  const { user } = useFixedSecureAuth();
   const searchParams = useSearchParams();
   
   // Get initial moment index from URL parameter

@@ -1,13 +1,13 @@
 'use client'
 
 import { useMemo } from 'react'
-import { useQuery, useMutation } from '@apollo/client'
+import { useQuery, useMutation } from '@apollo/client/react';
 import { ArrowLeft, UserMinus, Trash2 } from 'lucide-react'
-import { useAuth } from '../../Helper/AuthProvider'
+import { useSecureAuth } from '../../../context/FixedSecureAuthContext'
 import { GET_BLOCKED_ACCOUNTS, UNBLOCK_USER } from '../../../lib/graphql/profileQueries'
 
 export default function BlockedAccounts({ onBack }) {
-  const { user } = useAuth()
+  const { user } = useSecureAuth()
   const profileid = user?.profileid
 
   const { data, loading, error, refetch } = useQuery(GET_BLOCKED_ACCOUNTS, {

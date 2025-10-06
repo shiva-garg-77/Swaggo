@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useMutation } from '@apollo/client';
+import { useMutation } from '@apollo/client/react';
 import { VIEW_STORY } from './queries';
 
 export default function StoryViewer({ story, user, onClose }) {

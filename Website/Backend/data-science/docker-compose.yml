@@ -1,0 +1,357 @@
+# Swaggo Data Science Pipeline - Docker Compose Configuration
+# Complete data processing, analytics, and ML pipeline
+
+version: '3.8'
+
+services:
+  # ============ DATABASE SERVICES ============
+  
+  # Main MongoDB Database
+  mongodb:
+    image: mongo:6.0
+    container_name: swaggo_mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: swaggo_mongo_pass_2024
+      MONGO_INITDB_DATABASE: swaggo_db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+      - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - swaggo_network
+    command: mongod --auth --bind_ip_all
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis for Caching and Real-time Data
+  redis:
+    image: redis:7-alpine
+    container_name: swaggo_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./config/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - swaggo_network
+    command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PostgreSQL for Analytics (Time-series data)
+  postgres:
+    image: postgres:15-alpine
+    container_name: swaggo_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: analytics_db
+      POSTGRES_USER: analytics_user
+      POSTGRES_PASSWORD: analytics_pass_2024
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - swaggo_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U analytics_user -d analytics_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============ DATA PROCESSING SERVICES ============
+  
+  # Main Data Science API Server
+  data-science-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: swaggo_ds_api
+    restart: unless-stopped
+    environment:
+      DS_PORT: 5000
+      DS_ENV: production
+      API_BASE_URL: http://main-api:45799
+      REDIS_URL: redis://redis:6379/0
+      MONGODB_URL: mongodb://admin:swaggo_mongo_pass_2024@mongodb:27017/swaggo_db?authSource=admin
+      POSTGRES_URL: postgresql://analytics_user:analytics_pass_2024@postgres:5432/analytics_db
+      CACHE_EXPIRY: 3600
+      DS_SECRET_KEY: your-secret-key-change-in-production
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./models:/app/models
+      - ./logs:/app/logs
+    networks:
+      - swaggo_network
+    depends_on:
+      - mongodb
+      - redis
+      - postgres
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ML Model Training Service
+  ml-trainer:
+    build:
+      context: .
+      dockerfile: Dockerfile.ml-trainer
+    container_name: swaggo_ml_trainer
+    restart: "no"  # Run on-demand
+    environment:
+      REDIS_URL: redis://redis:6379/1
+      MONGODB_URL: mongodb://admin:swaggo_mongo_pass_2024@mongodb:27017/swaggo_db?authSource=admin
+      MODEL_STORAGE_PATH: /app/models
+      TRAINING_SCHEDULE: "0 2 * * *"  # Daily at 2 AM
+    volumes:
+      - ./models:/app/models
+      - ./training_data:/app/data
+      - ./logs:/app/logs
+    networks:
+      - swaggo_network
+    depends_on:
+      - mongodb
+      - redis
+    profiles:
+      - training
+
+  # Real-time Analytics Processor
+  analytics-processor:
+    build:
+      context: .
+      dockerfile: Dockerfile.analytics
+    container_name: swaggo_analytics_processor
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://redis:6379/2
+      POSTGRES_URL: postgresql://analytics_user:analytics_pass_2024@postgres:5432/analytics_db
+      BATCH_SIZE: 1000
+      PROCESSING_INTERVAL: 10  # seconds
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - swaggo_network
+    depends_on:
+      - redis
+      - postgres
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  # ============ MONITORING & VISUALIZATION ============
+  
+  # Grafana for Analytics Dashboards
+  grafana:
+    image: grafana/grafana:10.0.0
+    container_name: swaggo_grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: grafana_admin_2024
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: grafana-redis-datasource,grafana-mongodb-datasource
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - swaggo_network
+    depends_on:
+      - postgres
+      - redis
+
+  # Prometheus for Metrics Collection
+  prometheus:
+    image: prom/prometheus:v2.40.0
+    container_name: swaggo_prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - swaggo_network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+
+  # ============ MESSAGE QUEUE & WORKFLOW ============
+  
+  # Apache Kafka for Event Streaming
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: swaggo_kafka
+    restart: unless-stopped
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - swaggo_network
+    depends_on:
+      - zookeeper
+
+  # Zookeeper for Kafka coordination
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: swaggo_zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
+    networks:
+      - swaggo_network
+
+  # ============ BATCH PROCESSING ============
+  
+  # Apache Airflow for Workflow Management
+  airflow-webserver:
+    image: apache/airflow:2.7.0
+    container_name: swaggo_airflow_webserver
+    restart: unless-stopped
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql://analytics_user:analytics_pass_2024@postgres:5432/analytics_db
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+    networks:
+      - swaggo_network
+    depends_on:
+      - postgres
+    command: webserver
+    profiles:
+      - airflow
+
+  # Airflow Scheduler
+  airflow-scheduler:
+    image: apache/airflow:2.7.0
+    container_name: swaggo_airflow_scheduler
+    restart: unless-stopped
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql://analytics_user:analytics_pass_2024@postgres:5432/analytics_db
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+    networks:
+      - swaggo_network
+    depends_on:
+      - postgres
+    command: scheduler
+    profiles:
+      - airflow
+
+  # ============ UTILITY SERVICES ============
+  
+  # Nginx Load Balancer & Reverse Proxy
+  nginx:
+    image: nginx:1.24-alpine
+    container_name: swaggo_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      - swaggo_network
+    depends_on:
+      - data-science-api
+    profiles:
+      - production
+
+  # Data Backup Service
+  backup:
+    image: alpine:3.18
+    container_name: swaggo_backup
+    restart: "no"
+    environment:
+      BACKUP_SCHEDULE: "0 3 * * *"  # Daily at 3 AM
+      S3_BUCKET: "swaggo-backups"
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+    volumes:
+      - mongodb_data:/backup/mongodb:ro
+      - postgres_data:/backup/postgres:ro
+      - ./models:/backup/models:ro
+      - ./scripts/backup.sh:/backup.sh:ro
+    networks:
+      - swaggo_network
+    command: sh /backup.sh
+    profiles:
+      - backup
+
+# ============ NETWORKS ============
+networks:
+  swaggo_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# ============ VOLUMES ============
+volumes:
+  mongodb_data:
+    driver: local
+  mongodb_config:
+    driver: local
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  grafana_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  kafka_data:
+    driver: local
+  zookeeper_data:
+    driver: local
+  zookeeper_logs:
+    driver: local

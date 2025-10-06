@@ -1,12 +1,12 @@
 "use client";
-import { useState, useContext, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useTheme } from '../Helper/ThemeProvider';
-import { AuthContext } from '../Helper/AuthProvider';
+import { useFixedSecureAuth } from '../../context/FixedSecureAuthContext';
 
 export default function ForgetPass() {
   const { theme } = useTheme();
-  const { forgetPassword, ErrorMsg, successMsg, clearMessages, clearError } = useContext(AuthContext);
+  const { forgetPassword, ErrorMsg, successMsg, clearMessages, clearError } = useFixedSecureAuth();
   const [formData, setFormData] = useState({
     email: '',
   });

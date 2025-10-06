@@ -9,7 +9,10 @@ import SavedPost from '../Models/FeedModels/SavedPost.js';
  */
 export const getPostLikeCount = async (postid) => {
     try {
-        return await Likes.countDocuments({ postid, commentid: { $exists: false } });
+        // Manual filtering approach to avoid Mongoose casting issues
+        const allPostLikes = await Likes.find({ postid }).exec();
+        const postOnlyLikes = allPostLikes.filter(like => !like.commentid || like.commentid === null || like.commentid === undefined);
+        return postOnlyLikes.length;
     } catch (error) {
         console.error('Error getting post like count:', error);
         return 0;
@@ -53,8 +56,10 @@ export const getPostCommentCount = async (postid) => {
 export const hasUserLikedPost = async (postid, profileid) => {
     try {
         if (!profileid) return false;
-        const like = await Likes.findOne({ postid, profileid, commentid: { $exists: false } });
-        return !!like;
+        // Manual filtering approach to avoid Mongoose casting issues
+        const userPostLikes = await Likes.find({ postid, profileid }).exec();
+        const postOnlyLike = userPostLikes.find(like => !like.commentid || like.commentid === null || like.commentid === undefined);
+        return !!postOnlyLike;
     } catch (error) {
         console.error('Error checking if user liked post:', error);
         return false;
@@ -116,14 +121,10 @@ export const getCommentReplies = async (commentid) => {
  */
 export const getTopLevelComments = async (postid) => {
     try {
-        return await Comments.find({ 
-            postid, 
-            $or: [
-                { commenttoid: { $exists: false } },
-                { commenttoid: null },
-                { commenttoid: "" }
-            ]
-        }).sort({ createdAt: -1 });
+        // Manual filtering approach to avoid Mongoose casting issues
+        const allPostComments = await Comments.find({ postid }).sort({ createdAt: -1 }).exec();
+        const topLevelComments = allPostComments.filter(comment => !comment.commenttoid || comment.commenttoid === null || comment.commenttoid === undefined);
+        return topLevelComments;
     } catch (error) {
         console.error('Error getting top-level comments:', error);
         return [];

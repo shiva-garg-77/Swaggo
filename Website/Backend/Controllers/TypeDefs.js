@@ -75,6 +75,7 @@ type Story {
     viewersCount:Int!
     isViewedByUser:Boolean!
     isActive:Boolean!
+    savedToHighlights:Boolean!
     expiresAt:String
     createdAt:String
     updatedAt:String
@@ -84,6 +85,28 @@ type StoryViewer {
     profileid:String!
     profile:Profiles!
     viewedAt:String
+}
+type HighlightStory {
+    storyid:String!
+    mediaUrl:String!
+    mediaType:String!
+    caption:String
+    originalStoryDate:String!
+    addedToHighlightAt:String!
+}
+type Highlight {
+    highlightid:String!
+    profileid:String!
+    profile:Profiles!
+    title:String!
+    coverImage:String
+    stories:[HighlightStory!]!
+    isActive:Boolean!
+    viewCount:Int!
+    category:String
+    storyCount:Int!
+    createdAt:String
+    updatedAt:String
 }
 type Memory {
     memoryid:String!
@@ -224,6 +247,7 @@ type AuthPayload {
     user:Profiles!
 }
 
+
 type User {
     id:String!
     username:String!
@@ -259,9 +283,9 @@ type Profiles {
     # tagpost:[Posts!]
 }
 type Query{
-hello: String
-    getUsers:[Profiles!]
-    getUserbyUsername(username:String):Profiles
+  hello: String
+      getUsers:[Profiles!]
+      getUserbyUsername(username:String):Profiles
 
     # Feed Posts
     getPosts:[Posts!]
@@ -308,6 +332,10 @@ hello: String
     getStoryById(storyid:String!):Story
     getStoryViewers(storyid:String!):[StoryViewer!]
     
+    # Highlights Queries
+    getHighlights(profileid:String!):[Highlight!]
+    getHighlightById(highlightid:String!):Highlight
+    
     # Chat Queries
     getChats(profileid:String!):[Chat!]
     getChatById(chatid:String!):Chat
@@ -321,6 +349,7 @@ hello: String
     # Chat Statistics
     getUnreadMessageCount(profileid:String!):Int
     getChatUnreadCount(chatid:String!,profileid:String!):Int
+    
 }
 
 type PostStats {
@@ -501,6 +530,30 @@ type Mutation {
     ):Story
     DeleteStory(storyid:String!):Story
     ViewStory(storyid:String!):Story
+    
+    # Highlight Mutations
+    CreateHighlight(
+        profileid:String!,
+        title:String!,
+        coverImage:String,
+        category:String
+    ):Highlight
+    UpdateHighlight(
+        highlightid:String!,
+        title:String,
+        coverImage:String,
+        category:String
+    ):Highlight
+    DeleteHighlight(highlightid:String!):Highlight
+    AddStoryToHighlight(
+        highlightid:String!,
+        storyid:String!
+    ):Highlight
+    RemoveStoryFromHighlight(
+        highlightid:String!,
+        storyid:String!
+    ):Highlight
+    
 }
 
 input MessageAttachmentInput {

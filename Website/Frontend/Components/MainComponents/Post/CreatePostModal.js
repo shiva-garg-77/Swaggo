@@ -1,15 +1,26 @@
 "use client";
 
-import { useState, useEffect, useContext, useRef } from 'react';
-import { useMutation, useLazyQuery } from '@apollo/client';
+import { useState, useEffect, useRef } from 'react';
+import { useMutation, useLazyQuery, useQuery } from '@apollo/client/react';
 import { useTheme } from '../../Helper/ThemeProvider';
-import { AuthContext } from '../../Helper/AuthProvider';
-import { CREATE_POST_MUTATION, CREATE_DRAFT_MUTATION, UPDATE_DRAFT_MUTATION, SEARCH_USERS } from '../../../lib/graphql/profileQueries';
+import { useFixedSecureAuth } from '../../../context/FixedSecureAuthContext';
+import { CREATE_POST_MUTATION, CREATE_DRAFT_MUTATION, UPDATE_DRAFT_MUTATION, SEARCH_USERS, GET_USER_BY_USERNAME } from '../../../lib/graphql/profileQueries';
+// 🔒 SECURITY: Import connection state management for secure post operations
+import connectionState from '../../../lib/ConnectionState.js';
 
 export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onPostSuccess, draftData }) {
   const { theme: contextTheme } = useTheme();
   const theme = propTheme || contextTheme;
-  const { user } = useContext(AuthContext);
+  const { user, isAuthenticated } = useFixedSecureAuth();
+  
+  // Get user profile data for profileid
+  const { data: profileData, loading: profileLoading } = useQuery(GET_USER_BY_USERNAME, {
+    variables: { username: user?.username },
+    skip: !user?.username,
+    fetchPolicy: 'cache-first'
+  });
+  
+  // Get profileid from GraphQL profile data instead of frontend auth context
   
   // Multi-step state management
   const [currentStep, setCurrentStep] = useState(1); // 1: Select, 2: Edit, 3: Details
@@ -45,6 +56,23 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
   
   // Upload state
   const [isUploading, setIsUploading] = useState(false);
+  
+  // 🔒 SECURITY: Register component with connection state manager
+  useEffect(() => {
+    const componentId = 'CreatePostModal';
+    connectionState.register(componentId, {
+      type: 'post',
+      critical: false,
+      security: 'high',
+      authenticated: true,
+      mediaUpload: true,
+      userInteraction: true
+    });
+    
+    return () => {
+      connectionState.update(componentId, { connected: false });
+    };
+  }, []);
   
   // Add user search functionality
   const [searchUsers, { data: searchUsersData }] = useLazyQuery(SEARCH_USERS);
@@ -346,10 +374,8 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
       return;
     }
     
-    if (!user.profileid) {
-      alert('⚠️ Profile ID not available. Please refresh the page and try again.');
-      return;
-    }
+    // Note: profileid is provided by GraphQL backend context, not frontend auth context
+    // The backend GraphQL middleware will handle user authentication and provide profileid
 
     // Upload loading removed
     
@@ -397,8 +423,25 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
         console.log('📝 Using existing media from draft:', fileUrl);
       }
       
+      // Get profileid from GraphQL profile data
+      const profileid = profileData?.getUserbyUsername?.profileid;
+      
+      console.log('🔍 Profile data for post creation:', {
+        hasUser: !!user,
+        hasProfileData: !!profileData,
+        profileid: profileid,
+        username: user?.username,
+        isLoading: profileLoading
+      });
+      
+      if (!profileid) {
+        console.error('❌ No profileid available from GraphQL profile data');
+        alert('❌ Profile information not available. Please make sure you\'re logged in and try again.');
+        return;
+      }
+      
       const postData = {
-        profileid: user.profileid,
+        profileid: profileid,
         postUrl: fileUrl || 'text-post-placeholder',
         title: title || null,
         Description: caption || null,
@@ -461,16 +504,19 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
   };
 
   const handleSaveAsDraft = async () => {
-    console.log('\n💾 SAVE AS DRAFT DEBUG:');
-    console.log('- User:', user ? `${user.username} (${user.profileid})` : 'NULL');
+    // Get profileid from GraphQL profile data
+    const profileid = profileData?.getUserbyUsername?.profileid;
+    
+    // Save as draft functionality
+    console.log('- User:', user?.username || 'NULL');
+    console.log('- Profile ID from GraphQL:', profileid);
     console.log('- Selected file:', !!selectedFile);
     console.log('- File type:', fileType);
-    console.log('- File preview:', filePreview?.substring(0, 50) + '...');
     console.log('- Title:', title);
     console.log('- Caption:', caption);
     console.log('- Draft data:', draftData ? draftData.draftid : 'NULL');
     
-    if (!user || !user.profileid) {
+    if (!user || !profileid) {
       alert('⚠️ Please log in to save drafts.');
       return;
     }
@@ -556,7 +602,7 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
       }
     } else {
       // Create new draft
-      draftVariables.profileid = user.profileid;
+      draftVariables.profileid = profileid;
       console.log('Creating draft with variables:', draftVariables);
       try {
         await createDraft({

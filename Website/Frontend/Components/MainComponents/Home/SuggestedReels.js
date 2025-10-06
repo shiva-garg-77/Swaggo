@@ -1,10 +1,10 @@
 "use client";
 import { useState, useRef, useEffect } from 'react';
-import { useQuery, useMutation } from '@apollo/client';
+import { useQuery, useMutation } from '@apollo/client/react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { useTheme } from '../../Helper/ThemeProvider';
-import { useAuth } from '../../Helper/AuthProvider';
+import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { 
   GET_ALL_POSTS, 
   TOGGLE_POST_LIKE, 
@@ -26,7 +26,7 @@ import {
 
 export default function SuggestedMoments({ onMomentClick = null }) {
   const { theme } = useTheme();
-  const { user } = useAuth();
+  const { user } = useSecureAuth();
   const router = useRouter();
   const [currentPlayingIndex, setCurrentPlayingIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);

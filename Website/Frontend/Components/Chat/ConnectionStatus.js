@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { useSocket } from '../Helper/SocketProvider';
+import { useSocket } from '../Helper/PerfectSocketProvider';
 
 export default function ConnectionStatus() {
   // Always call hooks at the top level
@@ -49,6 +49,34 @@ export default function ConnectionStatus() {
           icon: '🔴',
           description: 'Chat is offline'
         };
+      case 'server_unreachable':
+        return {
+          color: 'bg-red-600',
+          text: 'Server Offline',
+          icon: '🚫',
+          description: 'Cannot reach chat server'
+        };
+      case 'auth_failed':
+        return {
+          color: 'bg-red-600',
+          text: 'Authentication Failed',
+          icon: '🔐',
+          description: 'Please log in again'
+        };
+      case 'not_authenticated':
+        return {
+          color: 'bg-yellow-600',
+          text: 'Not Authenticated',
+          icon: '🔑',
+          description: 'Authentication required'
+        };
+      case 'connection_error':
+        return {
+          color: 'bg-red-600',
+          text: 'Connection Error',
+          icon: '❌',
+          description: 'Network error occurred'
+        };
       case 'error':
         return {
           color: 'bg-red-600',
@@ -61,12 +89,12 @@ export default function ConnectionStatus() {
           color: 'bg-gray-500',
           text: 'Connection Failed',
           icon: '⚫',
-          description: 'Unable to establish connection'
+          description: 'Max retry attempts reached'
         };
       default:
         return {
           color: 'bg-gray-400',
-          text: 'Unknown',
+          text: connectionStatus || 'Unknown',
           icon: '❓',
           description: 'Connection status unknown'
         };
@@ -88,10 +116,11 @@ export default function ConnectionStatus() {
         </div>
       )}
       
-      {connectionStatus === 'failed' && (
+      {['failed', 'server_unreachable', 'connection_error', 'auth_failed'].includes(connectionStatus) && (
         <button
           onClick={reconnect}
-          className="text-xs text-white/80 hover:text-white underline ml-1"
+          className="text-xs text-white/80 hover:text-white underline ml-1 bg-white/20 px-2 py-0.5 rounded"
+          title={`Click to retry connection (${statusConfig.description})`}
         >
           Retry
         </button>

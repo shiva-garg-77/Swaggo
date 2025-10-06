@@ -52,3 +52,24 @@ coverage/
 
 # Cache
 .eslintcache
+
+# Backup and temporary files
+*.bak
+*.backup
+*.old
+*.temp
+*.tmp
+*-copy*
+*Copy*
+
+# Large upload files
+uploads/*.mp4
+uploads/*.avi
+uploads/*.mov
+
+# Build artifacts
+.swc/
+*.tsbuildinfo
+
+# MongoDB memory server
+.cache/mongodb-memory-server/

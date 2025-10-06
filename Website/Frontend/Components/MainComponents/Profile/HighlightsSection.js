@@ -1,57 +1,77 @@
 "use client";
 
 import { useState, useCallback } from 'react';
-import { useQuery, useMutation } from '@apollo/client';
+import { useQuery, useMutation } from '@apollo/client/react';
 import { useTheme } from '../../Helper/ThemeProvider';
-import { useAuth } from '../../Helper/AuthProvider';
+import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { gql } from '@apollo/client';
 
-// Define mutations inline to avoid import issues
-const GET_MEMORIES = gql`
-  query GetMemories($profileid: String!) {
-    getMemories(profileid: $profileid) {
-      memoryid
+// Define queries for highlights
+const GET_HIGHLIGHTS = gql`
+  query GetHighlights($profileid: String!) {
+    getHighlights(profileid: $profileid) {
+      highlightid
       title
       coverImage
-      postUrl
+      storyCount
+      category
       createdAt
       stories {
         storyid
         mediaUrl
         mediaType
-        createdAt
+        caption
+        originalStoryDate
+        addedToHighlightAt
       }
     }
   }
 `;
 
-const CREATE_MEMORY = gql`
-  mutation CreateMemory($profileid: String!, $title: String!, $coverImage: String, $postUrl: String) {
-    CreateMemory(profileid: $profileid, title: $title, coverImage: $coverImage, postUrl: $postUrl) {
-      memoryid
-      title
-      coverImage
-      postUrl
+const GET_ACTIVE_STORIES = gql`
+  query GetActiveStories {
+    getActiveStories {
+      storyid
+      profileid
+      mediaUrl
+      mediaType
+      caption
+      savedToHighlights
+      expiresAt
       createdAt
     }
   }
 `;
 
-const ADD_STORY_TO_MEMORY = gql`
-  mutation AddStoryToMemory($memoryid: String!, $mediaUrl: String!, $mediaType: String!) {
-    AddStoryToMemory(memoryid: $memoryid, mediaUrl: $mediaUrl, mediaType: $mediaType) {
-      memoryid
+const CREATE_HIGHLIGHT = gql`
+  mutation CreateHighlight($profileid: String!, $title: String!, $coverImage: String, $category: String) {
+    CreateHighlight(profileid: $profileid, title: $title, coverImage: $coverImage, category: $category) {
+      highlightid
       title
       coverImage
-      postUrl
+      category
+      storyCount
+      createdAt
+    }
+  }
+`;
+
+const ADD_STORY_TO_HIGHLIGHT = gql`
+  mutation AddStoryToHighlight($highlightid: String!, $storyid: String!) {
+    AddStoryToHighlight(highlightid: $highlightid, storyid: $storyid) {
+      highlightid
+      title
+      coverImage
+      storyCount
       stories {
         storyid
         mediaUrl
         mediaType
-        createdAt
+        caption
+        originalStoryDate
+        addedToHighlightAt
       }
-      updatedAt
     }
   }
 `;
@@ -62,30 +82,52 @@ export default function HighlightsSection({
   className = "" 
 }) {
   const { theme } = useTheme();
-  const { user } = useAuth();
+  const { user } = useSecureAuth();
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [showMemoryModal, setShowMemoryModal] = useState(false);
-  const [selectedMemory, setSelectedMemory] = useState(null);
-  const [newMemoryTitle, setNewMemoryTitle] = useState('');
+  const [showHighlightModal, setShowHighlightModal] = useState(false);
+  const [selectedHighlight, setSelectedHighlight] = useState(null);
+  const [newHighlightTitle, setNewHighlightTitle] = useState('');
+  const [newHighlightCategory, setNewHighlightCategory] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [showStorySelector, setShowStorySelector] = useState(false);
+  const [availableStories, setAvailableStories] = useState([]);
 
   // GraphQL operations
-  const { data: memoriesData, loading, error, refetch } = useQuery(GET_MEMORIES, {
+  const { data: highlightsData, loading, error, refetch } = useQuery(GET_HIGHLIGHTS, {
     variables: { profileid: profileData?.profileid },
     skip: !profileData?.profileid,
     errorPolicy: 'all'
   });
 
-  const [createMemory] = useMutation(CREATE_MEMORY);
-  const [addStoryToMemory] = useMutation(ADD_STORY_TO_MEMORY);
+  // Query for active stories (for story-to-highlight conversion)
+  const { data: storiesData } = useQuery(GET_ACTIVE_STORIES, {
+    skip: !isOwnProfile,
+    errorPolicy: 'all'
+  });
 
-  const memories = memoriesData?.getMemories || [];
+  const [createHighlight] = useMutation(CREATE_HIGHLIGHT);
+  const [addStoryToHighlight] = useMutation(ADD_STORY_TO_HIGHLIGHT);
 
-  // Handle viewing memory
-  const handleViewMemory = (memory) => {
-    setSelectedMemory(memory);
-    setShowMemoryModal(true);
+  const highlights = highlightsData?.getHighlights || [];
+  const userStories = storiesData?.getActiveStories?.filter(story => 
+    story.profileid === profileData?.profileid && !story.savedToHighlights
+  ) || [];
+
+  // Handle viewing highlight
+  const handleViewHighlight = (highlight) => {
+    setSelectedHighlight(highlight);
+    setShowHighlightModal(true);
+  };
+
+  // Handle creating highlight from story
+  const handleCreateFromStory = () => {
+    if (userStories.length > 0) {
+      setAvailableStories(userStories);
+      setShowStorySelector(true);
+    } else {
+      setShowCreateForm(true);
+    }
   };
 
   // Handle file upload
@@ -112,9 +154,9 @@ export default function HighlightsSection({
     }
   };
 
-  // Handle creating new memory/highlight
-  const handleCreateMemory = useCallback(async (postUrl = null) => {
-    if (!newMemoryTitle.trim() || !user?.profileid) return;
+  // Handle creating new highlight
+  const handleCreateHighlight = useCallback(async (selectedStory = null) => {
+    if (!newHighlightTitle.trim() || !user?.profileid) return;
 
     setIsUploading(true);
     try {
@@ -122,96 +164,80 @@ export default function HighlightsSection({
       
       if (selectedFile) {
         coverImageUrl = await uploadFile(selectedFile);
+      } else if (selectedStory) {
+        coverImageUrl = selectedStory.mediaUrl;
       }
 
-      const finalCoverImage = coverImageUrl || null;
-      
-      await createMemory({
+      const newHighlight = await createHighlight({
         variables: {
           profileid: user.profileid,
-          title: newMemoryTitle.trim(),
-          coverImage: finalCoverImage,
-          postUrl: postUrl || null // Can be linked to a specific post
+          title: newHighlightTitle.trim(),
+          coverImage: coverImageUrl || null,
+          category: newHighlightCategory.trim() || null
         }
       });
 
-      setNewMemoryTitle('');
+      // If creating from a story, add the story to the highlight
+      if (selectedStory) {
+        await addStoryToHighlight({
+          variables: {
+            highlightid: newHighlight.data.CreateHighlight.highlightid,
+            storyid: selectedStory.storyid
+          }
+        });
+      }
+
+      setNewHighlightTitle('');
+      setNewHighlightCategory('');
       setSelectedFile(null);
       setShowCreateForm(false);
+      setShowStorySelector(false);
       refetch();
-    } catch (error) {
-      console.error('❌ Full error creating memory:', {
-        error: error.message,
-        graphQLErrors: error.graphQLErrors,
-        networkError: error.networkError,
-        variables: {
-          profileid: user.profileid,
-          title: newMemoryTitle.trim(),
-          coverImage: coverImageUrl,
-          postUrl: postUrl
-        }
-      });
       
+      alert('✅ Highlight created successfully!');
+    } catch (error) {
+      console.error('❌ Error creating highlight:', error);
       const errorMessage = error.graphQLErrors?.[0]?.message || error.networkError?.message || error.message || 'Unknown error';
       alert(`Error creating highlight: ${errorMessage}`);
     } finally {
       setIsUploading(false);
     }
-  }, [newMemoryTitle, selectedFile, user, createMemory, refetch]);
+  }, [newHighlightTitle, newHighlightCategory, selectedFile, user, createHighlight, addStoryToHighlight, refetch]);
   
-  // Create memory from a post
-  const createMemoryFromPost = useCallback(async (postUrl, postTitle) => {
-    if (!user?.profileid) return;
-    
-    const title = prompt('Enter memory title:', postTitle || 'New Memory');
-    if (!title?.trim()) return;
-    
+
+  // Handle adding story to existing highlight
+  const handleAddStoryToHighlight = useCallback(async (highlightId, file = null, story = null) => {
+    if ((!file && !story) || !user?.profileid) return;
+
     setIsUploading(true);
     try {
-      await createMemory({
-        variables: {
-          profileid: user.profileid,
-          title: title.trim(),
-          coverImage: postUrl || null, // Use post media as cover if present
-          postUrl: postUrl || null
-        }
-      });
+      let storyId;
       
-      refetch();
-      alert('Memory created from post successfully!');
-    } catch (error) {
-      console.error('Error creating memory from post:', error);
-      alert('Error creating memory from post. Please try again.');
-    } finally {
-      setIsUploading(false);
-    }
-  }, [user, createMemory, refetch]);
+      if (story) {
+        // Adding existing story to highlight
+        storyId = story.storyid;
+      } else if (file) {
+        // This would require creating a story first, then adding to highlight
+        // For now, we'll focus on adding existing stories
+        throw new Error('Creating new story and adding to highlight not implemented yet');
+      }
 
-  // Handle adding story to existing memory
-  const handleAddStory = useCallback(async (memoryId, file) => {
-    if (!file || !user?.profileid) return;
-
-    setIsUploading(true);
-    try {
-      const mediaUrl = await uploadFile(file);
-      const mediaType = file.type.startsWith('video/') ? 'VIDEO' : 'IMAGE';
-
-      await addStoryToMemory({
+      await addStoryToHighlight({
         variables: {
-          memoryid: memoryId,
-          mediaUrl,
-          mediaType
+          highlightid: highlightId,
+          storyid: storyId
         }
       });
 
       refetch();
+      alert('✅ Story added to highlight!');
     } catch (error) {
-      console.error('Error adding story:', error);
+      console.error('Error adding story to highlight:', error);
       alert('Error adding story. Please try again.');
     } finally {
       setIsUploading(false);
     }
-  }, [user, addStoryToMemory, refetch]);
+  }, [user, addStoryToHighlight, refetch]);
 
   return (
     <div className={`${className}`}>
@@ -220,7 +246,7 @@ export default function HighlightsSection({
         {isOwnProfile && (
           <div className="flex-shrink-0">
             <button
-              onClick={() => setShowCreateForm(true)}
+              onClick={handleCreateFromStory}
               className={`w-14 h-14 rounded-full border-2 border-dashed flex items-center justify-center transition-colors ${
                 theme === 'dark'
                   ? 'border-gray-600 hover:border-gray-500 hover:bg-gray-800'
@@ -239,19 +265,158 @@ export default function HighlightsSection({
           </div>
         )}
 
+        {/* Show unsaved stories indicator */}
+        {isOwnProfile && userStories.length > 0 && (
+          <div className="flex-shrink-0">
+            <button
+              onClick={() => setShowStorySelector(true)}
+              className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors relative ${
+                theme === 'dark'
+                  ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700'
+                  : 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600'
+              }`}
+            >
+              <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+              </svg>
+              <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                {userStories.length}
+              </div>
+            </button>
+            <p className={`text-xs text-center mt-1 max-w-[56px] truncate ${
+              theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+            }`}>
+              Stories
+            </p>
+          </div>
+        )}
+
         {/* Existing Highlights */}
-        {memories.map((memory) => (
+        {highlights.map((highlight) => (
           <HighlightItem
-            key={memory.memoryid}
-            memory={memory}
-            onAddStory={handleAddStory}
-            onViewMemory={handleViewMemory}
+            key={highlight.highlightid}
+            highlight={highlight}
+            onAddStory={handleAddStoryToHighlight}
+            onViewHighlight={handleViewHighlight}
             theme={theme}
             isUploading={isUploading}
             isOwnProfile={isOwnProfile}
+            userStories={userStories}
           />
         ))}
       </div>
+
+      {/* Story Selector Modal */}
+      <AnimatePresence>
+        {showStorySelector && userStories.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setShowStorySelector(false);
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className={`w-full max-w-md mx-4 p-6 rounded-2xl max-h-[80vh] overflow-y-auto ${
+                theme === 'dark'
+                  ? 'bg-gray-800 border border-gray-700'
+                  : 'bg-white border border-gray-200'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className={`text-lg font-semibold ${
+                  theme === 'dark' ? 'text-white' : 'text-gray-900'
+                }`}>
+                  Save Stories to Highlight
+                </h2>
+                <button
+                  onClick={() => setShowStorySelector(false)}
+                  className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                    theme === 'dark'
+                      ? 'hover:bg-gray-700 text-gray-300'
+                      : 'hover:bg-gray-100 text-gray-600'
+                  }`}
+                >
+                  ×
+                </button>
+              </div>
+              
+              <div className="space-y-4">
+                <p className={`text-sm ${
+                  theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                }`}>
+                  You have {userStories.length} unsaved stories that will expire soon. Save them to highlights!
+                </p>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  {userStories.map((story) => {
+                    const timeLeft = new Date(story.expiresAt) - new Date();
+                    const hoursLeft = Math.floor(timeLeft / (1000 * 60 * 60));
+                    
+                    return (
+                      <div
+                        key={story.storyid}
+                        className={`relative rounded-lg overflow-hidden cursor-pointer border-2 transition-colors ${
+                          theme === 'dark'
+                            ? 'border-gray-600 hover:border-red-500'
+                            : 'border-gray-200 hover:border-red-500'
+                        }`}
+                        onClick={() => {
+                          setShowStorySelector(false);
+                          setShowCreateForm(true);
+                          // Pre-select this story for highlight creation
+                          setNewHighlightTitle(`Highlight ${new Date().toLocaleDateString()}`);
+                        }}
+                      >
+                        {story.mediaType === 'video' ? (
+                          <video
+                            src={story.mediaUrl}
+                            className="w-full h-24 object-cover"
+                            muted
+                          />
+                        ) : (
+                          <img
+                            src={story.mediaUrl}
+                            alt="Story"
+                            className="w-full h-24 object-cover"
+                          />
+                        )}
+                        <div className="absolute bottom-1 left-1 bg-black/70 text-white text-xs px-1 rounded">
+                          {hoursLeft}h left
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                
+                <div className="flex space-x-3 pt-4">
+                  <button
+                    onClick={() => setShowCreateForm(true)}
+                    className="flex-1 py-2 rounded-lg font-medium bg-red-500 hover:bg-red-600 text-white transition-colors"
+                  >
+                    Create New Highlight
+                  </button>
+                  <button
+                    onClick={() => setShowStorySelector(false)}
+                    className={`flex-1 py-2 rounded-lg font-medium transition-colors ${
+                      theme === 'dark'
+                        ? 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                        : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                    }`}
+                  >
+                    Maybe Later
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Create Highlight Modal */}
       <AnimatePresence>
@@ -290,9 +455,28 @@ export default function HighlightsSection({
                   </label>
                   <input
                     type="text"
-                    value={newMemoryTitle}
-                    onChange={(e) => setNewMemoryTitle(e.target.value)}
+                    value={newHighlightTitle}
+                    onChange={(e) => setNewHighlightTitle(e.target.value)}
                     placeholder="Highlight title"
+                    className={`w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-red-500 ${
+                      theme === 'dark'
+                        ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400'
+                        : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'
+                    }`}
+                  />
+                </div>
+                
+                <div>
+                  <label className={`block text-sm font-medium mb-2 ${
+                    theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                  }`}>
+                    Category (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={newHighlightCategory}
+                    onChange={(e) => setNewHighlightCategory(e.target.value)}
+                    placeholder="e.g., Travel, Food, Friends"
                     className={`w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-red-500 ${
                       theme === 'dark'
                         ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400'
@@ -321,10 +505,10 @@ export default function HighlightsSection({
 
                 <div className="flex items-center space-x-3 pt-4">
                   <button
-                    onClick={handleCreateMemory}
-                    disabled={!newMemoryTitle.trim() || isUploading}
+                    onClick={() => handleCreateHighlight()}
+                    disabled={!newHighlightTitle.trim() || isUploading}
                     className={`flex-1 py-2 rounded-lg font-medium transition-colors ${
-                      newMemoryTitle.trim() && !isUploading
+                      newHighlightTitle.trim() && !isUploading
                         ? 'bg-red-500 hover:bg-red-600 text-white'
                         : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                     }`}
@@ -334,7 +518,8 @@ export default function HighlightsSection({
                   <button
                     onClick={() => {
                       setShowCreateForm(false);
-                      setNewMemoryTitle('');
+                      setNewHighlightTitle('');
+                      setNewHighlightCategory('');
                       setSelectedFile(null);
                     }}
                     className={`flex-1 py-2 rounded-lg font-medium transition-colors ${
@@ -352,14 +537,14 @@ export default function HighlightsSection({
         )}
       </AnimatePresence>
 
-      {/* Memory Viewer Modal */}
+      {/* Highlight Viewer Modal */}
       <AnimatePresence>
-        {showMemoryModal && selectedMemory && (
-          <MemoryViewModal
-            memory={selectedMemory}
+        {showHighlightModal && selectedHighlight && (
+          <HighlightViewModal
+            highlight={selectedHighlight}
             onClose={() => {
-              setShowMemoryModal(false);
-              setSelectedMemory(null);
+              setShowHighlightModal(false);
+              setSelectedHighlight(null);
             }}
             theme={theme}
           />
@@ -369,10 +554,10 @@ export default function HighlightsSection({
   );
 }
 
-// Memory Viewer Modal Component
-function MemoryViewModal({ memory, onClose, theme }) {
+// Highlight Viewer Modal Component
+function HighlightViewModal({ highlight, onClose, theme }) {
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
-  const stories = memory.stories || [];
+  const stories = highlight.stories || [];
   const currentStory = stories[currentStoryIndex];
 
   const nextStory = () => {
@@ -401,7 +586,7 @@ function MemoryViewModal({ memory, onClose, theme }) {
         <div className={`p-8 rounded-lg max-w-md mx-4 text-center ${
           theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
         }`}>
-          <h3 className="text-lg font-semibold mb-2">{memory.title}</h3>
+          <h3 className="text-lg font-semibold mb-2">{highlight.title}</h3>
           <p className="text-gray-500 mb-4">No stories in this highlight yet</p>
           <button
             onClick={onClose}
@@ -445,10 +630,13 @@ function MemoryViewModal({ memory, onClose, theme }) {
 
         {/* Story header */}
         <div className="absolute top-16 left-4 right-4 z-10 text-white">
-          <h3 className="font-semibold">{memory.title}</h3>
+          <h3 className="font-semibold">{highlight.title}</h3>
           <p className="text-sm opacity-70">
             {currentStoryIndex + 1} of {stories.length}
           </p>
+          {highlight.category && (
+            <p className="text-xs opacity-50">{highlight.category}</p>
+          )}
         </div>
 
         {/* Story media */}
@@ -498,15 +686,12 @@ function MemoryViewModal({ memory, onClose, theme }) {
 }
 
 // Individual Highlight Item Component
-function HighlightItem({ memory, onAddStory, onViewMemory, theme, isUploading, isOwnProfile }) {
-  const [showStoryUpload, setShowStoryUpload] = useState(false);
+function HighlightItem({ highlight, onAddStory, onViewHighlight, theme, isUploading, isOwnProfile, userStories }) {
+  const [showStorySelector, setShowStorySelector] = useState(false);
 
-  const handleFileSelect = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      onAddStory(memory.memoryid, file);
-      setShowStoryUpload(false);
-    }
+  const handleAddStoryFromActive = (story) => {
+    onAddStory(highlight.highlightid, null, story);
+    setShowStorySelector(false);
   };
 
   return (
@@ -515,12 +700,12 @@ function HighlightItem({ memory, onAddStory, onViewMemory, theme, isUploading, i
         className={`w-14 h-14 rounded-full overflow-hidden cursor-pointer ring-2 ${
           theme === 'dark' ? 'ring-gray-600' : 'ring-gray-300'
         } hover:ring-gray-400 transition-all`}
-        onClick={() => onViewMemory(memory)}
+        onClick={() => onViewHighlight(highlight)}
       >
-        {memory.coverImage ? (
+        {highlight.coverImage ? (
           <img
-            src={memory.coverImage}
-            alt={memory.title}
+            src={highlight.coverImage}
+            alt={highlight.title}
             className="w-full h-full object-cover"
             onError={(e) => {
               e.target.style.display = 'none';
@@ -540,23 +725,24 @@ function HighlightItem({ memory, onAddStory, onViewMemory, theme, isUploading, i
       <p className={`text-xs text-center mt-1 truncate w-14 ${
         theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
       }`}>
-        {memory.title}
+        {highlight.title}
       </p>
-      {memory.postUrl && (
-        <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border-2 border-white dark:border-gray-900 flex items-center justify-center">
-          <div className="w-1 h-1 bg-white rounded-full"></div>
-        </div>
-      )}
+      
+      {/* Show story count */}
+      <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+        {highlight.storyCount || 0}
+      </div>
 
       {/* Add Story Button - Only for own profile */}
-      {isOwnProfile && (
+      {isOwnProfile && userStories && userStories.length > 0 && (
         <button
           onClick={(e) => {
             e.stopPropagation();
-            setShowStoryUpload(true);
+            setShowStorySelector(true);
           }}
           disabled={isUploading}
-          className="absolute -bottom-1 -right-1 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all text-xs"
+          className="absolute bottom-6 -right-1 w-5 h-5 bg-green-500 hover:bg-green-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all text-xs"
+          title={`Add from ${userStories.length} active stories`}
         >
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -564,15 +750,51 @@ function HighlightItem({ memory, onAddStory, onViewMemory, theme, isUploading, i
         </button>
       )}
 
-      {/* Hidden file input for adding stories */}
-      {showStoryUpload && (
-        <input
-          type="file"
-          accept="image/*,video/*"
-          onChange={handleFileSelect}
-          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-          onClick={(e) => e.stopPropagation()}
-        />
+      {/* Story Selector Popup */}
+      {showStorySelector && userStories && userStories.length > 0 && (
+        <div className="absolute top-16 left-0 z-20 p-2 rounded-lg shadow-lg max-w-xs" style={{
+          backgroundColor: theme === 'dark' ? '#374151' : '#ffffff',
+          border: `1px solid ${theme === 'dark' ? '#4B5563' : '#D1D5DB'}`
+        }}>
+          <p className={`text-xs mb-2 ${
+            theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+          }`}>
+            Select story to add:
+          </p>
+          <div className="grid grid-cols-2 gap-1 max-h-32 overflow-y-auto">
+            {userStories.map((story) => (
+              <div
+                key={story.storyid}
+                className="relative cursor-pointer rounded overflow-hidden hover:opacity-80"
+                onClick={() => handleAddStoryFromActive(story)}
+              >
+                {story.mediaType === 'video' ? (
+                  <video
+                    src={story.mediaUrl}
+                    className="w-full h-12 object-cover"
+                    muted
+                  />
+                ) : (
+                  <img
+                    src={story.mediaUrl}
+                    alt="Story"
+                    className="w-full h-12 object-cover"
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={() => setShowStorySelector(false)}
+            className={`mt-2 text-xs px-2 py-1 rounded ${
+              theme === 'dark'
+                ? 'bg-gray-600 hover:bg-gray-500 text-gray-200'
+                : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+            }`}
+          >
+            Cancel
+          </button>
+        </div>
       )}
     </div>
   );

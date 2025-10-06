@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { useQuery, useMutation } from '@apollo/client';
-import { SEARCH_USERS, CREATE_CHAT } from './queries';
+import { useQuery, useMutation } from '@apollo/client/react';
+import { SEARCH_USERS, CREATE_CHAT, GET_CHATS } from './queries';
 import ConnectionStatus from './ConnectionStatus';
 import NotificationSettings from './NotificationSettings';
 import { useTheme } from '../Helper/ThemeProvider';
@@ -26,23 +26,53 @@ export default function ChatList({
   const searchInputRef = useRef(null);
 
   // Search users for new chat
-  const { refetch: refetchUsers } = useQuery(SEARCH_USERS, {
+  const { refetch: refetchUsers, loading: searchLoading, error: searchError } = useQuery(SEARCH_USERS, {
     variables: { query: searchQuery, limit: 10 },
     skip: !searchQuery || searchQuery.length < 2,
     onCompleted: (data) => {
+      console.log('✅ User search completed:', data);
       setSearchUsers(data.searchUsers || []);
+    },
+    onError: (error) => {
+      console.error('❌ User search error:', error);
+      setSearchUsers([]);
     }
   });
 
   // Create new chat mutation
-  const [createChat] = useMutation(CREATE_CHAT, {
+  const [createChat, { loading: createChatLoading }] = useMutation(CREATE_CHAT, {
+    refetchQueries: user?.profileid ? [
+      { query: GET_CHATS, variables: { profileid: user.profileid } }
+    ] : [],
     onCompleted: (data) => {
-      onNewChat(data.CreateChat);
-      setSearchQuery('');
-      setShowUserSearch(false);
+      console.log('✅ Chat created successfully:', data);
+      // Handle both naming conventions: CreateChat or createChat
+      const chatData = data?.CreateChat || data?.createChat;
+      
+      if (chatData) {
+        console.log('📝 Calling onNewChat with:', chatData);
+        onNewChat(chatData);
+        setSearchQuery('');
+        setShowUserSearch(false);
+      } else {
+        console.error('❌ CreateChat response missing data:', data);
+        console.warn('🔄 Backend returned empty - chat may already exist');
+        // Since refetchQueries is set, the chat list will refresh automatically
+        alert('Chat created or already exists. Check your chat list!');
+        setSearchQuery('');
+        setShowUserSearch(false);
+      }
     },
     onError: (error) => {
-      console.error('Error creating chat:', error);
+      console.error('❌ Error creating chat:', error);
+      const errorMsg = error.message || 'Unknown error';
+      
+      // Check if it's a "chat already exists" error
+      if (errorMsg.toLowerCase().includes('already exists') || errorMsg.toLowerCase().includes('duplicate')) {
+        alert('A chat with this user already exists. Please refresh the page.');
+      } else {
+        alert('Failed to create chat: ' + errorMsg);
+      }
     }
   });
 
@@ -51,6 +81,8 @@ export default function ChatList({
     const query = e.target.value;
     setSearchQuery(query);
     
+    console.log('🔍 Search query changed:', query);
+    
     if (searchTimeout) {
       clearTimeout(searchTimeout);
     }
@@ -58,7 +90,23 @@ export default function ChatList({
     if (query.length >= 2) {
       setShowUserSearch(true);
       const timeout = setTimeout(() => {
-        refetchUsers();
+        console.log('🔍 Executing user search for:', query);
+        refetchUsers({ query, limit: 10 })
+          .then(result => {
+            console.log('✅ Search results:', result.data);
+            // Manually update search results since onCompleted doesn't fire on refetch
+            if (result.data && result.data.searchUsers) {
+              console.log('📝 Setting search users:', result.data.searchUsers);
+              setSearchUsers(result.data.searchUsers);
+            } else {
+              console.warn('⚠️ No searchUsers in response:', result.data);
+              setSearchUsers([]);
+            }
+          })
+          .catch(err => {
+            console.error('❌ Search failed:', err);
+            setSearchUsers([]);
+          });
       }, 300);
       setSearchTimeout(timeout);
     } else {
@@ -69,17 +117,72 @@ export default function ChatList({
 
   // Handle user selection for new chat
   const handleUserSelect = async (selectedUser) => {
-    if (selectedUser.profileid === user.profileid) return;
+    console.log('\n=== CHAT CREATION DEBUG START ===');
+    console.log('👥 User selected for chat:', selectedUser);
+    console.log('🔍 Selected user fields:', {
+      profileid: selectedUser?.profileid,
+      username: selectedUser?.username,
+      name: selectedUser?.name,
+      hasProfileid: !!selectedUser?.profileid,
+      profileidType: typeof selectedUser?.profileid,
+      allKeys: Object.keys(selectedUser || {})
+    });
+    
+    // Check if user is loaded and has profileid
+    if (!user || !user.profileid) {
+      console.error('❌ Current user data not available:', { user });
+      alert('User data not loaded. Please refresh the page.');
+      return;
+    }
+    
+    console.log('🔑 Current user data:', {
+      profileid: user.profileid,
+      username: user?.username,
+      hasProfileid: !!user.profileid,
+      profileidType: typeof user.profileid
+    });
+    
+    if (!selectedUser || !selectedUser.profileid) {
+      console.error('❌ Selected user data invalid:', { selectedUser });
+      alert('Selected user data is invalid. Missing profileid.');
+      return;
+    }
+    
+    if (selectedUser.profileid === user.profileid) {
+      console.warn('⚠️ Cannot create chat with yourself');
+      return;
+    }
+
+    const participants = [user.profileid, selectedUser.profileid];
+    console.log('📦 FINAL PARTICIPANTS ARRAY TO SEND:');
+    console.log('  - Type:', typeof participants);
+    console.log('  - Length:', participants.length);
+    console.log('  - [0] (Current user):', participants[0], '(type:', typeof participants[0], ')');
+    console.log('  - [1] (Selected user):', participants[1], '(type:', typeof participants[1], ')');
+    console.log('📤 Full mutation variables:', {
+      participants,
+      chatType: 'direct'
+    });
+    console.log('🍪 Apollo Client credentials: include');
 
     try {
-      await createChat({
+      const result = await createChat({
         variables: {
           participants: [user.profileid, selectedUser.profileid],
           chatType: 'direct'
         }
       });
+      console.log('✅ createChat result:', result);
+      console.log('=== CHAT CREATION DEBUG END ===\n');
     } catch (error) {
-      console.error('Failed to create chat:', error);
+      console.error('❌ Failed to create chat:', error);
+      console.error('Error details:', {
+        message: error.message,
+        graphQLErrors: error.graphQLErrors,
+        networkError: error.networkError
+      });
+      console.log('=== CHAT CREATION DEBUG END ===\n');
+      alert('Failed to create chat: ' + error.message);
     }
   };
 
@@ -102,7 +205,8 @@ export default function ChatList({
 
   // Get chat display info
   const getChatDisplayInfo = (chat) => {
-    if (!chat.participants) {
+    // Check if chat exists first
+    if (!chat || !chat.participants) {
       return {
         name: 'Unknown Chat',
         avatar: null,
@@ -118,7 +222,10 @@ export default function ChatList({
       };
     } else {
       // Direct chat - find the other participant
-      const otherParticipant = chat.participants.find(p => p.profileid !== user.profileid);
+      // Only try to filter by user.profileid if user data is available
+      const otherParticipant = user && user.profileid 
+        ? chat.participants.find(p => p.profileid !== user.profileid)
+        : chat.participants[0]; // Fallback to first participant if user not loaded
       return {
         name: otherParticipant?.name || otherParticipant?.username || 'Unknown User',
         avatar: otherParticipant?.profilePic,
@@ -216,18 +323,36 @@ export default function ChatList({
           </svg>
           
           {/* Enhanced Search Results Dropdown */}
-          {showUserSearch && searchUsers && searchUsers.length > 0 && (
+          {showUserSearch && (
             <div className={`absolute top-full left-0 right-0 mt-2 border rounded-xl overflow-hidden z-50 max-h-80 overflow-y-auto ${themeClasses.dropdown}`}>
-              <div className={`p-2 text-xs font-medium uppercase tracking-wide ${theme === 'dark' ? 'text-gray-400 bg-gray-900' : 'text-gray-500 bg-gray-50'}`}>
-                People
-              </div>
+              {searchLoading ? (
+                <div className="p-4 text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500 mx-auto"></div>
+                  <p className={`mt-2 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Searching...
+                  </p>
+                </div>
+              ) : searchError ? (
+                <div className="p-4 text-center">
+                  <p className="text-red-500 text-sm">
+                    ❌ Search failed. Please try again.
+                  </p>
+                  <p className={`mt-1 text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                    {searchError.message}
+                  </p>
+                </div>
+              ) : searchUsers && searchUsers.length > 0 ? (
+                <>
+                  <div className={`p-2 text-xs font-medium uppercase tracking-wide ${theme === 'dark' ? 'text-gray-400 bg-gray-900' : 'text-gray-500 bg-gray-50'}`}>
+                    People
+                  </div>
               {searchUsers.map((searchUser, index) => (
                 <button
                   key={searchUser.profileid}
                   onClick={() => handleUserSelect(searchUser)}
-                  disabled={searchUser.profileid === user.profileid}
+                  disabled={!user || !user.profileid || searchUser.profileid === user.profileid || createChatLoading}
                   className={`w-full p-4 flex items-center space-x-3 transition-colors ${
-                    searchUser.profileid === user.profileid 
+                    (!user || !user.profileid || searchUser.profileid === user.profileid || createChatLoading) 
                       ? 'opacity-50 cursor-not-allowed' 
                       : theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-50'
                   } ${index === searchUsers.length - 1 ? '' : 'border-b border-gray-200 dark:border-gray-700'}`}
@@ -245,7 +370,9 @@ export default function ChatList({
                       <span className="font-semibold truncate">
                         {searchUser.name || searchUser.username}
                       </span>
-                      {searchUser.isVerified && (
+                      {createChatLoading ? (
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500"></div>
+                      ) : searchUser.isVerified && (
                         <svg className="w-4 h-4 text-blue-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                         </svg>
@@ -257,6 +384,14 @@ export default function ChatList({
                   </div>
                 </button>
               ))}
+                </>
+              ) : (
+                <div className="p-4 text-center">
+                  <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+                    No users found for "{searchQuery}"
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -297,7 +432,7 @@ export default function ChatList({
           </div>
         ) : (
           <div className="p-2">
-            {(chats || []).map((chat, index) => {
+            {(chats || []).filter(chat => chat && chat.chatid).map((chat, index) => {
               const { name, avatar, isOnline } = getChatDisplayInfo(chat);
               const isSelected = selectedChat?.chatid === chat.chatid;
               const lastMessage = chat.lastMessage;
@@ -349,7 +484,7 @@ export default function ChatList({
                       <p className={`text-sm truncate pr-2 ${
                         theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
                       }`}>
-                        {lastMessage && lastMessage.sender?.profileid === user.profileid && (
+                        {lastMessage && user && user.profileid && lastMessage.sender?.profileid === user.profileid && (
                           <span className="text-red-500 font-medium">You: </span>
                         )}
                         {getLastMessagePreview(lastMessage)}

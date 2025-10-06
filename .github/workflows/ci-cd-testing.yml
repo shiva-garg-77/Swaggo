@@ -1,0 +1,529 @@
+name: CI/CD Pipeline with Comprehensive Testing
+
+on:
+  push:
+    branches: [main, develop, staging]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run performance tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  NODE_VERSION: '20.x'
+  MONGODB_URI: mongodb://localhost:27017/swaggo-test
+  REDIS_URL: redis://localhost:6379/15
+  NODE_ENV: test
+
+jobs:
+  # Code Quality and Linting
+  code-quality:
+    name: Code Quality & Security Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history for better analysis
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: Website/Backend/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: Website/Backend
+        run: |
+          npm ci --prefer-offline --no-audit
+          npm run prepare-test-env
+      
+      - name: Run ESLint with security rules
+        working-directory: Website/Backend
+        run: |
+          npm run lint -- --format=json --output-file=eslint-report.json
+          npm run lint:security
+        continue-on-error: true
+      
+      - name: Run Prettier format check
+        working-directory: Website/Backend
+        run: npm run format:check
+      
+      - name: TypeScript type checking
+        working-directory: Website/Backend
+        run: npm run type-check
+      
+      - name: Run code complexity analysis
+        working-directory: Website/Backend
+        run: npm run analyze:complexity
+      
+      - name: Security vulnerability scan
+        working-directory: Website/Backend
+        run: |
+          npm audit --audit-level=moderate --json > npm-audit.json
+          npx audit-ci --moderate
+      
+      - name: Upload code quality reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: code-quality-reports
+          path: |
+            Website/Backend/eslint-report.json
+            Website/Backend/npm-audit.json
+            Website/Backend/complexity-report.html
+          retention-days: 30
+
+  # Unit Testing
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: code-quality
+    
+    strategy:
+      matrix:
+        test-suite: [config, middleware, utils, services, models]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: Website/Backend/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: Website/Backend
+        run: npm ci --prefer-offline --no-audit
+      
+      - name: Setup test environment
+        working-directory: Website/Backend
+        run: |
+          npm run setup:test-env
+          npm run generate:test-secrets
+      
+      - name: Run unit tests with coverage
+        working-directory: Website/Backend
+        run: |
+          npm run test:unit:${{ matrix.test-suite }} -- \
+            --coverage \
+            --coverageReporters=text \
+            --coverageReporters=json \
+            --coverageReporters=lcov \
+            --coverageDirectory=coverage/unit/${{ matrix.test-suite }}
+      
+      - name: Check coverage thresholds
+        working-directory: Website/Backend
+        run: |
+          npm run coverage:check -- \
+            --coverage-file=coverage/unit/${{ matrix.test-suite }}/coverage-summary.json \
+            --threshold-branches=80 \
+            --threshold-functions=80 \
+            --threshold-lines=80 \
+            --threshold-statements=80
+      
+      - name: Upload unit test coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-coverage-${{ matrix.test-suite }}
+          path: Website/Backend/coverage/unit/${{ matrix.test-suite }}
+          retention-days: 30
+
+  # Integration Testing
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: unit-tests
+    
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27017:27017
+        env:
+          MONGO_INITDB_ROOT_USERNAME: testuser
+          MONGO_INITDB_ROOT_PASSWORD: testpass
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:7.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: Website/Backend/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: Website/Backend
+        run: npm ci --prefer-offline --no-audit
+      
+      - name: Wait for services
+        run: |
+          timeout 30 bash -c 'until nc -z localhost 27017; do sleep 1; done'
+          timeout 30 bash -c 'until nc -z localhost 6379; do sleep 1; done'
+      
+      - name: Setup integration test environment
+        working-directory: Website/Backend
+        run: |
+          npm run setup:integration-env
+          npm run db:test-setup
+      
+      - name: Run integration tests
+        working-directory: Website/Backend
+        run: |
+          npm run test:integration -- \
+            --coverage \
+            --coverageDirectory=coverage/integration \
+            --maxWorkers=2 \
+            --testTimeout=60000
+      
+      - name: Generate integration test report
+        working-directory: Website/Backend
+        if: always()
+        run: |
+          npm run test:report:integration
+      
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: |
+            Website/Backend/coverage/integration
+            Website/Backend/test-results/integration
+          retention-days: 30
+
+  # End-to-End Testing
+  e2e-tests:
+    name: End-to-End Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: integration-tests
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+    
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27017:27017
+      redis:
+        image: redis:7.2-alpine
+        ports:
+          - 6379:6379
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: Website/Backend/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: Website/Backend
+        run: npm ci --prefer-offline --no-audit
+      
+      - name: Build application
+        working-directory: Website/Backend
+        run: npm run build:test
+      
+      - name: Start application in test mode
+        working-directory: Website/Backend
+        run: |
+          npm run start:test &
+          sleep 10
+          curl --retry 10 --retry-delay 5 --retry-connrefused http://localhost:3001/health
+      
+      - name: Run E2E tests
+        working-directory: Website/Backend
+        run: |
+          npm run test:e2e -- \
+            --maxWorkers=1 \
+            --testTimeout=120000 \
+            --verbose
+      
+      - name: Generate E2E test artifacts
+        if: always()
+        working-directory: Website/Backend
+        run: |
+          npm run test:e2e:report
+          npm run test:e2e:screenshots
+      
+      - name: Upload E2E test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-test-results
+          path: |
+            Website/Backend/test-results/e2e
+            Website/Backend/screenshots
+          retention-days: 30
+
+  # Performance Testing
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: integration-tests
+    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[performance]')
+    
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27017:27017
+      redis:
+        image: redis:7.2-alpine
+        ports:
+          - 6379:6379
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: Website/Backend/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: Website/Backend
+        run: npm ci --prefer-offline --no-audit
+      
+      - name: Setup performance test environment
+        working-directory: Website/Backend
+        run: |
+          npm run setup:performance-env
+          npm run db:performance-setup
+      
+      - name: Run performance tests
+        working-directory: Website/Backend
+        run: |
+          npm run test:performance -- \
+            --testTimeout=300000 \
+            --maxWorkers=1 \
+            --verbose
+      
+      - name: Generate performance reports
+        if: always()
+        working-directory: Website/Backend
+        run: |
+          npm run performance:report
+          npm run performance:benchmark
+      
+      - name: Check performance regressions
+        working-directory: Website/Backend
+        run: |
+          npm run performance:compare -- \
+            --baseline=main \
+            --threshold=10
+      
+      - name: Upload performance results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: performance-test-results
+          path: |
+            Website/Backend/performance-reports
+            Website/Backend/benchmark-results
+          retention-days: 90
+
+  # Quality Gates and Reporting
+  quality-gates:
+    name: Quality Gates & Deployment Decision
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [code-quality, unit-tests, integration-tests, e2e-tests]
+    if: always()
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Download all test artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: test-artifacts
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: Website/Backend/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: Website/Backend
+        run: npm ci --prefer-offline --no-audit
+      
+      - name: Merge coverage reports
+        working-directory: Website/Backend
+        run: |
+          npm run coverage:merge -- test-artifacts/**/coverage
+          npm run coverage:report -- --format=json --format=lcov --format=html
+      
+      - name: Quality gate evaluation
+        id: quality-gate
+        working-directory: Website/Backend
+        run: |
+          npm run quality:evaluate -- \
+            --coverage-threshold=85 \
+            --test-pass-rate=95 \
+            --security-issues=0 \
+            --complexity-threshold=10 \
+            --performance-regression=10
+        continue-on-error: true
+      
+      - name: Generate comprehensive test report
+        working-directory: Website/Backend
+        run: |
+          npm run report:comprehensive -- \
+            --input=test-artifacts \
+            --output=final-report.html \
+            --format=html
+      
+      - name: Comment PR with test results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const reportPath = 'Website/Backend/final-report.html';
+            const report = fs.readFileSync(reportPath, 'utf8');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 📊 Comprehensive Test Report\n\n${report}`
+            });
+      
+      - name: Upload final reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: comprehensive-test-report
+          path: |
+            Website/Backend/final-report.html
+            Website/Backend/coverage
+          retention-days: 90
+      
+      - name: Fail job if quality gates not met
+        if: steps.quality-gate.outcome == 'failure'
+        run: |
+          echo "❌ Quality gates failed - blocking deployment"
+          exit 1
+      
+      - name: Success notification
+        if: steps.quality-gate.outcome == 'success'
+        run: |
+          echo "✅ All quality gates passed - ready for deployment"
+
+  # Security Testing (if enabled)
+  security-tests:
+    name: Security Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: integration-tests
+    if: contains(github.event.head_commit.message, '[security]') || github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: Website/Backend/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: Website/Backend
+        run: npm ci --prefer-offline --no-audit
+      
+      - name: Run security tests
+        working-directory: Website/Backend
+        run: |
+          npm run test:security -- \
+            --testPathPattern=security \
+            --verbose
+      
+      - name: OWASP ZAP security scan
+        uses: zaproxy/action-full-scan@v0.9.0
+        with:
+          target: 'http://localhost:3001'
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a'
+      
+      - name: Upload security test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-test-results
+          path: |
+            Website/Backend/security-reports
+            report_html.html
+            report_json.json
+          retention-days: 90
+
+  # Deployment (conditional on quality gates)
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: quality-gates
+    if: github.ref == 'refs/heads/develop' && needs.quality-gates.result == 'success'
+    
+    environment:
+      name: staging
+      url: https://staging.swaggo.app
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Deploy to staging
+        run: |
+          echo "🚀 Deploying to staging environment..."
+          # Add your deployment commands here
+      
+      - name: Post-deployment smoke tests
+        run: |
+          echo "🧪 Running post-deployment smoke tests..."
+          # Add smoke test commands here
+      
+      - name: Notify deployment success
+        run: |
+          echo "✅ Successfully deployed to staging"

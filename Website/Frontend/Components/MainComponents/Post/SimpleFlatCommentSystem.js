@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useRef } from 'react';
-import { useQuery, useMutation } from '@apollo/client';
+import { useQuery, useMutation } from '@apollo/client/react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useAuth } from '../../Helper/AuthProvider';
+import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { GET_POST_COMMENTS, CREATE_COMMENT, TOGGLE_COMMENT_LIKE } from '../../../lib/graphql/queries';
 import {
   Heart,
@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 
 export default function SimpleFlatCommentSystem({ postId, theme, onCommentUpdate, className = "" }) {
-  const { user } = useAuth();
+  const { user } = useSecureAuth();
   const [newComment, setNewComment] = useState('');
   const [replyingTo, setReplyingTo] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);

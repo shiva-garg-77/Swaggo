@@ -1,0 +1,42 @@
+{
+  "name": "Dependencies required for SwagGo Enhanced Chat System",
+  "description": "Add these dependencies to your package.json",
+  "frontend_dependencies": {
+    "dayjs": "^1.11.10",
+    "socket.io-client": "^4.7.4",
+    "web-push": "^3.6.6",
+    "framer-motion": "^10.16.16",
+    "lucide-react": "^0.294.0",
+    "@headlessui/react": "^1.7.17",
+    "react-hot-toast": "^2.4.1",
+    "uuid": "^9.0.1",
+    "workbox-precaching": "^7.0.0",
+    "workbox-routing": "^7.0.0",
+    "workbox-strategies": "^7.0.0"
+  },
+  "backend_dependencies": {
+    "socket.io": "^4.7.4",
+    "web-push": "^3.6.6",
+    "dayjs": "^1.11.10",
+    "uuid": "^9.0.1",
+    "mongoose": "^8.0.3",
+    "multer": "^1.4.5-lts.1",
+    "helmet": "^7.1.0",
+    "compression": "^1.7.4",
+    "express-rate-limit": "^7.1.5"
+  },
+  "dev_dependencies": {
+    "@types/uuid": "^9.0.7",
+    "@types/web-push": "^3.6.3"
+  },
+  "scripts": {
+    "build:sw": "workbox generateSW workbox-config.js",
+    "dev:sw": "workbox generateSW workbox-config.js && next dev",
+    "build": "npm run build:sw && next build"
+  },
+  "installation_commands": {
+    "frontend": "npm install dayjs socket.io-client web-push framer-motion lucide-react @headlessui/react react-hot-toast uuid workbox-precaching workbox-routing workbox-strategies",
+    "backend": "npm install socket.io web-push dayjs uuid mongoose multer helmet compression express-rate-limit",
+    "dev": "npm install --save-dev @types/uuid @types/web-push"
+  }
+}

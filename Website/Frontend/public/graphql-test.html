@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GraphQL Connection Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .result { margin: 20px 0; padding: 10px; border-left: 4px solid #007bff; background: #f8f9fa; }
+        .error { border-left-color: #dc3545; background: #f8d7da; }
+        .success { border-left-color: #28a745; background: #d4edda; }
+        button { padding: 10px 20px; margin: 5px; border: none; border-radius: 4px; cursor: pointer; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-secondary { background: #6c757d; color: white; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔧 GraphQL Connection Diagnostic Tool</h1>
+    <p>This tool tests the connection between your Next.js frontend and GraphQL backend.</p>
+    
+    <div>
+        <button class=\"btn-primary\" onclick=\"testProxy()\">Test Proxy (/graphql)</button>
+        <button class=\"btn-secondary\" onclick=\"testDirect()\">Test Direct (localhost:45799)</button>
+        <button class=\"btn-secondary\" onclick=\"testGetPosts()\">Test GetPosts Query</button>
+        <button class=\"btn-secondary\" onclick=\"clearResults()\">Clear Results</button>
+    </div>
+    
+    <div id=\"results\"></div>
+    
+    <script>
+        function addResult(type, title, content) {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.innerHTML = `<h3>${title}</h3><pre>${content}</pre>`;
+            results.appendChild(div);
+        }
+        
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+        
+        async function testProxy() {
+            try {
+                addResult('', 'Testing Proxy Connection', 'Sending request to /graphql...');
+                
+                const response = await fetch('/graphql', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: 'query { hello }'
+                    })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    addResult('success', '✅ Proxy Connection Successful', 
+                        `Status: ${response.status}\nResponse: ${JSON.stringify(result, null, 2)}`);
+                } else {
+                    const text = await response.text();
+                    addResult('error', '❌ Proxy Connection Failed', 
+                        `Status: ${response.status}\nResponse: ${text}`);
+                }
+            } catch (error) {
+                addResult('error', '❌ Proxy Connection Error', 
+                    `Error: ${error.message}\nThis suggests the Next.js proxy is not working properly.`);
+            }
+        }
+        
+        async function testDirect() {
+            try {
+                addResult('', 'Testing Direct Connection', 'Sending request to localhost:45799/graphql...');
+                
+                const response = await fetch('http://localhost:45799/graphql', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: 'query { hello }'
+                    })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    addResult('success', '✅ Direct Connection Successful', 
+                        `Status: ${response.status}\nResponse: ${JSON.stringify(result, null, 2)}`);
+                } else {
+                    const text = await response.text();
+                    addResult('error', '❌ Direct Connection Failed', 
+                        `Status: ${response.status}\nResponse: ${text}`);
+                }
+            } catch (error) {
+                addResult('error', '❌ Direct Connection Error', 
+                    `Error: ${error.message}\nThis suggests CORS issues or the backend server is not running.`);
+            }
+        }
+        
+        async function testGetPosts() {
+            try {
+                addResult('', 'Testing GetPosts Query', 'Sending GetPosts query via proxy...');
+                
+                const query = `
+                    query GetAllPosts {
+                        getPosts {
+                            postid
+                            postUrl
+                            title
+                            Description
+                            profile {
+                                username
+                                profilePic
+                            }
+                        }
+                    }
+                `;
+                
+                const response = await fetch('/graphql', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ query })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.errors) {
+                        addResult('error', '❌ GetPosts Query Has Errors', 
+                            `GraphQL Errors: ${JSON.stringify(result.errors, null, 2)}\n\nData: ${JSON.stringify(result.data, null, 2)}`);
+                    } else {
+                        const postsCount = result.data?.getPosts?.length || 0;
+                        addResult('success', '✅ GetPosts Query Successful', 
+                            `Found ${postsCount} posts\n\nFirst few posts: ${JSON.stringify(result.data?.getPosts?.slice(0, 2), null, 2)}`);
+                    }
+                } else {
+                    const text = await response.text();
+                    addResult('error', '❌ GetPosts Query Failed', 
+                        `Status: ${response.status}\nResponse: ${text}`);
+                }
+            } catch (error) {
+                addResult('error', '❌ GetPosts Query Error', 
+                    `Error: ${error.message}`);
+            }
+        }
+        
+        // Auto-run basic connectivity test on page load
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                addResult('', 'Auto-Test Starting', 'Running automatic connectivity tests...');
+                testProxy();
+            }, 500);
+        });
+    </script>
+</body>
+</html>

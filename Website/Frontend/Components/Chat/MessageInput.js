@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { useSocket } from '../Helper/SocketProvider';
+import { useSocket } from '../Helper/PerfectSocketProvider';
 
 export default function MessageInput({ 
   onSendMessage, 
+  onTyping,
   placeholder = 'Type a message...', 
   chatid,
   socket,
@@ -70,8 +71,20 @@ export default function MessageInput({
   };
 
   const handleMessageChange = (e) => {
-    setMessage(e.target.value);
+    const newValue = e.target.value;
+    setMessage(newValue);
     adjustTextareaHeight();
+    
+    // Handle typing indicators
+    if (onTyping) {
+      if (newValue.trim() && !isTyping) {
+        onTyping(true);
+        setIsTyping(true);
+      } else if (!newValue.trim() && isTyping) {
+        onTyping(false);
+        setIsTyping(false);
+      }
+    }
   };
 
   const handleSendMessage = () => {

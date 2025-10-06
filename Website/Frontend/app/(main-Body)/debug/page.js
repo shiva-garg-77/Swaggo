@@ -1,16 +1,10 @@
-import { lazy, Suspense } from 'react'
-
-// Lazy load the debugger
-const GraphQLDebugger = lazy(() => import('../../../Components/Debug/GraphQLDebugger'))
+import UltimateGraphQLTest from '../../../Components/Debug/UltimateGraphQLTest.jsx';
 
 export default function DebugPage() {
-  return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
-      </div>
-    }>
-      <GraphQLDebugger />
-    </Suspense>
-  )
+  return <UltimateGraphQLTest />;
 }
+
+export const metadata = {
+  title: 'GraphQL Debug & Test Suite',
+  description: 'Comprehensive GraphQL testing and debugging interface'
+};

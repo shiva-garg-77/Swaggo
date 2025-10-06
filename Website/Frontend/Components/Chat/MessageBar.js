@@ -254,22 +254,24 @@ const MessageBar = ({
 
       {/* Main Message Input Bar */}
       <div className="p-4">
-        <div className={`bg-white rounded-lg shadow-sm border transition-colors duration-200 ${
+        <div className={`bg-white rounded-2xl shadow-lg border-2 transition-all duration-200 hover:shadow-xl focus-within:shadow-xl focus-within:border-blue-400 ${
           theme === 'dark' 
-            ? 'bg-gray-800 border-gray-600' 
-            : 'bg-white border-gray-300'
+            ? 'bg-gray-800/95 backdrop-blur-sm border-gray-600 focus-within:border-blue-500' 
+            : 'bg-white/95 backdrop-blur-sm border-gray-200 focus-within:border-blue-400'
         }`}>
-          <div className="flex items-end space-x-3 p-3">
+          <div className="flex items-end space-x-4 p-4">
             {/* Attachment Button */}
             <button
               onClick={() => setShowAttachments(!showAttachments)}
-              className={`p-2 rounded-full transition-colors ${
+              className={`p-3 rounded-full transition-all duration-200 hover:scale-110 focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${
                 showAttachments
-                  ? 'bg-blue-500 text-white'
+                  ? 'bg-blue-500 text-white shadow-lg shadow-blue-200/50'
                   : theme === 'dark'
-                  ? 'text-gray-400 hover:text-gray-300 hover:bg-gray-700'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                  ? 'text-gray-400 hover:text-gray-300 hover:bg-gray-700/70'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100/70'
               }`}
+              aria-label="Add attachment"
+              aria-expanded={showAttachments}
             >
               <Plus className="w-5 h-5" />
             </button>
@@ -283,13 +285,14 @@ const MessageBar = ({
                 onKeyPress={handleKeyPress}
                 placeholder={placeholder}
                 disabled={disabled || isRecording}
-                className={`w-full resize-none border-0 focus:outline-none focus:ring-0 transition-colors ${
+                className={`w-full resize-none border-0 focus:outline-none focus:ring-0 transition-all duration-200 text-sm leading-relaxed ${
                   theme === 'dark'
                     ? 'bg-transparent text-white placeholder-gray-400'
                     : 'bg-transparent text-gray-900 placeholder-gray-500'
                 } disabled:opacity-50`}
                 rows={1}
-                style={{ minHeight: '24px', maxHeight: '120px' }}
+                style={{ minHeight: '28px', maxHeight: '120px' }}
+                aria-label="Type your message"
               />
             </div>
 
@@ -298,13 +301,15 @@ const MessageBar = ({
               {/* Emoji Button */}
               <button
                 onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                className={`p-2 rounded-full transition-colors ${
+                className={`p-2 rounded-full transition-all duration-200 hover:scale-110 focus:outline-none focus:ring-2 focus:ring-yellow-500/50 ${
                   showEmojiPicker
-                    ? 'bg-yellow-500 text-white'
+                    ? 'bg-yellow-500 text-white shadow-lg shadow-yellow-200/50'
                     : theme === 'dark'
-                    ? 'text-gray-400 hover:text-gray-300 hover:bg-gray-700'
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                    ? 'text-gray-400 hover:text-gray-300 hover:bg-gray-700/70'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100/70'
                 }`}
+                aria-label="Add emoji"
+                aria-expanded={showEmojiPicker}
               >
                 <Smile className="w-5 h-5" />
               </button>
@@ -314,20 +319,22 @@ const MessageBar = ({
                 <button
                   onClick={handleSend}
                   disabled={disabled}
-                  className="p-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-full hover:from-blue-600 hover:to-blue-700 transition-all duration-300 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="p-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-full hover:from-blue-600 hover:to-blue-700 transition-all duration-300 hover:shadow-xl hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-blue-500/50 shadow-lg shadow-blue-200/50"
+                  aria-label="Send message"
                 >
                   <Send className="w-5 h-5" />
                 </button>
               ) : (
                 <button
                   onClick={toggleRecording}
-                  className={`p-2 rounded-full transition-all duration-300 ${
+                  className={`p-3 rounded-full transition-all duration-300 hover:scale-105 focus:outline-none focus:ring-2 shadow-md ${
                     isRecording
-                      ? 'bg-red-500 text-white hover:bg-red-600'
+                      ? 'bg-red-500 text-white hover:bg-red-600 focus:ring-red-500/50 shadow-red-200/50'
                       : theme === 'dark'
-                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                      : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600 focus:ring-gray-500/50 shadow-gray-700/30'
+                      : 'bg-gray-200 text-gray-600 hover:bg-gray-300 focus:ring-gray-500/50 shadow-gray-200/50'
                   }`}
+                  aria-label={isRecording ? 'Stop recording' : 'Start voice recording'}
                 >
                   {isRecording ? (
                     <MicOff className="w-5 h-5 animate-pulse" />

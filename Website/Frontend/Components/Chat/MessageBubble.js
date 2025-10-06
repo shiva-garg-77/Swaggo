@@ -1,8 +1,14 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useAuth } from '../Helper/AuthProvider';
-import { useSocket } from '../Helper/SocketProvider';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import { useSecureAuth } from '../../context/FixedSecureAuthContext';
+import { useSocket } from '../Helper/PerfectSocketProvider';
+import { MessageStatusIcon, MESSAGE_STATUS } from './MessageStatusSystem';
+import VoiceMessagePlayer from './VoiceMessagePlayer';
+
+dayjs.extend(relativeTime);
 
 export default function MessageBubble({ 
   message, 
@@ -11,23 +17,48 @@ export default function MessageBubble({
   chat,
   onReply,
   onEdit,
-  onDelete
+  onDelete,
+  onRetryMessage
 }) {
-  const { user } = useAuth();
+  const { user } = useSecureAuth();
   const { reactToMessage } = useSocket();
   const [showReactions, setShowReactions] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
 
   const quickReactions = ['👍', '❤️', '😂', '😮', '😢', '😡'];
 
-  // Format timestamp
+  // Format timestamp with dayjs
   const formatTime = (timestamp) => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    });
+    if (!timestamp) return '';
+    const messageTime = dayjs(timestamp);
+    const now = dayjs();
+    
+    // Same day: show time only
+    if (messageTime.isSame(now, 'day')) {
+      return messageTime.format('HH:mm');
+    }
+    
+    // Yesterday: show "Yesterday HH:mm"
+    if (messageTime.isSame(now.subtract(1, 'day'), 'day')) {
+      return `Yesterday ${messageTime.format('HH:mm')}`;
+    }
+    
+    // This week: show day name and time
+    if (messageTime.isAfter(now.subtract(7, 'day'))) {
+      return messageTime.format('dddd HH:mm');
+    }
+    
+    // This year: show date without year
+    if (messageTime.isSame(now, 'year')) {
+      return messageTime.format('MMM D, HH:mm');
+    }
+    
+    // Different year: show full date
+    return messageTime.format('MMM D, YYYY HH:mm');
+  };
+  
+  const getRelativeTime = (timestamp) => {
+    return dayjs(timestamp).fromNow();
   };
 
   // Handle reaction
@@ -76,40 +107,50 @@ export default function MessageBubble({
   const readStatus = getReadStatus();
 
   return (
-    <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'} mb-1 group`}>
+    <div 
+      className={`flex ${isOwn ? 'justify-end' : 'justify-start'} mb-4 group hover:bg-gray-50/50 dark:hover:bg-gray-800/30 rounded-xl p-2 transition-colors duration-200 focus-within:bg-gray-50/70 dark:focus-within:bg-gray-800/40`}
+      role="article"
+      aria-label={`Message from ${isOwn ? 'you' : message.sender?.username} at ${formatTime(message.createdAt)}`}
+    >
       {/* Avatar for received messages */}
       {!isOwn && showAvatar && (
-        <img
-          src={message.sender?.profilePic || '/default-avatar.png'}
-          alt={message.sender?.username}
-          className="w-8 h-8 rounded-full object-cover mr-2 mt-1"
-        />
+        <div className="relative mr-3 flex-shrink-0">
+          <img
+            src={message.sender?.profilePic || '/default-avatar.png'}
+            alt={message.sender?.username}
+            className="w-10 h-10 rounded-full object-cover ring-2 ring-white dark:ring-gray-700 shadow-sm"
+          />
+          <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white dark:border-gray-800"></div>
+        </div>
       )}
       
       {/* Spacer for received messages without avatar */}
-      {!isOwn && !showAvatar && <div className="w-10 mr-2" />}
+      {!isOwn && !showAvatar && <div className="w-13 mr-3" />}
 
       {/* Message Content */}
-      <div className={`max-w-xs lg:max-w-md ${isOwn ? 'order-1' : 'order-2'}`}>
+      <div className={`max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl ${isOwn ? 'order-1' : 'order-2'} flex flex-col`}>
         {/* Sender name for received messages */}
         {!isOwn && showAvatar && (
-          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1 ml-3">
+          <div className="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1 ml-1 tracking-wide">
             {message.sender?.name || message.sender?.username}
           </div>
         )}
 
         {/* Reply to message */}
         {message.replyTo && (
-          <div className="mb-2">
-            <div className={`px-3 py-2 rounded-lg border-l-4 ${
+          <div className="mb-3">
+            <div className={`relative px-4 py-3 rounded-2xl border-l-4 backdrop-blur-sm ${
               isOwn 
-                ? 'bg-red-50 dark:bg-red-900/20 border-red-500' 
-                : 'bg-gray-50 dark:bg-gray-800 border-gray-400'
+                ? 'bg-blue-50/80 dark:bg-blue-900/20 border-blue-500 shadow-sm' 
+                : 'bg-gray-50/80 dark:bg-gray-700/40 border-gray-400 shadow-sm'
             }`}>
-              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+              <div className="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1 flex items-center gap-1">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                </svg>
                 Replying to {message.replyTo.sender?.username}
               </div>
-              <div className="text-sm text-gray-700 dark:text-gray-300 truncate">
+              <div className="text-sm text-gray-700 dark:text-gray-200 line-clamp-2 leading-relaxed">
                 {message.replyTo.content}
               </div>
             </div>
@@ -119,52 +160,156 @@ export default function MessageBubble({
         {/* Message Bubble */}
         <div className="relative">
           <div 
-            className={`px-4 py-2 rounded-2xl relative ${
+            className={`px-5 py-3 rounded-2xl relative shadow-sm backdrop-blur-sm transition-all duration-200 hover:shadow-md ${
               isOwn 
-                ? 'bg-red-500 text-white rounded-br-md' 
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white rounded-bl-md'
+                ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-br-lg shadow-blue-200/50' 
+                : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-bl-lg border border-gray-100 dark:border-gray-700 shadow-gray-200/30 dark:shadow-gray-700/20'
             }`}
           >
+            {/* Voice Message */}
+            {message.messageType === 'voice' && message.voiceData && (
+              <VoiceMessagePlayer 
+                voiceData={message.voiceData}
+                isOwn={isOwn}
+                timestamp={message.createdAt}
+              />
+            )}
+            
+            {/* Call Message */}
+            {message.messageType === 'call' && message.callData && (
+              <div className={`flex items-center gap-3 py-2 px-1 ${
+                isOwn ? 'text-white' : 'text-gray-800 dark:text-gray-100'
+              }`}>
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                  message.callData.status === 'completed' ? 'bg-green-100 dark:bg-green-900' :
+                  message.callData.status === 'missed' ? 'bg-red-100 dark:bg-red-900' :
+                  message.callData.status === 'declined' ? 'bg-gray-100 dark:bg-gray-700' :
+                  'bg-blue-100 dark:bg-blue-900'
+                }`}>
+                  {message.callData.callType === 'video' ? (
+                    <svg className={`w-5 h-5 ${
+                      message.callData.status === 'completed' ? 'text-green-600 dark:text-green-400' :
+                      message.callData.status === 'missed' ? 'text-red-600 dark:text-red-400' :
+                      message.callData.status === 'declined' ? 'text-gray-600 dark:text-gray-400' :
+                      'text-blue-600 dark:text-blue-400'
+                    }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  ) : (
+                    <svg className={`w-5 h-5 ${
+                      message.callData.status === 'completed' ? 'text-green-600 dark:text-green-400' :
+                      message.callData.status === 'missed' ? 'text-red-600 dark:text-red-400' :
+                      message.callData.status === 'declined' ? 'text-gray-600 dark:text-gray-400' :
+                      'text-blue-600 dark:text-blue-400'
+                    }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                    </svg>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className="text-sm font-medium">
+                    {message.callData.callType === 'video' ? 'Video call' : 'Voice call'}
+                    {message.callData.status === 'missed' && ' (Missed)'}
+                    {message.callData.status === 'declined' && ' (Declined)'}
+                  </div>
+                  <div className={`text-xs opacity-75 ${
+                    isOwn ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'
+                  }`}>
+                    {message.callData.duration ? 
+                      `Duration: ${Math.floor(message.callData.duration / 60)}:${String(message.callData.duration % 60).padStart(2, '0')}` :
+                      getRelativeTime(message.createdAt)
+                    }
+                  </div>
+                </div>
+              </div>
+            )}
+            
             {/* Text Content */}
-            {message.content && (
-              <div className="text-sm whitespace-pre-wrap break-words">
+            {message.content && message.messageType !== 'voice' && message.messageType !== 'call' && (
+              <div className={`text-sm leading-relaxed whitespace-pre-wrap break-words ${
+                isOwn ? 'text-white' : 'text-gray-800 dark:text-gray-100'
+              }`}>
                 {message.content}
                 {message.isEdited && (
-                  <span className="text-xs opacity-70 ml-2">(edited)</span>
+                  <span className="text-xs opacity-60 ml-2 font-medium">(edited)</span>
                 )}
               </div>
             )}
 
             {/* Attachments */}
             {message.attachments && Array.isArray(message.attachments) && message.attachments.length > 0 && (
-              <div className="mt-2 space-y-2">
+              <div className="mt-3 space-y-3">
                 {message.attachments.map((attachment, index) => (
-                  <div key={index}>
+                  <div key={index} className="relative group/attachment">
                     {attachment.type === 'image' && (
-                      <img
-                        src={attachment.url}
-                        alt={attachment.filename}
-                        className="max-w-full rounded-lg cursor-pointer hover:opacity-90"
-                        onClick={() => window.open(attachment.url, '_blank')}
-                      />
+                      <div className="relative rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-200">
+                        <img
+                          src={attachment.url}
+                          alt={attachment.filename}
+                          className="max-w-full w-full object-cover cursor-pointer hover:scale-105 transition-transform duration-300"
+                          onClick={() => window.open(attachment.url, '_blank')}
+                          loading="lazy"
+                        />
+                        <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-10 transition-opacity duration-200 flex items-center justify-center">
+                          <div className="opacity-0 group-hover/attachment:opacity-100 transition-opacity duration-200 bg-white/90 dark:bg-gray-800/90 rounded-full p-2">
+                            <svg className="w-5 h-5 text-gray-700 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
                     )}
                     {attachment.type === 'video' && (
-                      <video
-                        src={attachment.url}
-                        controls
-                        className="max-w-full rounded-lg"
-                      />
+                      <div className="relative rounded-xl overflow-hidden shadow-sm">
+                        <video
+                          src={attachment.url}
+                          controls
+                          className="max-w-full w-full rounded-xl"
+                          poster={attachment.thumbnail}
+                        />
+                      </div>
                     )}
                     {attachment.type === 'file' && (
-                      <div className="flex items-center space-x-2 p-2 bg-black bg-opacity-10 rounded-lg">
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        <div>
-                          <div className="text-sm font-medium">{attachment.filename}</div>
-                          <div className="text-xs opacity-70">
-                            {attachment.size && `${Math.round(attachment.size / 1024)} KB`}
+                      <div className={`flex items-center space-x-3 p-4 rounded-xl cursor-pointer hover:scale-102 transition-all duration-200 ${
+                        isOwn ? 'bg-white/20 hover:bg-white/30' : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
+                      }`} onClick={() => window.open(attachment.url, '_blank')}>
+                        <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
+                          isOwn ? 'bg-white/30' : 'bg-blue-100 dark:bg-blue-900/30'
+                        }`}>
+                          {attachment.filename?.endsWith('.pdf') ? (
+                            <svg className={`w-6 h-6 ${isOwn ? 'text-white' : 'text-red-600 dark:text-red-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                            </svg>
+                          ) : attachment.filename?.match(/\.(doc|docx)$/i) ? (
+                            <svg className={`w-6 h-6 ${isOwn ? 'text-white' : 'text-blue-600 dark:text-blue-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                          ) : (
+                            <svg className={`w-6 h-6 ${isOwn ? 'text-white' : 'text-gray-600 dark:text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                            </svg>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className={`text-sm font-medium truncate ${
+                            isOwn ? 'text-white' : 'text-gray-900 dark:text-white'
+                          }`}>{attachment.filename}</div>
+                          <div className={`text-xs mt-1 flex items-center space-x-2 ${
+                            isOwn ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'
+                          }`}>
+                            {attachment.size && (
+                              <span>{(attachment.size / 1024 / 1024).toFixed(1)} MB</span>
+                            )}
+                            <span>•</span>
+                            <span>Click to download</span>
                           </div>
+                        </div>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                          isOwn ? 'bg-white/20' : 'bg-gray-200 dark:bg-gray-600'
+                        }`}>
+                          <svg className={`w-4 h-4 ${isOwn ? 'text-white' : 'text-gray-600 dark:text-gray-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
                         </div>
                       </div>
                     )}
@@ -176,11 +321,14 @@ export default function MessageBubble({
             {/* Message Options Button */}
             <button
               onClick={() => setShowOptions(!showOptions)}
-              className={`absolute top-1 ${isOwn ? 'left-1' : 'right-1'} w-6 h-6 rounded-full opacity-0 group-hover:opacity-100 transition-opacity ${
-                isOwn ? 'bg-red-600' : 'bg-gray-200 dark:bg-gray-700'
+              className={`absolute -top-1 ${isOwn ? '-left-1' : '-right-1'} w-8 h-8 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-200 hover:scale-110 shadow-lg focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${
+                isOwn ? 'bg-blue-600 hover:bg-blue-700 focus:bg-blue-700' : 'bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 border border-gray-200 dark:border-gray-600 focus:border-blue-400'
               } flex items-center justify-center`}
+              aria-label="Message options"
+              aria-expanded={showOptions}
+              aria-haspopup="true"
             >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className={`w-4 h-4 ${isOwn ? 'text-white' : 'text-gray-600 dark:text-gray-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
               </svg>
             </button>
@@ -188,20 +336,23 @@ export default function MessageBubble({
 
           {/* Reactions */}
           {reactionGroups.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1">
+            <div className="flex flex-wrap gap-2 mt-3" role="group" aria-label="Message reactions">
               {reactionGroups.map((group, index) => (
                 <button
                   key={index}
                   onClick={() => handleReaction(group.emoji)}
-                  className={`flex items-center space-x-1 px-2 py-1 rounded-full text-xs transition-colors ${
+                  className={`group/reaction flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 hover:scale-105 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${
                     group.hasUserReacted
-                      ? 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-700'
-                      : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                      ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border-2 border-blue-300 dark:border-blue-600 shadow-blue-200/50'
+                      : 'bg-gray-100/80 dark:bg-gray-700/60 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 border border-gray-200 dark:border-gray-600'
                   }`}
-                  title={group.users.join(', ')}
+                  title={`${group.users.join(', ')} reacted with ${group.emoji}`}
+                  aria-label={`${group.emoji} reaction, ${group.count} ${group.count === 1 ? 'person' : 'people'} reacted. ${group.hasUserReacted ? 'You reacted.' : 'Click to react.'}`}
                 >
-                  <span>{group.emoji}</span>
-                  <span>{group.count}</span>
+                  <span className="text-base leading-none" aria-hidden="true">{group.emoji}</span>
+                  <span className={`tabular-nums font-semibold ${
+                    group.hasUserReacted ? 'text-blue-600 dark:text-blue-400' : ''
+                  }`}>{group.count}</span>
                 </button>
               ))}
             </div>
@@ -209,61 +360,105 @@ export default function MessageBubble({
 
           {/* Quick Reactions */}
           {showReactions && (
-            <div className={`absolute ${isOwn ? 'right-0' : 'left-0'} -top-12 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-2 z-10`}>
-              <div className="flex space-x-2">
+            <div className={`absolute ${isOwn ? 'right-0' : 'left-0'} -top-16 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 rounded-2xl shadow-xl p-3 z-20 animate-in slide-in-from-bottom-2 duration-200`}>
+              <div className="flex gap-1">
                 {quickReactions.map((emoji, index) => (
                   <button
                     key={index}
                     onClick={() => handleReaction(emoji)}
-                    className="text-lg hover:bg-gray-100 dark:hover:bg-gray-700 rounded p-1"
+                    className="text-xl hover:bg-gray-100/80 dark:hover:bg-gray-700/80 rounded-xl p-2 transition-all duration-200 hover:scale-125 focus:outline-none focus:ring-2 focus:ring-blue-500/50 active:scale-110"
+                    title={`React with ${emoji}`}
                   >
                     {emoji}
                   </button>
                 ))}
               </div>
+              <div className={`absolute top-full ${isOwn ? 'right-4' : 'left-4'} w-3 h-3 bg-white dark:bg-gray-800 border-r border-b border-gray-200/50 dark:border-gray-600/50 transform rotate-45 -translate-y-1.5`}></div>
             </div>
           )}
 
           {/* Options Menu */}
           {showOptions && (
-            <div className={`absolute ${isOwn ? 'left-0' : 'right-0'} top-8 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-1 z-10 min-w-32`}>
+            <div 
+              className={`absolute ${isOwn ? 'left-0' : 'right-0'} top-10 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border border-gray-200/50 dark:border-gray-600/50 rounded-2xl shadow-xl py-2 z-20 min-w-40 sm:min-w-48 animate-in slide-in-from-top-2 duration-200`}
+              role="menu"
+              aria-label="Message actions"
+            >
               <button
                 onClick={() => {
                   setShowReactions(!showReactions);
                   setShowOptions(false);
                 }}
-                className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                className="w-full px-4 py-2.5 text-left text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100/80 dark:hover:bg-gray-700/80 transition-colors duration-200 flex items-center gap-3 focus:outline-none focus:bg-gray-100/80 dark:focus:bg-gray-700/80"
+                role="menuitem"
+                aria-label="Add reaction to message"
               >
-                React
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1.5a2.5 2.5 0 002.5-2.5V6a2.5 2.5 0 00-2.5-2.5H9V10zM15 10h-1.5a2.5 2.5 0 00-2.5 2.5V14a2.5 2.5 0 002.5 2.5H15V10z" />
+                </svg>
+                Add Reaction
               </button>
               <button
                 onClick={() => {
                   onReply && onReply(message);
                   setShowOptions(false);
                 }}
-                className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                className="w-full px-4 py-2.5 text-left text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100/80 dark:hover:bg-gray-700/80 transition-colors duration-200 flex items-center gap-3 focus:outline-none focus:bg-gray-100/80 dark:focus:bg-gray-700/80"
+                role="menuitem"
+                aria-label="Reply to this message"
               >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                </svg>
                 Reply
               </button>
+              <button
+                className="w-full px-4 py-2.5 text-left text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100/80 dark:hover:bg-gray-700/80 transition-colors duration-200 flex items-center gap-3 focus:outline-none focus:bg-gray-100/80 dark:focus:bg-gray-700/80"
+                role="menuitem"
+                aria-label="Copy message text"
+                onClick={() => {
+                  navigator.clipboard.writeText(message.content);
+                  setShowOptions(false);
+                }}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                Copy
+              </button>
+              
               {isOwn && (
                 <>
+                  <div className="h-px bg-gray-200 dark:bg-gray-600 my-2 mx-2"></div>
                   <button
                     onClick={() => {
                       onEdit && onEdit(message);
                       setShowOptions(false);
                     }}
-                    className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    className="w-full px-4 py-2.5 text-left text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100/80 dark:hover:bg-gray-700/80 transition-colors duration-200 flex items-center gap-3 focus:outline-none focus:bg-gray-100/80 dark:focus:bg-gray-700/80"
+                    role="menuitem"
+                    aria-label="Edit this message"
                   >
-                    Edit
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                    Edit Message
                   </button>
                   <button
                     onClick={() => {
-                      onDelete && onDelete(message.messageid);
+                      if (window.confirm('Are you sure you want to delete this message?')) {
+                        onDelete && onDelete(message.messageid);
+                      }
                       setShowOptions(false);
                     }}
-                    className="w-full px-3 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+                    className="w-full px-4 py-2.5 text-left text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50/80 dark:hover:bg-red-900/20 transition-colors duration-200 flex items-center gap-3 focus:outline-none focus:bg-red-50/80 dark:focus:bg-red-900/20"
+                    role="menuitem"
+                    aria-label="Delete this message permanently"
                   >
-                    Delete
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Delete Message
                   </button>
                 </>
               )}
@@ -272,13 +467,29 @@ export default function MessageBubble({
         </div>
 
         {/* Timestamp and Read Status */}
-        <div className={`mt-1 flex items-center space-x-2 text-xs text-gray-500 dark:text-gray-400 ${
-          isOwn ? 'justify-end' : 'justify-start'
+        <div className={`mt-2 flex items-center gap-2 text-xs transition-opacity duration-200 ${
+          isOwn ? 'justify-end text-right' : 'justify-start text-left'
         }`}>
-          <span>{formatTime(message.createdAt)}</span>
-          {isOwn && readStatus && (
-            <span className="text-xs">• {readStatus}</span>
-          )}
+          <div className={`flex items-center gap-2 ${
+            isOwn ? 'flex-row-reverse' : 'flex-row'
+          }`}>
+            <time className={`font-medium tabular-nums ${
+              isOwn ? 'text-blue-200/80' : 'text-gray-500 dark:text-gray-400'
+            }`} dateTime={message.createdAt}>
+              {formatTime(message.createdAt)}
+            </time>
+            
+            {isOwn && (
+              <MessageStatusIcon
+                status={message.messageStatus || MESSAGE_STATUS.SENT}
+                isOwn={isOwn}
+                onRetry={() => message.messageStatus === MESSAGE_STATUS.FAILED && onRetryMessage && onRetryMessage(message.messageid)}
+                timestamp={message.createdAt}
+                deliveredTo={message.deliveredTo}
+                readBy={message.readBy}
+              />
+            )}
+          </div>
         </div>
       </div>
 

@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useContext, useEffect } from 'react';
-import { useLazyQuery, useMutation } from '@apollo/client';
+import { useState, useEffect } from 'react';
+import { useLazyQuery, useMutation } from '@apollo/client/react';
 import CreatePostModal from '../Post/CreatePostModal';
 import HighlightsSection from './HighlightsSection';
 import MacOSSettingsModal from '../../Settings/MacOSSettingsModal';
 import { ADD_CLOSE_FRIEND, REMOVE_CLOSE_FRIEND, IS_CLOSE_FRIEND } from '../../../lib/graphql/profileQueries';
-import { AuthContext } from '../../Helper/AuthProvider';
+import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 
 export default function ProfileHeader({ 
   profile, 
@@ -24,7 +24,7 @@ export default function ProfileHeader({
   const [showMenu, setShowMenu] = useState(false);
   const [showCreatePost, setShowCreatePost] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const { user } = useContext(AuthContext);
+  const { user } = useSecureAuth();
   const [isCloseFriend, setIsCloseFriend] = useState(false);
   const [checkCloseFriend, { data: closeFriendData }] = useLazyQuery(IS_CLOSE_FRIEND);
   const [addCloseFriend] = useMutation(ADD_CLOSE_FRIEND);

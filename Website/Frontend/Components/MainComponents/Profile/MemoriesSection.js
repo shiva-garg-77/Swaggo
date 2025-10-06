@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useCallback } from 'react';
-import { useMutation, useQuery } from '@apollo/client';
+import { useMutation, useQuery } from '@apollo/client/react';
 import { useTheme } from '../../Helper/ThemeProvider';
-import { useAuth } from '../../Helper/AuthProvider';
+import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { gql } from '@apollo/client';
 import MemoryViewer from './MemoryViewer';
@@ -55,7 +55,7 @@ const ADD_STORY_TO_MEMORY = gql`
 
 export default function MemoriesSection({ profileid, isCurrentUser = false }) {
   const { theme } = useTheme();
-  const { user } = useAuth();
+  const { user } = useSecureAuth();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newMemoryTitle, setNewMemoryTitle] = useState('');
   const [newMemoryCover, setNewMemoryCover] = useState('');

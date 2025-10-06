@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from 'react';
-import { useLazyQuery } from '@apollo/client';
+import { useLazyQuery } from '@apollo/client/react';
 import { useTheme } from '../Helper/ThemeProvider';
 import { useRouter } from 'next/navigation';
 import { SEARCH_USERS } from '../../lib/graphql/queries';

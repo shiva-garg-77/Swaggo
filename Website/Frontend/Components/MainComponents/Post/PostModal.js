@@ -2,8 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useTheme } from '../../Helper/ThemeProvider';
-import { useMutation, useQuery } from '@apollo/client';
-import { useAuth } from '../../Helper/AuthProvider';
+import { useMutation, useQuery } from '@apollo/client/react';
+import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { gql } from '@apollo/client';
 import InstagramCommentSection from './InstagramCommentSection';
 
@@ -38,7 +38,7 @@ const GET_POST_STATS = gql`
 
 export default function PostModal({ post, isOpen, onClose, theme: propTheme, showNavigation = false, onNext, onPrevious, hasNext = false, hasPrevious = false, currentIndex, totalCount }) {
   const { theme } = useTheme();
-  const { user } = useAuth();
+  const { user } = useSecureAuth();
   const actualTheme = propTheme || theme;
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const modalRef = useRef(null);

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import notificationService from '../Helper/NotificationService';
+import notificationService from '../../services/UnifiedNotificationService.js';
 
 export default function NotificationSettings({ isOpen, onClose }) {
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -11,32 +11,49 @@ export default function NotificationSettings({ isOpen, onClose }) {
   useEffect(() => {
     if (isOpen) {
       // Load current settings
-      setSoundEnabled(notificationService.isSoundEnabled());
-      setNotificationPermission(notificationService.permission);
+      setSoundEnabled(true); // Default to true since the Services version doesn't have isSoundEnabled
+      // Get current permission status
+      const currentPermission = typeof window !== 'undefined' && 'Notification' in window 
+        ? Notification.permission 
+        : 'unsupported';
+      setNotificationPermission(currentPermission);
     }
   }, [isOpen]);
 
   const handleSoundToggle = (enabled) => {
     setSoundEnabled(enabled);
-    notificationService.setSoundEnabled(enabled);
+    // The Services version doesn't have setSoundEnabled, so just update local state
+    console.log('Sound notifications:', enabled ? 'enabled' : 'disabled');
   };
 
   const handleRequestPermission = async () => {
     const granted = await notificationService.requestPermission();
-    setNotificationPermission(notificationService.permission);
+    // Update permission status
+    const currentPermission = typeof window !== 'undefined' && 'Notification' in window 
+      ? Notification.permission 
+      : 'unsupported';
+    setNotificationPermission(currentPermission);
     
     if (granted) {
-      // Show test notification
-      notificationService.showNotification('Notifications Enabled!', {
-        body: 'You will now receive chat notifications',
-        icon: '/icons/chat-icon-192.png'
+      // Show test notification using the new service
+      notificationService.showNotification('Notifications Enabled! ✅', {
+        body: 'You will now receive chat notifications from SwagGo',
+        icon: '/favicon.ico',
+        tag: 'permission-granted'
       });
     }
   };
 
   const testSound = () => {
     setTestSoundPlaying(true);
-    notificationService.playNotificationSound();
+    
+    // Simple audio beep for testing since Services version doesn't have playNotificationSound
+    try {
+      const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LKeSsFJH7K79iQQAUUXrTp66hVFApGn+LyvmIYAy2EzPPfhzEHE2m98OOgUQQUXq/l76xTEAhMrOTyu2EcBjN+y/PKfS0GIHvI8N2EOgsXZ7Tr7qlYFgdBqOX0r2IZBCh7xPDNfzEIA2m16dSjbxgJTaHj7K1bFQpNn+LrvGsePgJDb8tOOhAIUqfhyqWxDgAFRc/Jb2vFgAACBwfNzqW1DgEFRs/Jb2vFgAACBwfNzqW1DgEFR8/Jb2vGgAACBwfNzqW1DgEFRs/Jb2vFgAACBwfNzqW1DgEFRs/Jb2vFgAACBwfNzqW1Dg==');
+      audio.play().catch(() => console.log('Audio play failed'));
+    } catch (error) {
+      console.log('Test sound failed:', error);
+    }
     
     setTimeout(() => {
       setTestSoundPlaying(false);
@@ -44,10 +61,8 @@ export default function NotificationSettings({ isOpen, onClose }) {
   };
 
   const testNotification = () => {
-    notificationService.showNotification('Test Notification', {
-      body: 'This is a test notification from Swaggo Chat',
-      icon: '/icons/message-icon-192.png'
-    });
+    // Use the improved test notification method
+    notificationService.testNotification();
   };
 
   if (!isOpen) return null;

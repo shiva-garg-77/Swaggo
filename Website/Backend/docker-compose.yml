@@ -1,0 +1,421 @@
+# 🔒 SECURITY-HARDENED DOCKER COMPOSE CONFIGURATION
+version: '3.8'
+
+# Global configuration
+x-restart-policy: &restart-policy
+  restart: unless-stopped
+
+x-security-opts: &security-opts
+  security_opt:
+    - no-new-privileges:true
+  read_only: false  # Set to true for maximum security, but requires temp volumes
+  cap_drop:
+    - ALL
+  cap_add:
+    - CHOWN
+    - DAC_OVERRIDE
+    - SETGID
+    - SETUID
+
+services:
+  # 📊 MongoDB Database - Security Hardened
+  mongodb:
+    image: mongo:7.0.6-jammy  # Pinned version for security
+    container_name: swaggo-mongodb
+    <<: *restart-policy
+    user: "999:999"  # MongoDB user
+    ports:
+      - "127.0.0.1:27017:27017"  # Bind to localhost only
+    environment:
+      MONGO_INITDB_ROOT_USERNAME_FILE: /run/secrets/mongo_username
+      MONGO_INITDB_ROOT_PASSWORD_FILE: /run/secrets/mongo_password
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-swaggo}
+      # Fallback for development
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-please_change_in_production}
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+      - ./security/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+      - ./security/mongodb.conf:/etc/mongo/mongod.conf:ro
+    networks:
+      - database-tier
+    command: >
+      mongod --auth
+             --config /etc/mongo/mongod.conf
+             --logpath /data/db/mongodb.log
+             --logappend
+             --bind_ip_all
+             --slowOpThresholdMs 100
+             --profile 2
+             --sslMode requireSSL
+             --sslPEMKeyFile /etc/ssl/mongodb.pem
+    healthcheck:
+      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    <<: *security-opts
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+
+  # 📊 Redis Cache - Security Hardened
+  redis:
+    image: redis:7.2.4-alpine  # Pinned version
+    container_name: swaggo-redis
+    <<: *restart-policy
+    user: "999:999"  # Redis user
+    ports:
+      - "127.0.0.1:6379:6379"  # Bind to localhost only
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+      - ./security/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - cache-tier
+    command: >
+      redis-server /usr/local/etc/redis/redis.conf
+      --requirepass ${REDIS_PASSWORD}
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --tcp-keepalive 60
+      --timeout 300
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    <<: *security-opts
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 64M
+
+  # 🚀 SwagGo Backend API - Security Hardened
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+      args:
+        - NODE_ENV=production
+        - BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+        - VCS_REF=$(git rev-parse --short HEAD)
+    image: swaggo/api:${API_VERSION:-latest}
+    container_name: swaggo-api
+    <<: *restart-policy
+    ports:
+      - "127.0.0.1:${PORT:-45799}:45799"  # Bind to localhost only
+    environment:
+      # Application Configuration
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 45799
+      
+      # Database Configuration
+      MONGOURI: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongodb:27017/${MONGO_DATABASE:-swaggo}?authSource=admin&ssl=true
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      
+      # Security Configuration
+      ACCESS_TOKEN_SECRET: ${ACCESS_TOKEN_SECRET}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
+      CSRF_SECRET: ${CSRF_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      
+      # Application URLs
+      FRONTEND_URLS: ${FRONTEND_URLS:-https://swaggo.com,http://localhost:3000}
+      API_BASE_URL: ${API_BASE_URL:-https://api.swaggo.com}
+      
+      # Security Settings
+      RATE_LIMIT_WINDOW: ${RATE_LIMIT_WINDOW:-900000}
+      RATE_LIMIT_MAX_REQUESTS: ${RATE_LIMIT_MAX_REQUESTS:-100}
+      SESSION_TIMEOUT: ${SESSION_TIMEOUT:-3600000}
+      
+      # Monitoring
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENABLE_METRICS: ${ENABLE_METRICS:-true}
+    volumes:
+      - uploads_data:/app/uploads:rw
+      - logs_data:/app/logs:rw
+      - temp_data:/app/temp:rw
+    tmpfs:
+      - /tmp:size=100M,mode=1777
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-tier
+      - database-tier
+      - cache-tier
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:45799/health/quick"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    <<: *security-opts
+    cap_add:
+      - NET_BIND_SERVICE  # For binding to port 5000
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+        labels: "service,environment,version"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`api.swaggo.com`)"
+      - "traefik.http.routers.api.tls=true"
+      - "traefik.http.services.api.loadbalancer.server.port=5000"
+
+  # 🔬 Data Science Server
+  data-science:
+    image: python:3.11-alpine
+    container_name: swaggo-data-science
+    <<: *restart-policy
+    ports:
+      - "127.0.0.1:5000:5000"  # DS server on port 5000 (no conflict)
+    environment:
+      DS_PORT: 5000
+      DS_ENV: ${NODE_ENV:-production}
+      API_BASE_URL: http://api:45799
+    volumes:
+      - ./data-science:/app:ro
+      - ds_cache:/app/cache:rw
+      - ds_models:/app/models:rw
+    working_dir: /app
+    command: >
+      sh -c "
+        pip install --no-cache-dir flask pandas numpy scikit-learn &&
+        python app.py
+      "
+    networks:
+      - app-tier
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    <<: *security-opts
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+
+  # 🔒 Security-Hardened Nginx Reverse Proxy
+  nginx:
+    image: nginx:1.25.4-alpine  # Pinned version
+    container_name: swaggo-nginx
+    <<: *restart-policy
+    user: "101:101"  # Nginx user
+    ports:
+      - "80:8080"   # Non-privileged port
+      - "443:8443"  # Non-privileged port
+    volumes:
+      - ./security/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./security/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./security/ssl:/etc/nginx/ssl:ro
+      - uploads_data:/var/www/uploads:ro
+      - nginx_cache:/var/cache/nginx:rw
+      - nginx_logs:/var/log/nginx:rw
+    environment:
+      NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx/conf.d
+      NGINX_ENVSUBST_TEMPLATE_DIR: /etc/nginx/templates
+      API_HOST: api
+      API_PORT: 45799
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - app-tier
+      - proxy-tier
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    <<: *security-opts
+    cap_add:
+      - NET_BIND_SERVICE
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+        reservations:
+          memory: 32M
+
+  # 📈 Security Monitoring & Logging
+  security-monitor:
+    image: swaggo/security-monitor:${MONITOR_VERSION:-latest}
+    container_name: swaggo-security-monitor
+    <<: *restart-policy
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ALERT_WEBHOOK: ${SECURITY_ALERT_WEBHOOK}
+      MONITORED_SERVICES: "api,nginx,mongodb,redis"
+    volumes:
+      - logs_data:/logs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - monitoring-tier
+    <<: *security-opts
+    depends_on:
+      - api
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+
+# 💾 Secure Volume Configuration
+volumes:
+  mongodb_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/mongodb
+  mongodb_config:
+    driver: local
+  redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/redis
+  uploads_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/uploads
+  logs_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR:-./data}/logs
+  temp_data:
+    driver: local
+  nginx_cache:
+    driver: local
+  nginx_logs:
+    driver: local
+  ds_cache:
+    driver: local
+  ds_models:
+    driver: local
+
+# 🌐 Secure Network Configuration
+networks:
+  # Frontend tier - public facing
+  proxy-tier:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: "swaggo-proxy"
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+  
+  # Application tier - internal services
+  app-tier:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: "swaggo-app"
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
+  
+  # Database tier - most restricted
+  database-tier:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: "swaggo-db"
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.22.0.0/24
+  
+  # Cache tier
+  cache-tier:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: "swaggo-cache"
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.23.0.0/24
+  
+  # Monitoring tier
+  monitoring-tier:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: "swaggo-monitor"
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.24.0.0/24
+
+# 🔐 SECURE SECRETS MANAGEMENT
+# In production, use external secret management (Hashicorp Vault, AWS Secrets Manager, etc.)
+# For development, secrets are stored in secure files with proper permissions
+secrets:
+  mongo_username:
+    file: ./security/.secrets/mongo_username.txt
+  mongo_password:
+    file: ./security/.secrets/mongo_password.txt
+  redis_password:
+    file: ./security/.secrets/redis_password.txt
+  access_token_secret:
+    file: ./security/.secrets/access_token_secret.txt
+  refresh_token_secret:
+    file: ./security/.secrets/refresh_token_secret.txt
+  csrf_secret:
+    file: ./security/.secrets/csrf_secret.txt
+  # Production: Use external secrets
+  # access_token_secret:
+  #   external: true
+  #   name: swaggo_access_token_secret

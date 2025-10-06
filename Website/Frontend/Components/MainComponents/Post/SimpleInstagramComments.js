@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useCallback } from 'react';
-import { useQuery, useMutation } from '@apollo/client';
+import { useQuery, useMutation } from '@apollo/client/react';
 import { useTheme } from '../../Helper/ThemeProvider';
-import { useAuth } from '../../Helper/AuthProvider';
+import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { 
   GET_POST_COMMENTS, 
   CREATE_COMMENT, 
@@ -18,7 +18,7 @@ export default function SimpleInstagramComments({
   onCommentUpdate 
 }) {
   const { theme } = useTheme();
-  const { user } = useAuth();
+  const { user } = useSecureAuth();
   const actualTheme = propTheme || theme;
   const [newComment, setNewComment] = useState('');
   const [replyText, setReplyText] = useState('');

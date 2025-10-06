@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense, useMemo, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Send, Phone, Video, MoreVertical, Smile, Paperclip, Mic, MicOff, 
@@ -19,60 +19,18 @@ import {
   UserX, Slash
 } from 'lucide-react';
 import { useTheme } from '../Helper/ThemeProvider';
+import { 
+  LazyEmojiPicker, 
+  LazyGifPanel, 
+  LazyStickerPanel,
+  ChatPanelWrapper 
+} from './LazyChatPanels';
 
-// Enhanced Emoji Categories with more emojis
-const EMOJI_CATEGORIES = {
-  recent: { icon: '🕐', emojis: ['😊', '❤️', '👍', '😂', '😢', '😮', '🎉', '😍', '👋', '🔥', '💯', '✨', '🙌', '👏', '💪'] },
-  smileys: { icon: '😊', emojis: ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '☹️', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓', '🤗', '🤔', '🤭', '🤫', '🤥', '😶', '😐', '😑', '😬', '🙄', '😯', '😦', '😧', '😮', '😲'] },
-  people: { icon: '👋', emojis: ['👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '👊', '✊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝', '🙏', '✍️', '💪', '🦾', '🦵', '🦿', '🦶', '👂', '🦻', '👃', '🧠', '🫀', '🫁', '🦷', '🦴', '👀', '👁️', '👅', '👄', '💋'] },
-  nature: { icon: '🌳', emojis: ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🐔', '🐧', '🐦', '🐤', '🐣', '🐥', '🦆', '🦅', '🦉', '🦇', '🐺', '🐗', '🐴', '🦄', '🐝', '🐛', '🦋', '🐌', '🐞', '🐜', '🦟', '🦗', '🕷️', '🦂', '🐢', '🐍', '🦎', '🦖', '🦕', '🐙', '🦑', '🦐', '🦞', '🦀', '🐡', '🐠', '🐟', '🐬', '🐳', '🐋', '🦈', '🐊'] },
-  food: { icon: '🍕', emojis: ['🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🫐', '🍈', '🍒', '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶️', '🫑', '🌽', '🥕', '🫒', '🧄', '🧅', '🥔', '🍠', '🥐', '🥖', '🍞', '🥨', '🥯', '🧀', '🥚', '🍳', '🧈', '🥞', '🧇', '🥓', '🥩', '🍗', '🍖', '🦴', '🌭', '🍔', '🍟', '🍕'] },
-  activities: { icon: '⚽', emojis: ['⚽', '🏀', '🏈', '⚾', '🥎', '🎾', '🏐', '🏉', '🥏', '🎱', '🪀', '🏓', '🏸', '🏒', '🏑', '🥍', '🏏', '🪃', '🥅', '⛳', '🪁', '🏹', '🎣', '🤿', '🥊', '🥋', '🎽', '🛹', '🛷', '⛸️', '🥌', '🎿', '⛷️', '🏂', '🪂', '🏋️', '🤼', '🤸', '⛹️', '🤺', '🏇', '🧘', '🏄', '🏊', '🚴', '🚵', '🧗'] },
-  travel: { icon: '✈️', emojis: ['🚗', '🚕', '🚙', '🚌', '🚎', '🏎️', '🚓', '🚑', '🚒', '🚐', '🛻', '🚚', '🚛', '🚜', '🦯', '🦽', '🦼', '🛴', '🚲', '🛵', '🏍️', '🛺', '🚨', '🚔', '🚍', '🚘', '🚖', '🚡', '🚠', '🚟', '🚃', '🚋', '🚞', '🚝', '🚄', '🚅', '🚈', '🚂', '🚆', '🚇', '🚊', '🚉', '✈️', '🛫', '🛬', '🛩️', '💺', '🛰️', '🚀', '🛸'] },
-  objects: { icon: '💡', emojis: ['⌚', '📱', '📲', '💻', '⌨️', '🖥️', '🖨️', '🖱️', '🖲️', '🕹️', '🗜️', '💽', '💾', '💿', '📀', '📼', '📷', '📸', '📹', '🎥', '📽️', '🎞️', '📞', '☎️', '📟', '📠', '📺', '📻', '🎙️', '🎚️', '🎛️', '🧭', '⏱️', '⏲️', '⏰', '🕰️', '⌛', '⏳', '📡', '🔋', '🔌', '💡', '🔦', '🕯️', '🪔', '🧯', '🛢️'] },
-  symbols: { icon: '❤️', emojis: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '☮️', '✝️', '☪️', '🕉️', '☸️', '✡️', '🔯', '🕎', '☯️', '☦️', '🛐', '⛎', '♈', '♉', '♊', '♋', '♌', '♍', '♎', '♏', '♐', '♑', '♒', '♓', '🆔', '⚛️', '🉑', '☢️', '☣️', '📴', '📳'] },
-  flags: { icon: '🏳️', emojis: ['🏁', '🚩', '🎌', '🏴', '🏳️', '🏳️‍🌈', '🏳️‍⚧️', '🏴‍☠️', '🇮🇳', '🇺🇸', '🇬🇧', '🇫🇷', '🇩🇪', '🇯🇵', '🇨🇳', '🇷🇺', '🇧🇷', '🇦🇺', '🇨🇦', '🇮🇹', '🇪🇸', '🇰🇷', '🇳🇱', '🇸🇪', '🇳🇴', '🇩🇰', '🇫🇮', '🇵🇱', '🇹🇷', '🇬🇷', '🇵🇹', '🇮🇪', '🇦🇹', '🇨🇭', '🇧🇪', '🇱🇺'] }
-};
+// 🚀 Performance & Accessibility Enhancement Imports
+import { usePerformanceMonitoring } from '../Performance/AdvancedPerformanceOptimizer';
+import { useAccessibility } from '../Accessibility/AccessibilityFramework';
+import { usePerformanceMonitoring as useDashboardPerformanceMonitoring } from '../Performance/PerformanceMonitoringDashboard';
 
-// Enhanced Stickers with categories
-const STICKER_CATEGORIES = {
-  emotions: [
-    { id: 1, url: '/stickers/happy.png', name: 'Happy', preview: '😊' },
-    { id: 2, url: '/stickers/love.png', name: 'Love', preview: '😍' },
-    { id: 3, url: '/stickers/laugh.png', name: 'Laugh', preview: '😂' },
-    { id: 4, url: '/stickers/cool.png', name: 'Cool', preview: '😎' },
-    { id: 5, url: '/stickers/thinking.png', name: 'Thinking', preview: '🤔' },
-    { id: 6, url: '/stickers/angry.png', name: 'Angry', preview: '😠' },
-  ],
-  reactions: [
-    { id: 7, url: '/stickers/thumbs-up.png', name: 'Thumbs Up', preview: '👍' },
-    { id: 8, url: '/stickers/clap.png', name: 'Clap', preview: '👏' },
-    { id: 9, url: '/stickers/fire.png', name: 'Fire', preview: '🔥' },
-    { id: 10, url: '/stickers/heart.png', name: 'Heart', preview: '❤️' },
-    { id: 11, url: '/stickers/star.png', name: 'Star', preview: '⭐' },
-    { id: 12, url: '/stickers/party.png', name: 'Party', preview: '🎉' },
-  ],
-  animals: [
-    { id: 13, url: '/stickers/cat.png', name: 'Cat', preview: '🐱' },
-    { id: 14, url: '/stickers/dog.png', name: 'Dog', preview: '🐶' },
-    { id: 15, url: '/stickers/panda.png', name: 'Panda', preview: '🐼' },
-    { id: 16, url: '/stickers/lion.png', name: 'Lion', preview: '🦁' },
-    { id: 17, url: '/stickers/tiger.png', name: 'Tiger', preview: '🐯' },
-    { id: 18, url: '/stickers/fox.png', name: 'Fox', preview: '🦊' },
-  ]
-};
-
-// GIF Search Results (simulated)
-const GIF_CATEGORIES = ['Trending', 'Reaction', 'Love', 'Happy', 'Funny', 'Dance', 'Celebration', 'Good Morning', 'Good Night'];
-
-const SAMPLE_GIFS = [
-  { id: 1, url: 'https://media.giphy.com/media/3oriO0OEd9QIDdllqo/giphy.gif', title: 'Dance', category: 'Dance' },
-  { id: 2, url: 'https://media.giphy.com/media/l1J9wXoC8W4JFmREY/giphy.gif', title: 'Celebration', category: 'Celebration' },
-  { id: 3, url: 'https://media.giphy.com/media/26BRuo6sLetdllPAQ/giphy.gif', title: 'Happy', category: 'Happy' },
-  { id: 4, url: 'https://media.giphy.com/media/3o7TKF1fSIs1R19B8k/giphy.gif', title: 'Love', category: 'Love' },
-  { id: 5, url: 'https://media.giphy.com/media/l4q8cJzGdR9J8w3hS/giphy.gif', title: 'Funny', category: 'Funny' },
-  { id: 6, url: 'https://media.giphy.com/media/3o6Zt481isNVuQI1l6/giphy.gif', title: 'Reaction', category: 'Reaction' },
-];
 
 // Chat Themes
 const CHAT_THEMES = [
@@ -95,6 +53,23 @@ const ComprehensiveChatInterface = ({
   onEndCall 
 }) => {
   const { theme } = useTheme();
+  
+  // 🚀 Performance & Accessibility Hooks
+  const { startRender: startTracking, endRender: endTracking, metrics } = usePerformanceMonitoring();
+  const { announceToScreenReader, setFocusTarget, addKeyboardShortcut } = useAccessibility();
+  const { updateMetric: recordMetric } = useDashboardPerformanceMonitoring();
+  
+  // Create simple timer functions for performance tracking
+  const startTimer = useCallback((name) => {
+    if (process.env.NODE_ENV !== 'development') return null;
+    return { name, start: performance.now() };
+  }, []);
+  
+  const endTimer = useCallback((name, timer) => {
+    if (process.env.NODE_ENV !== 'development' || !timer) return;
+    const duration = performance.now() - timer.start;
+    recordMetric(`${name}_duration`, duration);
+  }, [recordMetric]);
   
   // Core Chat States
   const [messages, setMessages] = useState([]);
@@ -125,6 +100,7 @@ const ComprehensiveChatInterface = ({
   const [showEmojiPanel, setShowEmojiPanel] = useState(false);
   const [showStickerPanel, setShowStickerPanel] = useState(false);
   const [showGifPanel, setShowGifPanel] = useState(false);
+  const [selectedGifCategory, setSelectedGifCategory] = useState('trending');
   const [showAttachmentPanel, setShowAttachmentPanel] = useState(false);
   const [showMediaModal, setShowMediaModal] = useState(false);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
@@ -166,17 +142,8 @@ const ComprehensiveChatInterface = ({
   const [callParticipants, setCallParticipants] = useState([]);
   const [callRecording, setCallRecording] = useState(false);
 
-  // Emoji States
-  const [selectedEmojiCategory, setSelectedEmojiCategory] = useState('recent');
+  // Keep only the recentEmojis state as it's passed to the EmojiPicker component
   const [recentEmojis, setRecentEmojis] = useState(['😊', '❤️', '👍', '😂', '😢', '😮', '🎉', '😍', '👋', '🔥']);
-
-  // GIF States
-  const [gifSearchQuery, setGifSearchQuery] = useState('');
-  const [gifResults, setGifResults] = useState(SAMPLE_GIFS);
-  const [selectedGifCategory, setSelectedGifCategory] = useState('Trending');
-
-  // Sticker States
-  const [selectedStickerCategory, setSelectedStickerCategory] = useState('emotions');
 
   // Poll States
   const [createPollMode, setCreatePollMode] = useState(false);
@@ -191,6 +158,14 @@ const ComprehensiveChatInterface = ({
   // Notes/Status States
   const [userNote, setUserNote] = useState('');
   const [noteExpiry, setNoteExpiry] = useState(24);
+  
+  // Additional Settings States
+  const [showThemesModal, setShowThemesModal] = useState(false);
+  const [showPinnedMessagesModal, setShowPinnedMessagesModal] = useState(false);
+  const [archivedChats, setArchivedChats] = useState([]);
+  const [blockedUsers, setBlockedUsers] = useState([]);
+  const [chatArchived, setChatArchived] = useState(false);
+  const [userBlocked, setUserBlocked] = useState(false);
 
   // Refs
   const messagesEndRef = useRef(null);
@@ -199,24 +174,145 @@ const ComprehensiveChatInterface = ({
   const voiceRecorderRef = useRef(null);
   const videoRef = useRef(null);
   const recordingTimer = useRef(null);
+  const renderTimerRef = useRef(null);
+  const lastInteractionRef = useRef(Date.now());
+  
+  // 🚀 Performance optimization - Memoized values
+  const chatParticipants = useMemo(() => {
+    if (!selectedChat?.participants) return [];
+    return selectedChat.participants.filter(p => p.profileid !== user?.profileid);
+  }, [selectedChat?.participants, user?.profileid]);
+  
+  const messagesByDate = useMemo(() => {
+    return messages.reduce((acc, message) => {
+      const dateKey = new Date(message.timestamp).toDateString();
+      if (!acc[dateKey]) acc[dateKey] = [];
+      acc[dateKey].push(message);
+      return acc;
+    }, {});
+  }, [messages]);
+  
+  const unreadCount = useMemo(() => {
+    return messages.filter(msg => 
+      msg.senderId !== (user?.profileid || "me") && 
+      msg.status !== 'read'
+    ).length;
+  }, [messages, user?.profileid]);
 
-  // Scroll to bottom
+  // 🚀 Performance tracking for component renders
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      startTracking();
+      renderTimerRef.current = startTimer('chat_render');
+      recordMetric('ComprehensiveChatInterface_messageCount', messages.length);
+      recordMetric('ComprehensiveChatInterface_isConnected', isConnected ? 1 : 0);
+    }
+    
+    return () => {
+      if (process.env.NODE_ENV === 'development') {
+        endTracking('ComprehensiveChatInterface');
+        if (renderTimerRef.current) {
+          endTimer('chat_render', renderTimerRef.current);
+        }
+      }
+    };
+  }, [selectedChat, messages.length, isConnected, recordMetric, startTimer, endTimer, startTracking, endTracking]);
+  
+  // Scroll to bottom with performance tracking
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
+    if (process.env.NODE_ENV === 'development') {
+      const timer = startTimer('scroll_to_bottom');
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      endTimer('scroll_to_bottom', timer);
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [startTimer, endTimer]);
 
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
+  
+  // ♿ Accessibility: Keyboard shortcuts and screen reader support
+  useEffect(() => {
+    // Add keyboard shortcuts
+    const shortcuts = [
+      {
+        key: 'Escape',
+        handler: () => {
+          setShowEmojiPanel(false);
+          setShowGifPanel(false);
+          setShowStickerPanel(false);
+          setShowAttachmentPanel(false);
+          setReplyingTo(null);
+          announceToScreenReader('Panels closed');
+        },
+        description: 'Close panels and cancel reply'
+      },
+      {
+        key: 'Enter',
+        ctrlKey: true,
+        handler: () => {
+          if (inputText.trim() || selectedMedia.length > 0) {
+            handleSendMessage();
+          }
+        },
+        description: 'Send message (Ctrl+Enter)'
+      },
+      {
+        key: 'ArrowUp',
+        ctrlKey: true,
+        handler: () => {
+          // Focus on last message for editing
+          const lastMessage = messages.filter(m => m.senderId === (user?.profileid || "me")).pop();
+          if (lastMessage) {
+            setInputText(lastMessage.content);
+            announceToScreenReader('Editing last message');
+          }
+        },
+        description: 'Edit last message (Ctrl+Up)'
+      }
+    ];
+    
+    shortcuts.forEach(shortcut => addKeyboardShortcut(shortcut));
+    
+    return () => {
+      // Cleanup is handled by the accessibility provider
+    };
+  }, [addKeyboardShortcut, announceToScreenReader, inputText, selectedMedia.length, messages, user?.profileid]);
+  
+  // ♿ Announce new messages to screen readers
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage.senderId !== (user?.profileid || "me") && 
+          lastMessage.timestamp > lastInteractionRef.current) {
+        announceToScreenReader(
+          `New message from ${lastMessage.senderName}: ${lastMessage.content || lastMessage.type}`,
+          'polite'
+        );
+      }
+    }
+  }, [messages, user?.profileid, announceToScreenReader]);
 
   // Socket.io event listeners
   useEffect(() => {
     if (!socket || !selectedChat) return;
 
     console.log('Setting up Socket.io listeners for chat:', selectedChat.chatid);
+    console.log('Socket connection status:', socket.connected);
+    console.log('Socket ID:', socket.id);
 
-    // Join the chat room
-    socket.emit('join_chat', selectedChat.chatid);
+    // Ensure socket is connected before joining
+    if (socket.connected) {
+      socket.emit('join_chat', selectedChat.chatid);
+    } else {
+      console.warn('Socket not connected, waiting for connection before joining chat');
+      socket.on('connect', () => {
+        console.log('Socket connected, now joining chat:', selectedChat.chatid);
+        socket.emit('join_chat', selectedChat.chatid);
+      });
+    }
 
     // Listen for new messages
     const handleNewMessage = (data) => {
@@ -344,6 +440,12 @@ const ComprehensiveChatInterface = ({
     // Error handling
     socket.on('error', (error) => {
       console.error('Socket error:', error);
+      
+      // Handle specific reaction errors
+      if (typeof error === 'string' && error.includes('Message not found')) {
+        console.warn('⚠️ Reaction failed: Message may have been deleted');
+        // Optionally show user notification
+      }
     });
 
     // Cleanup on unmount or chat change
@@ -468,14 +570,28 @@ const ComprehensiveChatInterface = ({
       return;
     }
 
+    // Get recipient ID (other participant in the chat)
+    const otherParticipants = selectedChat.participants?.filter(
+      p => p.profileid !== user?.profileid
+    ) || [];
+    const receiverId = otherParticipants.length > 0 ? otherParticipants[0].profileid : null;
+    
+    if (!receiverId) {
+      console.error('❌ Cannot start call: No recipient found');
+      alert('No recipient found in this chat.');
+      return;
+    }
+    
     const callId = `call_${Date.now()}_${Math.random()}`;
     console.log(`Starting ${callType} call in chat:`, selectedChat.chatid);
+    console.log('Calling user:', receiverId);
     
     // Emit call initiation to other participants
     socket.emit('initiate_call', {
       callId,
       chatid: selectedChat.chatid,
       callType,
+      receiverId: receiverId, // Add receiverId for backend call processing
       caller: {
         profileid: user.profileid,
         username: user.username,
@@ -526,8 +642,16 @@ const ComprehensiveChatInterface = ({
     }
   }, [socket, selectedChat, onEndCall]);
 
-  // Message Handlers
+  // Message Handlers with Performance Tracking
   const handleSendMessage = useCallback(() => {
+    const sendTimer = process.env.NODE_ENV === 'development' ? startTimer('message_send') : null;
+    lastInteractionRef.current = Date.now();
+    
+    // Track user interaction
+    if (process.env.NODE_ENV === 'development') {
+      recordMetric('send_message_attempts', 1);
+    }
+    
     console.log('📨 Attempting to send message...');
     console.log('Input text:', inputText);
     console.log('Socket available:', !!socket);
@@ -593,11 +717,23 @@ const ComprehensiveChatInterface = ({
     setReplyingTo(null);
     setViewOnceMode(false);
 
+    // Get recipient ID (other participant in the chat)
+    const otherParticipants = selectedChat.participants?.filter(
+      p => p.profileid !== user?.profileid
+    ) || [];
+    const receiverId = otherParticipants.length > 0 ? otherParticipants[0].profileid : null;
+    
+    console.log('Chat participants:', selectedChat.participants);
+    console.log('Current user:', user?.profileid);
+    console.log('Other participants:', otherParticipants);
+    console.log('Recipient ID:', receiverId);
+    
     // Send message through Socket.io
     const messageData = {
       chatid: selectedChat.chatid,
       messageType: messageType,
       content: messageContent,
+      receiverId: receiverId, // Add receiverId for backend processing
       attachments: [...selectedMedia, ...selectedFiles].map(item => ({
         type: item.type || 'file',
         url: item.url || '',
@@ -646,7 +782,12 @@ const ComprehensiveChatInterface = ({
     if (socket) {
       socket.emit('typing_stop', selectedChat.chatid);
     }
-  }, [inputText, selectedMedia, selectedFiles, replyingTo, viewOnceMode, secretChat, user, socket, selectedChat]);
+    
+    // End timer for message send
+    if (process.env.NODE_ENV === 'development' && sendTimer) {
+      endTimer('message_send', sendTimer);
+    }
+  }, [inputText, selectedMedia, selectedFiles, replyingTo, viewOnceMode, secretChat, user, socket, selectedChat, startTimer, endTimer, recordMetric]);
 
   const handleEmojiSelect = useCallback((emoji) => {
     setInputText(prev => prev + emoji);
@@ -822,6 +963,72 @@ const ComprehensiveChatInterface = ({
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
+  
+  // Settings Panel Handlers
+  const handleMoreThemes = useCallback(() => {
+    console.log('Opening theme selector modal...');
+    setShowThemesModal(true);
+    setShowSettingsPanel(false);
+  }, []);
+  
+  const handlePinnedMessages = useCallback(() => {
+    console.log('Opening pinned messages modal...');
+    const pinned = messages.filter(msg => msg.isPinned);
+    setPinnedMessages(pinned);
+    setShowPinnedMessagesModal(true);
+    setShowSettingsPanel(false);
+  }, [messages]);
+  
+  const handleArchiveChat = useCallback(() => {
+    if (!selectedChat) return;
+    
+    const action = chatArchived ? 'unarchive' : 'archive';
+    console.log(`${action} chat:`, selectedChat.chatid);
+    
+    setChatArchived(!chatArchived);
+    
+    if (!chatArchived) {
+      setArchivedChats(prev => [...prev, selectedChat.chatid]);
+    } else {
+      setArchivedChats(prev => prev.filter(id => id !== selectedChat.chatid));
+    }
+    
+    // Show confirmation message
+    const message = chatArchived ? 'Chat unarchived' : 'Chat archived';
+    alert(message);
+    
+    setShowSettingsPanel(false);
+  }, [selectedChat, chatArchived]);
+  
+  const handleBlockUser = useCallback(() => {
+    if (!selectedChat) return;
+    
+    const otherParticipant = selectedChat.participants?.find(p => p !== user?.profileid);
+    if (!otherParticipant) return;
+    
+    const action = userBlocked ? 'unblock' : 'block';
+    const confirmMessage = userBlocked 
+      ? `Unblock this user? You will be able to message each other again.`
+      : `Block this user? You won't be able to message each other.`;
+    
+    if (confirm(confirmMessage)) {
+      console.log(`${action} user:`, otherParticipant);
+      
+      setUserBlocked(!userBlocked);
+      
+      if (!userBlocked) {
+        setBlockedUsers(prev => [...prev, otherParticipant]);
+      } else {
+        setBlockedUsers(prev => prev.filter(id => id !== otherParticipant));
+      }
+      
+      // Show confirmation message
+      const message = userBlocked ? 'User unblocked' : 'User blocked';
+      alert(message);
+      
+      setShowSettingsPanel(false);
+    }
+  }, [selectedChat, user, userBlocked]);
 
   if (!selectedChat) {
     return (
@@ -1088,7 +1295,7 @@ const ComprehensiveChatInterface = ({
 
                     <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
                       <button
-                        onClick={() => setShowSettingsPanel(false)}
+                        onClick={handleMoreThemes}
                         className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
                           theme === 'dark'
                             ? 'hover:bg-gray-700 text-gray-300'
@@ -1100,30 +1307,51 @@ const ComprehensiveChatInterface = ({
                           <span>More Themes</span>
                         </div>
                       </button>
-                      <button className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
-                        theme === 'dark'
-                          ? 'hover:bg-gray-700 text-gray-300'
-                          : 'hover:bg-gray-100 text-gray-700'
-                      }`}>
-                        <div className="flex items-center space-x-2">
-                          <Pin className="w-4 h-4" />
-                          <span>Pinned Messages</span>
+                      
+                      <button 
+                        onClick={handlePinnedMessages}
+                        className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
+                          theme === 'dark'
+                            ? 'hover:bg-gray-700 text-gray-300'
+                            : 'hover:bg-gray-100 text-gray-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <Pin className="w-4 h-4" />
+                            <span>Pinned Messages</span>
+                          </div>
+                          <span className="text-xs bg-red-500 text-white px-2 py-1 rounded-full">
+                            {pinnedMessages.length}
+                          </span>
                         </div>
                       </button>
-                      <button className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
-                        theme === 'dark'
-                          ? 'hover:bg-gray-700 text-gray-300'
-                          : 'hover:bg-gray-100 text-gray-700'
-                      }`}>
+                      
+                      <button 
+                        onClick={handleArchiveChat}
+                        className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
+                          theme === 'dark'
+                            ? 'hover:bg-gray-700 text-gray-300'
+                            : 'hover:bg-gray-100 text-gray-700'
+                        }`}
+                      >
                         <div className="flex items-center space-x-2">
                           <Archive className="w-4 h-4" />
-                          <span>Archive Chat</span>
+                          <span>{chatArchived ? 'Unarchive Chat' : 'Archive Chat'}</span>
                         </div>
                       </button>
-                      <button className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20`}>
+                      
+                      <button 
+                        onClick={handleBlockUser}
+                        className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
+                          userBlocked 
+                            ? 'text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20'
+                            : 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20'
+                        }`}
+                      >
                         <div className="flex items-center space-x-2">
-                          <UserX className="w-4 h-4" />
-                          <span>Block User</span>
+                          {userBlocked ? <UserCheck className="w-4 h-4" /> : <UserX className="w-4 h-4" />}
+                          <span>{userBlocked ? 'Unblock User' : 'Block User'}</span>
                         </div>
                       </button>
                     </div>
@@ -1162,8 +1390,50 @@ const ComprehensiveChatInterface = ({
                 />
               </div>
               {searchQuery && (
-                <div className="mt-2 text-sm text-gray-500">
-                  No messages found for "{searchQuery}"
+                <div className="mt-3">
+                  {(() => {
+                    const searchResults = messages.filter(msg => 
+                      msg.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      msg.senderName.toLowerCase().includes(searchQuery.toLowerCase())
+                    );
+                    
+                    if (searchResults.length === 0) {
+                      return (
+                        <div className="text-sm text-gray-500">
+                          No messages found for "{searchQuery}"
+                        </div>
+                      );
+                    }
+                    
+                    return (
+                      <div className="space-y-2">
+                        <div className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                          {searchResults.length} message{searchResults.length !== 1 ? 's' : ''} found
+                        </div>
+                        <div className="max-h-48 overflow-y-auto space-y-2">
+                          {searchResults.map(msg => (
+                            <div
+                              key={msg.id}
+                              className={`p-2 rounded border-l-4 border-red-500 cursor-pointer ${
+                                theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-50 hover:bg-gray-100'
+                              }`}
+                              onClick={() => {
+                                // Scroll to message (implement if needed)
+                                setShowSearchPanel(false);
+                                setSearchQuery('');
+                              }}
+                            >
+                              <div className="flex items-center space-x-2 text-xs mb-1">
+                                <span className="font-medium">{msg.senderName}</span>
+                                <span className="text-gray-500">{formatTime(msg.timestamp)}</span>
+                              </div>
+                              <p className="text-sm">{msg.content}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>
@@ -1481,7 +1751,23 @@ const ComprehensiveChatInterface = ({
                       {/* Photo */}
                       <button
                         onClick={() => {
-                          // Implement photo selection
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.accept = 'image/*';
+                          input.multiple = true;
+                          input.onchange = (e) => {
+                            const files = Array.from(e.target.files);
+                            console.log('Photos selected:', files);
+                            const mediaItems = files.map(file => ({
+                              type: 'image',
+                              file,
+                              preview: URL.createObjectURL(file),
+                              name: file.name,
+                              size: file.size
+                            }));
+                            setSelectedMedia(mediaItems);
+                          };
+                          input.click();
                           setShowAttachmentPanel(false);
                         }}
                         className={`flex flex-col items-center p-3 rounded-lg transition-colors ${
@@ -1497,6 +1783,23 @@ const ComprehensiveChatInterface = ({
                       {/* Video */}
                       <button
                         onClick={() => {
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.accept = 'video/*';
+                          input.multiple = true;
+                          input.onchange = (e) => {
+                            const files = Array.from(e.target.files);
+                            console.log('Videos selected:', files);
+                            const mediaItems = files.map(file => ({
+                              type: 'video',
+                              file,
+                              preview: URL.createObjectURL(file),
+                              name: file.name,
+                              size: file.size
+                            }));
+                            setSelectedMedia(mediaItems);
+                          };
+                          input.click();
                           setShowAttachmentPanel(false);
                         }}
                         className={`flex flex-col items-center p-3 rounded-lg transition-colors ${
@@ -1512,6 +1815,23 @@ const ComprehensiveChatInterface = ({
                       {/* Document */}
                       <button
                         onClick={() => {
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.accept = '.pdf,.doc,.docx,.txt,.xls,.xlsx,.ppt,.pptx';
+                          input.multiple = true;
+                          input.onchange = (e) => {
+                            const files = Array.from(e.target.files);
+                            console.log('Documents selected:', files);
+                            const fileItems = files.map(file => ({
+                              type: 'document',
+                              file,
+                              name: file.name,
+                              size: file.size,
+                              extension: file.name.split('.').pop()
+                            }));
+                            setSelectedFiles(fileItems);
+                          };
+                          input.click();
                           setShowAttachmentPanel(false);
                         }}
                         className={`flex flex-col items-center p-3 rounded-lg transition-colors ${
@@ -1527,6 +1847,36 @@ const ComprehensiveChatInterface = ({
                       {/* Camera */}
                       <button
                         onClick={() => {
+                          if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                            navigator.mediaDevices.getUserMedia({ video: true })
+                              .then(stream => {
+                                console.log('Camera access granted');
+                                alert('Camera functionality would open here. For demo purposes, this opens the photo selector.');
+                                // For demo, trigger photo selector
+                                const input = document.createElement('input');
+                                input.type = 'file';
+                                input.accept = 'image/*';
+                                input.capture = 'camera';
+                                input.onchange = (e) => {
+                                  const files = Array.from(e.target.files);
+                                  const mediaItems = files.map(file => ({
+                                    type: 'image',
+                                    file,
+                                    preview: URL.createObjectURL(file),
+                                    name: file.name,
+                                    size: file.size
+                                  }));
+                                  setSelectedMedia(mediaItems);
+                                };
+                                input.click();
+                                stream.getTracks().forEach(track => track.stop());
+                              })
+                              .catch(() => {
+                                alert('Camera access denied or not available');
+                              });
+                          } else {
+                            alert('Camera not supported by this browser');
+                          }
                           setShowAttachmentPanel(false);
                         }}
                         className={`flex flex-col items-center p-3 rounded-lg transition-colors ${
@@ -1542,7 +1892,45 @@ const ComprehensiveChatInterface = ({
                       {/* Poll */}
                       <button
                         onClick={() => {
-                          setCreatePollMode(true);
+                          const question = prompt('Enter poll question:');
+                          if (question) {
+                            const options = [];
+                            let option1 = prompt('Enter first option:');
+                            let option2 = prompt('Enter second option:');
+                            if (option1 && option2) {
+                              options.push(option1, option2);
+                              
+                              // Add more options if needed
+                              let moreOptions = true;
+                              while (moreOptions && options.length < 5) {
+                                const additionalOption = prompt(`Enter option ${options.length + 1} (or cancel to finish):`);
+                                if (additionalOption) {
+                                  options.push(additionalOption);
+                                } else {
+                                  moreOptions = false;
+                                }
+                              }
+                              
+                              // Create poll message
+                              const pollMessage = {
+                                id: Date.now(),
+                                content: '',
+                                senderId: user?.profileid || "me",
+                                senderName: "You",
+                                timestamp: new Date(),
+                                type: 'poll',
+                                poll: {
+                                  question,
+                                  options: options.map(opt => ({ text: opt, votes: 0, voters: [] })),
+                                  totalVotes: 0
+                                },
+                                status: 'sending'
+                              };
+                              
+                              setMessages(prev => [...prev, pollMessage]);
+                              console.log('Poll created:', pollMessage);
+                            }
+                          }
                           setShowAttachmentPanel(false);
                         }}
                         className={`flex flex-col items-center p-3 rounded-lg transition-colors ${
@@ -1558,7 +1946,28 @@ const ComprehensiveChatInterface = ({
                       {/* Contact */}
                       <button
                         onClick={() => {
-                          setShowAddContact(true);
+                          const contactName = prompt('Enter contact name:');
+                          const contactPhone = prompt('Enter contact phone number:');
+                          
+                          if (contactName && contactPhone) {
+                            const contactMessage = {
+                              id: Date.now(),
+                              content: '',
+                              senderId: user?.profileid || "me",
+                              senderName: "You",
+                              timestamp: new Date(),
+                              type: 'contact',
+                              contact: {
+                                name: contactName,
+                                phone: contactPhone,
+                                avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(contactName)}&background=random`
+                              },
+                              status: 'sending'
+                            };
+                            
+                            setMessages(prev => [...prev, contactMessage]);
+                            console.log('Contact shared:', contactMessage);
+                          }
                           setShowAttachmentPanel(false);
                         }}
                         className={`flex flex-col items-center p-3 rounded-lg transition-colors ${
@@ -1665,192 +2074,37 @@ const ComprehensiveChatInterface = ({
           </div>
         </div>
 
-        {/* Emoji Panel */}
-        <AnimatePresence>
-          {showEmojiPanel && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className={`mt-3 p-4 rounded-lg border ${
-                theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex space-x-2">
-                  {Object.entries(EMOJI_CATEGORIES).map(([key, category]) => (
-                    <button
-                      key={key}
-                      onClick={() => setSelectedEmojiCategory(key)}
-                      className={`p-2 rounded transition-colors ${
-                        selectedEmojiCategory === key
-                          ? 'bg-red-500 text-white'
-                          : theme === 'dark'
-                          ? 'hover:bg-gray-700 text-gray-400'
-                          : 'hover:bg-gray-100 text-gray-600'
-                      }`}
-                    >
-                      <span className="text-lg">{category.icon}</span>
-                    </button>
-                  ))}
-                </div>
-                <button
-                  onClick={() => setShowEmojiPanel(false)}
-                  className={`p-1 rounded ${
-                    theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
-                  }`}
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              
-              <div className="grid grid-cols-8 gap-2 max-h-48 overflow-y-auto">
-                {EMOJI_CATEGORIES[selectedEmojiCategory]?.emojis.map((emoji, index) => (
-                  <button
-                    key={index}
-                    onClick={() => handleEmojiSelect(emoji)}
-                    className={`p-2 text-xl hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors`}
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/* Lazy-loaded Emoji Panel */}
+        <ChatPanelWrapper type="emoji" theme={theme} show={showEmojiPanel}>
+          <LazyEmojiPicker
+            isOpen={showEmojiPanel}
+            onClose={() => setShowEmojiPanel(false)}
+            onEmojiSelect={handleEmojiSelect}
+            recentEmojis={recentEmojis}
+            theme={theme}
+          />
+        </ChatPanelWrapper>
 
-        {/* GIF Panel */}
-        <AnimatePresence>
-          {showGifPanel && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className={`mt-3 p-4 rounded-lg border ${
-                theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex-1 mr-3">
-                  <input
-                    type="text"
-                    placeholder="Search GIFs..."
-                    value={gifSearchQuery}
-                    onChange={(e) => setGifSearchQuery(e.target.value)}
-                    className={`w-full px-3 py-2 rounded-lg border ${
-                      theme === 'dark'
-                        ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400'
-                        : 'bg-gray-100 border-gray-300 text-gray-900 placeholder-gray-500'
-                    } focus:ring-2 focus:ring-red-500 focus:border-red-500`}
-                  />
-                </div>
-                <button
-                  onClick={() => setShowGifPanel(false)}
-                  className={`p-1 rounded ${
-                    theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
-                  }`}
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
+        {/* Lazy-loaded GIF Panel */}
+        <ChatPanelWrapper type="gif" theme={theme} show={showGifPanel}>
+          <LazyGifPanel
+            isOpen={showGifPanel}
+            onClose={() => setShowGifPanel(false)}
+            onGifSelect={handleGifSend}
+            theme={theme}
+            initialCategory={selectedGifCategory}
+          />
+        </ChatPanelWrapper>
 
-              <div className="flex space-x-2 mb-3">
-                {GIF_CATEGORIES.map(category => (
-                  <button
-                    key={category}
-                    onClick={() => setSelectedGifCategory(category)}
-                    className={`px-3 py-1 text-sm rounded-full transition-colors ${
-                      selectedGifCategory === category
-                        ? 'bg-red-500 text-white'
-                        : theme === 'dark'
-                        ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                  >
-                    {category}
-                  </button>
-                ))}
-              </div>
-              
-              <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto">
-                {gifResults.filter(gif => !gifSearchQuery || gif.title.toLowerCase().includes(gifSearchQuery.toLowerCase()) || gif.category === selectedGifCategory).map(gif => (
-                  <button
-                    key={gif.id}
-                    onClick={() => handleGifSend(gif)}
-                    className="aspect-square rounded-lg overflow-hidden hover:scale-105 transition-transform"
-                  >
-                    <img
-                      src={gif.url}
-                      alt={gif.title}
-                      className="w-full h-full object-cover"
-                    />
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Sticker Panel */}
-        <AnimatePresence>
-          {showStickerPanel && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className={`mt-3 p-4 rounded-lg border ${
-                theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex space-x-2">
-                  {Object.keys(STICKER_CATEGORIES).map(category => (
-                    <button
-                      key={category}
-                      onClick={() => setSelectedStickerCategory(category)}
-                      className={`px-3 py-1 text-sm rounded-full transition-colors capitalize ${
-                        selectedStickerCategory === category
-                          ? 'bg-red-500 text-white'
-                          : theme === 'dark'
-                          ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                      }`}
-                    >
-                      {category}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  onClick={() => setShowStickerPanel(false)}
-                  className={`p-1 rounded ${
-                    theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
-                  }`}
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              
-              <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto">
-                {STICKER_CATEGORIES[selectedStickerCategory]?.map(sticker => (
-                  <button
-                    key={sticker.id}
-                    onClick={() => handleStickerSend(sticker)}
-                    className={`p-3 rounded-lg transition-colors flex flex-col items-center ${
-                      theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
-                    }`}
-                  >
-                    <span className="text-3xl mb-1">{sticker.preview}</span>
-                    <span className={`text-xs ${
-                      theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-                    }`}>
-                      {sticker.name}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/* Lazy-loaded Sticker Panel */}
+        <ChatPanelWrapper type="sticker" theme={theme} show={showStickerPanel}>
+          <LazyStickerPanel
+            isOpen={showStickerPanel}
+            onClose={() => setShowStickerPanel(false)}
+            onStickerSelect={handleStickerSend}
+            theme={theme}
+          />
+        </ChatPanelWrapper>
       </div>
 
       {/* Incoming Call Notification */}
@@ -2040,6 +2294,213 @@ const ComprehensiveChatInterface = ({
                 </div>
               </button>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      
+      {/* Theme Selector Modal */}
+      <AnimatePresence>
+        {showThemesModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            onClick={() => setShowThemesModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className={`w-full max-w-md mx-4 rounded-lg ${
+                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+              } shadow-xl`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className={`text-lg font-semibold ${
+                    theme === 'dark' ? 'text-white' : 'text-gray-900'
+                  }`}>
+                    Choose Chat Theme
+                  </h3>
+                  <button
+                    onClick={() => setShowThemesModal(false)}
+                    className={`p-2 rounded-full ${
+                      theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
+                    }`}
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  {CHAT_THEMES.map(chatTheme => (
+                    <button
+                      key={chatTheme.id}
+                      onClick={() => {
+                        setSelectedTheme(chatTheme.id);
+                        console.log('Selected theme:', chatTheme.name);
+                      }}
+                      className={`p-4 rounded-lg border-2 transition-all ${
+                        selectedTheme === chatTheme.id 
+                          ? 'border-blue-500 ring-2 ring-blue-200' 
+                          : 'border-gray-200 dark:border-gray-600 hover:border-gray-300'
+                      }`}
+                    >
+                      <div 
+                        className="w-full h-16 rounded-md mb-2"
+                        style={{ background: chatTheme.preview }}
+                      />
+                      <p className={`text-sm font-medium ${
+                        theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                      }`}>
+                        {chatTheme.name}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+                
+                <div className="mt-6 flex space-x-3">
+                  <button
+                    onClick={() => setShowThemesModal(false)}
+                    className={`flex-1 py-2 px-4 rounded-lg border ${
+                      theme === 'dark'
+                        ? 'border-gray-600 text-gray-300 hover:bg-gray-700'
+                        : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowThemesModal(false);
+                      alert(`Theme "${CHAT_THEMES.find(t => t.id === selectedTheme)?.name}" applied!`);
+                    }}
+                    className="flex-1 py-2 px-4 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                  >
+                    Apply Theme
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      
+      {/* Pinned Messages Modal */}
+      <AnimatePresence>
+        {showPinnedMessagesModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            onClick={() => setShowPinnedMessagesModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className={`w-full max-w-lg mx-4 rounded-lg ${
+                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+              } shadow-xl max-h-[80vh] overflow-hidden`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center space-x-2">
+                    <Pin className="w-5 h-5 text-yellow-500" />
+                    <h3 className={`text-lg font-semibold ${
+                      theme === 'dark' ? 'text-white' : 'text-gray-900'
+                    }`}>
+                      Pinned Messages
+                    </h3>
+                  </div>
+                  <button
+                    onClick={() => setShowPinnedMessagesModal(false)}
+                    className={`p-2 rounded-full ${
+                      theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
+                    }`}
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                
+                <div className="max-h-96 overflow-y-auto space-y-3">
+                  {pinnedMessages.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Pin className={`w-12 h-12 mx-auto mb-3 ${
+                        theme === 'dark' ? 'text-gray-600' : 'text-gray-400'
+                      }`} />
+                      <p className={`text-sm ${
+                        theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                      }`}>
+                        No pinned messages yet.
+                      </p>
+                      <p className={`text-xs mt-1 ${
+                        theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+                      }`}>
+                        Long press on a message to pin it.
+                      </p>
+                    </div>
+                  ) : (
+                    pinnedMessages.map((message, index) => (
+                      <div
+                        key={message.id}
+                        className={`p-3 rounded-lg ${
+                          theme === 'dark' ? 'bg-gray-700' : 'bg-gray-50'
+                        } border-l-4 border-yellow-500`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center space-x-2 mb-1">
+                              <span className={`text-xs font-medium ${
+                                theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                              }`}>
+                                {message.senderName}
+                              </span>
+                              <span className={`text-xs ${
+                                theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
+                              }`}>
+                                {formatTime(message.timestamp)}
+                              </span>
+                            </div>
+                            <p className={`text-sm ${
+                              theme === 'dark' ? 'text-gray-200' : 'text-gray-800'
+                            }`}>
+                              {message.content}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              handleMessageAction('pin', message.id);
+                              const updatedPinned = pinnedMessages.filter(m => m.id !== message.id);
+                              setPinnedMessages(updatedPinned);
+                            }}
+                            className={`ml-2 p-1 rounded ${
+                              theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-200'
+                            }`}
+                            title="Unpin message"
+                          >
+                            <X className="w-4 h-4 text-gray-500" />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                
+                <div className="mt-6">
+                  <button
+                    onClick={() => setShowPinnedMessagesModal(false)}
+                    className="w-full py-2 px-4 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -2253,6 +2714,125 @@ const MessageBubble = ({
             alt={message.gif.title}
             className="max-w-xs rounded-lg"
           />
+        );
+        
+      case 'poll':
+        return (
+          <div className={`p-3 rounded-lg border ${
+            theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-gray-50'
+          }`}>
+            <div className="flex items-center space-x-2 mb-3">
+              <BarChart3 className="w-5 h-5 text-indigo-500" />
+              <h4 className="font-medium text-sm">{message.poll.question}</h4>
+            </div>
+            <div className="space-y-2">
+              {message.poll.options.map((option, index) => {
+                const percentage = message.poll.totalVotes > 0 
+                  ? (option.votes / message.poll.totalVotes) * 100 
+                  : 0;
+                const userVoted = option.voters.includes(user?.profileid || 'me');
+                
+                return (
+                  <button
+                    key={index}
+                    onClick={() => {
+                      if (!userVoted) {
+                        // Add vote
+                        setMessages(prev => prev.map(msg => {
+                          if (msg.id === message.id) {
+                            const updatedOptions = msg.poll.options.map((opt, i) => {
+                              if (i === index) {
+                                return {
+                                  ...opt,
+                                  votes: opt.votes + 1,
+                                  voters: [...opt.voters, user?.profileid || 'me']
+                                };
+                              }
+                              return opt;
+                            });
+                            return {
+                              ...msg,
+                              poll: {
+                                ...msg.poll,
+                                options: updatedOptions,
+                                totalVotes: msg.poll.totalVotes + 1
+                              }
+                            };
+                          }
+                          return msg;
+                        }));
+                      }
+                    }}
+                    className={`w-full text-left p-2 rounded-md border transition-colors ${
+                      userVoted 
+                        ? 'bg-indigo-100 border-indigo-300 dark:bg-indigo-900 dark:border-indigo-600' 
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-600 border-gray-200 dark:border-gray-500'
+                    }`}
+                    disabled={userVoted}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm">{option.text}</span>
+                      <span className="text-xs font-medium">{option.votes} votes</span>
+                    </div>
+                    {percentage > 0 && (
+                      <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-1">
+                        <div 
+                          className="bg-indigo-500 h-1 rounded-full transition-all duration-300"
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-2 text-xs text-gray-500">
+              Total votes: {message.poll.totalVotes}
+            </div>
+          </div>
+        );
+        
+      case 'contact':
+        return (
+          <div className={`p-3 rounded-lg border ${
+            theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-gray-50'
+          }`}>
+            <div className="flex items-center space-x-3">
+              <img
+                src={message.contact.avatar}
+                alt={message.contact.name}
+                className="w-12 h-12 rounded-full"
+              />
+              <div className="flex-1">
+                <div className="font-medium text-sm">{message.contact.name}</div>
+                <div className="text-xs text-gray-500">{message.contact.phone}</div>
+              </div>
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => alert(`Calling ${message.contact.name}...`)}
+                  className={`p-2 rounded-full transition-colors ${
+                    theme === 'dark'
+                      ? 'bg-green-600 hover:bg-green-700'
+                      : 'bg-green-500 hover:bg-green-600'
+                  } text-white`}
+                  title="Call"
+                >
+                  <Phone className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => alert(`Adding ${message.contact.name} to contacts...`)}
+                  className={`p-2 rounded-full transition-colors ${
+                    theme === 'dark'
+                      ? 'bg-blue-600 hover:bg-blue-700'
+                      : 'bg-blue-500 hover:bg-blue-600'
+                  } text-white`}
+                  title="Add to contacts"
+                >
+                  <UserPlus className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
         );
 
       default:

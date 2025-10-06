@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { useQuery, useMutation, gql } from '@apollo/client';
-import { useAuth } from '../../Components/Helper/AuthProvider';
+import { useQuery, useMutation } from '@apollo/client/react';
+import { gql } from '@apollo/client';
+import { useSecureAuth } from '../../context/FixedSecureAuthContext';
 
 const GET_RESTRICTED_ACCOUNTS = gql`
   query GetRestrictedAccounts($profileid: String!) {
@@ -43,7 +44,7 @@ const UNRESTRICT_USER = gql`
 `;
 
 const RestrictedAccountsEnhanced = () => {
-  const { user, accessToken } = useAuth();
+  const { user, accessToken } = useSecureAuth();
   const isAuthenticated = !!accessToken && !!user;
   const [unrestrictingIds, setUnrestrictingIds] = useState(new Set());
   const [searchTerm, setSearchTerm] = useState('');
