@@ -1444,63 +1444,75 @@ class AuthenticationMiddleware {
   }
   
   /**
-   * SECURITY FIX: Clear authentication cookies including prefixed variants
+   * 🔒 SECURITY FIX #60: Clear authentication cookies for logout functionality
    */
   clearAuthenticationCookies(res) {
-    const req = res.req;
-    const isDevelopment = process.env.NODE_ENV === 'development';
+    const req = res.req; // Get request object from response
     
-    // SECURITY FIX: Match cookie clearing options with setting options
+    // SECURITY FIX: Enhanced protocol detection for HTTP/HTTPS handling
     const isHttpsRequest = req?.secure || 
                           req?.headers?.['x-forwarded-proto'] === 'https' ||
                           req?.headers?.['x-forwarded-ssl'] === 'on' ||
                           req?.connection?.encrypted ||
-                          req?.protocol === 'https';
+                          req?.protocol === 'https' ||
+                          req?.headers?.['cf-visitor']?.includes('https') || // Cloudflare
+                          req?.headers?.['x-forwarded-scheme'] === 'https'; // Other proxies
                           
-    const secureFlag = isDevelopment ? isHttpsRequest : (SecurityConfig.cookies.secure || !isDevelopment);
-    const sameSitePolicy = isDevelopment ? 
-      (secureFlag ? 'none' : 'lax') : 
-      (SecurityConfig.cookies.sameSite || 'strict');
-      
-    let domainSetting;
-    if (isDevelopment) {
-      domainSetting = undefined;
+    const forceSecure = process.env.FORCE_SECURE_COOKIES === 'true';
+    const secureFlag = isHttpsRequest || forceSecure;
+    
+    // SECURITY FIX: Enhanced sameSite with proper cross-origin handling
+    let sameSitePolicy;
+    if (process.env.NODE_ENV === 'development') {
+      sameSitePolicy = secureFlag ? 'none' : 'lax';
     } else {
+      sameSitePolicy = SecurityConfig.cookies.sameSite || 'strict';
+    }
+    
+    // SECURITY FIX: Enhanced domain handling for subdomains
+    let domainSetting;
+    if (process.env.NODE_ENV === 'development') {
+      domainSetting = undefined; // No domain restriction in development
+    } else {
+      // Extract root domain for subdomain support
       const host = req?.get('Host') || SecurityConfig.cookies.domain;
       if (host && host.includes('.')) {
         const parts = host.split('.');
         if (parts.length > 2) {
-          domainSetting = `.${parts.slice(-2).join('.')}`;
+          domainSetting = `.${parts.slice(-2).join('.')}`; // e.g., .swaggo.app
         } else {
-          domainSetting = `.${host}`;
+          domainSetting = `.${host}`; // e.g., .localhost
         }
       } else {
         domainSetting = SecurityConfig.cookies.domain;
       }
     }
     
-    const cookieOptions = {
+    // SECURITY FIX: Base cookie options for clearing
+    const baseCookieOptions = {
       httpOnly: true,
       secure: secureFlag,
       sameSite: sameSitePolicy,
       domain: domainSetting,
-      path: '/'
+      path: '/',
+      expires: new Date(0), // Expire immediately
+      maxAge: 0
     };
     
-    // Clear all possible cookie variants (prefixed and non-prefixed)
-    const cookieNames = ['accessToken', 'refreshToken', 'csrfToken'];
-    const prefixes = ['', '__Secure-', '__Host-'];
+    // SECURITY FIX: Determine cookie prefix based on security level
+    const cookiePrefix = secureFlag && !domainSetting && baseCookieOptions.path === '/' ? 
+      '__Host-' : // Strictest security: HTTPS + no domain + root path
+      (secureFlag ? '__Secure-' : ''); // HTTPS required
     
-    cookieNames.forEach(cookieName => {
-      prefixes.forEach(prefix => {
-        const fullName = `${prefix}${cookieName}`;
-        const options = cookieName === 'csrfToken' ? 
-          { ...cookieOptions, httpOnly: false } : cookieOptions;
-        res.clearCookie(fullName, options);
-      });
+    // Clear all authentication cookies
+    res.cookie(`${cookiePrefix}accessToken`, '', baseCookieOptions);
+    res.cookie(`${cookiePrefix}refreshToken`, '', baseCookieOptions);
+    res.cookie(`${cookiePrefix}csrfToken`, '', {
+      ...baseCookieOptions,
+      httpOnly: false // CSRF token was readable by JavaScript
     });
     
-    console.log('🗑️ Cleared all authentication cookies with prefixes');
+    console.log(`🍪 Cleared authentication cookies with prefix: ${cookiePrefix}`);
   }
   
   /**

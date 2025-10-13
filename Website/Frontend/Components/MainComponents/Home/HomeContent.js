@@ -15,6 +15,7 @@ import NetworkConnectivityHelper from '../../Debug/NetworkConnectivityHelper';
 // CRITICAL MEMORY LEAK FIXES
 import { useComprehensiveCleanup, useMemoryMonitoring } from '../../../utils/memoryLeakFixes';
 // import AuthTokenChecker from '../../Debug/AuthTokenChecker'; // Temporarily disabled
+import { LazyImage } from '../../../utils/performanceOptimizations';
 
 export default function HomeContent() {
   const { theme } = useTheme();
@@ -595,24 +596,8 @@ function PostCard({ post, theme, user, onImageClick, onLike, onSave }) {
               // Hide broken video
               e.target.style.display = 'none';
               
-              // Show error placeholder
-              const parent = e.target.parentElement;
-              if (parent && !parent.querySelector('.video-error')) {
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'video-error w-full h-64 lg:h-80 flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 cursor-pointer';
-                errorDiv.innerHTML = `
-                  <div class="text-center p-6">
-                    <svg class="w-16 h-16 mx-auto mb-4 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z" />
-                    </svg>
-                    <p class="text-lg font-medium mb-1">Video Unavailable</p>
-                    <p class="text-sm opacity-70">Unable to load video content</p>
-                    <p class="text-xs opacity-50 mt-2">Click to try viewing in full screen</p>
-                  </div>
-                `;
-                errorDiv.onclick = onImageClick;
-                parent.appendChild(errorDiv);
-              }
+              // Show error placeholder using React component
+              setShowVideoError(true);
             }}
             onLoadStart={() => {
               console.log('▶️ Video loading started:', postData.image);
@@ -623,60 +608,17 @@ function PostCard({ post, theme, user, onImageClick, onLike, onSave }) {
               e.stopPropagation();
               handleLikeClick();
             }}>
-            <img
+            <LazyImage
               src={postData.image}
               alt={postData.title || 'Post content'}
               className="w-full h-64 lg:h-80 object-cover hover:brightness-95 transition-all duration-200"
-              onError={(e) => {
-                // Create a safe error object for logging
-                const errorInfo = {
-                  url: postData.image || 'No URL provided',
-                  error: e.type || 'Unknown error',
-                  timestamp: new Date().toISOString(),
-                  networkState: e.target?.networkState || 'Unknown',
-                  readyState: e.target?.readyState || 'Unknown',
-                  naturalWidth: e.target?.naturalWidth || 0,
-                  naturalHeight: e.target?.naturalHeight || 0
-                };
-                
-                // Log individual properties to avoid serialization issues
-                console.group('❌ Image Load Error');
-                console.error('URL:', errorInfo.url);
-                console.error('Error type:', errorInfo.error);
-                console.error('Timestamp:', errorInfo.timestamp);
-                console.error('Network state:', errorInfo.networkState);
-                console.error('Ready state:', errorInfo.readyState);
-                if (errorInfo.naturalWidth === 0 && errorInfo.naturalHeight === 0) {
-                  console.error('Issue: Image dimensions are 0x0 - likely a broken or invalid image URL');
-                }
-                console.groupEnd();
-                
-                // Replace with enhanced error placeholder
-                e.target.style.display = 'none';
-                const parent = e.target.parentElement;
-                if (parent && !parent.querySelector('.image-error')) {
-                  const errorDiv = document.createElement('div');
-                  errorDiv.className = `image-error w-full h-64 lg:h-80 flex flex-col items-center justify-center cursor-pointer transition-all duration-200 ${
-                    theme === 'dark' ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
-                  }`;
-                  errorDiv.innerHTML = `
-                    <div class="text-center p-6">
-                      <svg class="w-16 h-16 mx-auto mb-4 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M21,19V5C21,3.89 20.1,3 19,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19M19,19H5V5H19V19M13.96,12.71L11.21,15.46L9.25,13.5L5.5,17.25H18.5L13.96,12.71Z" />
-                      </svg>
-                      <p class="text-lg font-medium mb-1">Image Unavailable</p>
-                      <p class="text-sm opacity-70">This image could not be loaded</p>
-                      <p class="text-xs opacity-50 mt-2">Click to try viewing in modal</p>
-                    </div>
-                  `;
-                  errorDiv.onclick = onImageClick;
-                  parent.appendChild(errorDiv);
-                }
-              }}
-              onLoad={() => {
-                console.log('✅ Image loaded successfully:', postData.image);
-              }}
+              placeholder="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDMyMCAxODAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjMyMCIgaGVpZ2h0PSIxODAiIGZpbGw9IiNGM0Y0RjYiLz48dGV4dCB4PSIxNjAiIHk9IjkwIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5Q0EzQUYiIHRleHQtYW5jaG9yPSJtaWRkbGUiPkxvYWRpbmcuLi48L3RleHQ+PC9zdmc+"
             />
+            
+            {/* Video error display */}
+            {showVideoError && (
+              <VideoErrorDisplay onRetry={onImageClick} theme={theme} />
+            )}
             
             {/* Hover overlay for better UX */}
             <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-10 transition-all duration-200 flex items-center justify-center opacity-0 hover:opacity-100">

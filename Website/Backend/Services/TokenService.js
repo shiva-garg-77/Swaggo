@@ -965,16 +965,15 @@ class TokenService {
   }
   
   /**
-   * SECURITY FIX: Verify token hash manually (for aggregated documents)
+   * Verify token against stored hash using async crypto
    */
-  verifyTokenHash(tokenValue, storedHash, salt) {
+  async verifyTokenHash(tokenValue, salt, storedHash) {
     if (!salt || !storedHash) {
       return false;
     }
     
     try {
-      const hash = crypto.pbkdf2Sync(tokenValue, salt, 100000, 64, 'sha512').toString('hex');
-      return crypto.timingSafeEqual(Buffer.from(storedHash, 'hex'), Buffer.from(hash, 'hex'));
+      return await AsyncCrypto.verifyToken(tokenValue, salt, storedHash);
     } catch (error) {
       console.error('Token hash verification error:', error.message);
       return false;

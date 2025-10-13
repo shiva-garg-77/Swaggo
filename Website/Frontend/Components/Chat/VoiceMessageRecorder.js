@@ -191,15 +191,24 @@ export default function VoiceMessageRecorder({ onSend, onCancel, isOpen }) {
 
   const sendRecording = () => {
     if (audioBlob) {
-      const voiceData = {
-        blob: audioBlob,
-        duration: duration,
-        waveform: waveform,
-        timestamp: new Date().toISOString()
+      // Convert blob to base64
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64Data = reader.result.split(',')[1]; // Remove data URL prefix
+        
+        const voiceData = {
+          duration: duration,
+          waveform: waveform,
+          timestamp: new Date().toISOString(),
+          base64: base64Data,
+          mimeType: audioBlob.type || 'audio/webm',
+          size: audioBlob.size
+        };
+        
+        onSend(voiceData);
+        reset();
       };
-      
-      onSend(voiceData);
-      reset();
+      reader.readAsDataURL(audioBlob);
     }
   };
 

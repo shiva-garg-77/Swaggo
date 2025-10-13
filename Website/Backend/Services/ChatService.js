@@ -1,401 +1,460 @@
+import Chat from '../Models/FeedModels/Chat.js';
+import Message from '../Models/FeedModels/Message.js';
+import Profile from '../Models/FeedModels/Profile.js';
+import { v4 as uuidv4 } from 'uuid';
+import BaseService from './BaseService.js';
+import { NotFoundError, ValidationError, AuthorizationError } from '../Helper/UnifiedErrorHandling.js';
+import MongoDBSanitizer from '../utils/MongoDBSanitizer.js';
+import ChatRepository from '../Repositories/ChatRepository.js';
+import MessageRepository from '../Repositories/MessageRepository.js';
+import ProfileRepository from '../Repositories/ProfileRepository.js';
+
 /**
- * 🎯 Enhanced Chat Service with Comprehensive Features
- * 
- * Features:
- * - Priority-based offline message queue with TTL
- * - Message deduplication by client message ID
- * - Smart typing indicators with auto-timeout
- * - Batched read receipts
- * - Optimized room management
- * - Message reaction batching
- * 
+ * @fileoverview Chat service handling all chat-related business logic
  * @module ChatService
- * @version 2.0.0
  */
 
-class ChatService {
+class ChatService extends BaseService {
+  /**
+   * @constructor
+   * @description Initialize chat service
+   */
   constructor() {
-    // Offline message queue with priority
-    this.offlineMessageQueue = new Map(); // userId -> PriorityQueue
-    this.messageDeduplication = new Map(); // clientMessageId -> serverMessageId
-    
-    // Typing indicators with auto-timeout
-    this.typingIndicators = new Map(); // chatId -> Map(userId -> timeoutId)
-    this.typingTimeouts = new Map(); // userId-chatId -> timeoutId
-    
-    // Read receipt batching
-    this.readReceiptBatch = new Map(); // chatId -> Set(messageIds)
-    this.readReceiptTimers = new Map(); // chatId -> timeoutId
-    
-    // Room join cache
-    this.roomParticipants = new Map(); // chatId -> Set(userIds)
-    
-    // Message reaction batching
-    this.reactionBatch = new Map(); // messageId -> Map(userId -> emoji)
-    this.reactionTimers = new Map(); // messageId -> timeoutId
-    
-    // Configuration
-    this.config = {
-      offlineMessageMaxPerUser: 100,
-      offlineMessageTTL: 24 * 60 * 60 * 1000, // 24 hours
-      typingIndicatorTimeout: 3000, // 3 seconds
-      readReceiptBatchDelay: 1000, // 1 second
-      readReceiptBatchSize: 50,
-      reactionBatchDelay: 500, // 500ms
-      messageDeduplicationTTL: 60 * 1000 // 1 minute
-    };
-    
-    // Initialize cleanup
-    this.initializeCleanup();
+    super();
+    // Repositories will be injected by the DI container
+    this.chatRepository = null;
+    this.messageRepository = null;
+    this.profileRepository = null;
   }
-  
+
   /**
-   * Initialize periodic cleanup for stale data
+   * Get all chats for a user with pagination
+   * @param {string} profileId - User profile ID
+   * @param {Object} paginationOptions - Pagination options
+   * @returns {Promise<Object>} Paginated chats with metadata
    */
-  initializeCleanup() {
-    // Clean offline message queue every 5 minutes
-    setInterval(() => {
-      this.cleanupOfflineMessages();
-    }, 5 * 60 * 1000);
-    
-    // Clean message deduplication cache every minute
-    setInterval(() => {
-      this.cleanupDeduplicationCache();
-    }, 60 * 1000);
-    
-    // Clean stale typing indicators every 10 seconds
-    setInterval(() => {
-      this.cleanupTypingIndicators();
-    }, 10 * 1000);
-  }
-  
-  /**
-   * Add message to offline queue with priority
-   * @param {string} userId - Target user ID
-   * @param {Object} message - Message data
-   * @param {number} priority - Message priority (1=high, 2=normal, 3=low)
-   */
-  queueOfflineMessage(userId, message, priority = 2) {
-    if (!this.offlineMessageQueue.has(userId)) {
-      this.offlineMessageQueue.set(userId, []);
-    }
-    
-    const queue = this.offlineMessageQueue.get(userId);
-    
-    // Add with timestamp and priority
-    queue.push({
-      message,
-      priority,
-      timestamp: Date.now(),
-      ttl: Date.now() + this.config.offlineMessageTTL
-    });
-    
-    // Sort by priority (lower number = higher priority) then timestamp
-    queue.sort((a, b) => {
-      if (a.priority !== b.priority) {
-        return a.priority - b.priority;
-      }
-      return a.timestamp - b.timestamp;
-    });
-    
-    // Enforce size limit
-    if (queue.length > this.config.offlineMessageMaxPerUser) {
-      queue.splice(this.config.offlineMessageMaxPerUser);
-    }
-    
-    console.log(`📬 Queued offline message for ${userId} (Priority: ${priority}, Queue size: ${queue.length})`);
-  }
-  
-  /**
-   * Get and clear offline messages for a user
-   * @param {string} userId - User ID
-   * @returns {Array} Array of messages
-   */
-  getOfflineMessages(userId) {
-    const queue = this.offlineMessageQueue.get(userId);
-    if (!queue || queue.length === 0) {
-      return [];
-    }
-    
-    // Clear the queue
-    this.offlineMessageQueue.delete(userId);
-    
-    // Filter out expired messages
-    const now = Date.now();
-    const validMessages = queue
-      .filter(item => item.ttl > now)
-      .map(item => item.message);
-    
-    console.log(`📮 Delivering ${validMessages.length} offline messages to ${userId}`);
-    return validMessages;
-  }
-  
-  /**
-   * Check if message is duplicate
-   * @param {string} clientMessageId - Client-generated message ID
-   * @returns {string|null} Server message ID if duplicate, null otherwise
-   */
-  checkMessageDuplicate(clientMessageId) {
-    if (!clientMessageId) return null;
-    
-    return this.messageDeduplication.get(clientMessageId) || null;
-  }
-  
-  /**
-   * Register message to prevent duplicates
-   * @param {string} clientMessageId - Client-generated message ID
-   * @param {string} serverMessageId - Server-generated message ID
-   */
-  registerMessage(clientMessageId, serverMessageId) {
-    if (!clientMessageId) return;
-    
-    this.messageDeduplication.set(clientMessageId, {
-      serverMessageId,
-      timestamp: Date.now()
-    });
-  }
-  
-  /**
-   * Start typing indicator for user in chat
-   * @param {string} chatId - Chat ID
-   * @param {string} userId - User ID
-   * @param {Function} callback - Callback to clear indicator
-   */
-  startTyping(chatId, userId, callback) {
-    const key = `${userId}-${chatId}`;
-    
-    // Clear existing timeout
-    if (this.typingTimeouts.has(key)) {
-      clearTimeout(this.typingTimeouts.get(key));
-    }
-    
-    // Set new timeout to auto-clear
-    const timeoutId = setTimeout(() => {
-      this.stopTyping(chatId, userId);
-      if (callback) callback();
-    }, this.config.typingIndicatorTimeout);
-    
-    this.typingTimeouts.set(key, timeoutId);
-    
-    // Track in chat-level map
-    if (!this.typingIndicators.has(chatId)) {
-      this.typingIndicators.set(chatId, new Map());
-    }
-    this.typingIndicators.get(chatId).set(userId, timeoutId);
-    
-    console.log(`⌨️  ${userId} started typing in ${chatId}`);
-  }
-  
-  /**
-   * Stop typing indicator for user in chat
-   * @param {string} chatId - Chat ID
-   * @param {string} userId - User ID
-   */
-  stopTyping(chatId, userId) {
-    const key = `${userId}-${chatId}`;
-    
-    // Clear timeout
-    if (this.typingTimeouts.has(key)) {
-      clearTimeout(this.typingTimeouts.get(key));
-      this.typingTimeouts.delete(key);
-    }
-    
-    // Remove from chat-level map
-    if (this.typingIndicators.has(chatId)) {
-      this.typingIndicators.get(chatId).delete(userId);
+  async getChatsPaginated(profileId, paginationOptions = {}) {
+    return this.handleOperation(async () => {
+      this.validateRequiredParams({ profileId }, ['profileId']);
       
-      if (this.typingIndicators.get(chatId).size === 0) {
-        this.typingIndicators.delete(chatId);
+      // 🔒 SECURITY FIX: Sanitize profile ID to prevent MongoDB injection
+      const sanitizedProfileId = MongoDBSanitizer.sanitizeObjectId(profileId);
+      if (!sanitizedProfileId) {
+        throw new ValidationError('Invalid profile ID');
       }
-    }
-    
-    console.log(`⌨️  ${userId} stopped typing in ${chatId}`);
+
+      // 🔧 PAGINATION #83: Use the new paginated repository method
+      const paginatedChats = await this.chatRepository.getChatsByProfileIdPaginated(sanitizedProfileId, paginationOptions);
+
+      return paginatedChats;
+    }, 'getChatsPaginated', { profileId, paginationOptions });
   }
-  
+
   /**
-   * Add read receipt to batch
-   * @param {string} chatId - Chat ID
-   * @param {string} messageId - Message ID
-   * @param {Function} flushCallback - Callback when batch is flushed
+   * Get all chats for a user
+   * @param {string} profileId - User profile ID
+   * @returns {Promise<Array>} Array of chats
    */
-  addReadReceipt(chatId, messageId, flushCallback) {
-    if (!this.readReceiptBatch.has(chatId)) {
-      this.readReceiptBatch.set(chatId, new Set());
-    }
-    
-    this.readReceiptBatch.get(chatId).add(messageId);
-    
-    // Clear existing timer
-    if (this.readReceiptTimers.has(chatId)) {
-      clearTimeout(this.readReceiptTimers.get(chatId));
-    }
-    
-    // Set timer to flush batch
-    const timeoutId = setTimeout(() => {
-      this.flushReadReceipts(chatId, flushCallback);
-    }, this.config.readReceiptBatchDelay);
-    
-    this.readReceiptTimers.set(chatId, timeoutId);
-    
-    // Force flush if batch size exceeded
-    if (this.readReceiptBatch.get(chatId).size >= this.config.readReceiptBatchSize) {
-      clearTimeout(timeoutId);
-      this.flushReadReceipts(chatId, flushCallback);
-    }
-  }
-  
-  /**
-   * Flush read receipt batch
-   * @param {string} chatId - Chat ID
-   * @param {Function} callback - Callback with message IDs
-   */
-  flushReadReceipts(chatId, callback) {
-    const batch = this.readReceiptBatch.get(chatId);
-    if (!batch || batch.size === 0) return;
-    
-    const messageIds = Array.from(batch);
-    this.readReceiptBatch.delete(chatId);
-    this.readReceiptTimers.delete(chatId);
-    
-    console.log(`📖 Flushing ${messageIds.length} read receipts for chat ${chatId}`);
-    
-    if (callback) {
-      callback(messageIds);
-    }
-  }
-  
-  /**
-   * Add reaction to batch
-   * @param {string} messageId - Message ID
-   * @param {string} userId - User ID
-   * @param {string} emoji - Emoji reaction
-   * @param {Function} flushCallback - Callback when batch is flushed
-   */
-  addReaction(messageId, userId, emoji, flushCallback) {
-    if (!this.reactionBatch.has(messageId)) {
-      this.reactionBatch.set(messageId, new Map());
-    }
-    
-    this.reactionBatch.get(messageId).set(userId, emoji);
-    
-    // Clear existing timer
-    if (this.reactionTimers.has(messageId)) {
-      clearTimeout(this.reactionTimers.get(messageId));
-    }
-    
-    // Set timer to flush batch
-    const timeoutId = setTimeout(() => {
-      this.flushReactions(messageId, flushCallback);
-    }, this.config.reactionBatchDelay);
-    
-    this.reactionTimers.set(messageId, timeoutId);
-  }
-  
-  /**
-   * Flush reaction batch
-   * @param {string} messageId - Message ID
-   * @param {Function} callback - Callback with reactions
-   */
-  flushReactions(messageId, callback) {
-    const batch = this.reactionBatch.get(messageId);
-    if (!batch || batch.size === 0) return;
-    
-    const reactions = Array.from(batch.entries()).map(([userId, emoji]) => ({
-      userId,
-      emoji
-    }));
-    
-    this.reactionBatch.delete(messageId);
-    this.reactionTimers.delete(messageId);
-    
-    console.log(`😀 Flushing ${reactions.length} reactions for message ${messageId}`);
-    
-    if (callback) {
-      callback(reactions);
-    }
-  }
-  
-  /**
-   * Cleanup expired offline messages
-   */
-  cleanupOfflineMessages() {
-    const now = Date.now();
-    let totalCleaned = 0;
-    
-    for (const [userId, queue] of this.offlineMessageQueue.entries()) {
-      const validMessages = queue.filter(item => item.ttl > now);
+  async getChats(profileId) {
+    return this.handleOperation(async () => {
+      this.validateRequiredParams({ profileId }, ['profileId']);
       
-      if (validMessages.length === 0) {
-        this.offlineMessageQueue.delete(userId);
-        totalCleaned += queue.length;
-      } else if (validMessages.length < queue.length) {
-        this.offlineMessageQueue.set(userId, validMessages);
-        totalCleaned += queue.length - validMessages.length;
+      // 🔒 SECURITY FIX: Sanitize profile ID to prevent MongoDB injection
+      const sanitizedProfileId = MongoDBSanitizer.sanitizeObjectId(profileId);
+      if (!sanitizedProfileId) {
+        throw new ValidationError('Invalid profile ID');
       }
-    }
-    
-    if (totalCleaned > 0) {
-      console.log(`🧹 Cleaned ${totalCleaned} expired offline messages`);
-    }
+
+      // 🔧 OPTIMIZATION #77: Use caching for frequently accessed data
+      const chats = await this.chatRepository.getChatsByProfileId(sanitizedProfileId);
+
+      return chats;
+    }, 'getChats', { profileId });
   }
-  
+
   /**
-   * Cleanup expired deduplication cache
+   * Get chat by ID
+   * @param {string} chatId - Chat ID
+   * @param {string} profileId - User profile ID
+   * @returns {Promise<Object>} Chat object
    */
-  cleanupDeduplicationCache() {
-    const now = Date.now();
-    let cleaned = 0;
-    
-    for (const [clientMessageId, data] of this.messageDeduplication.entries()) {
-      if (now - data.timestamp > this.config.messageDeduplicationTTL) {
-        this.messageDeduplication.delete(clientMessageId);
-        cleaned++;
+  async getChatById(chatId, profileId) {
+    return this.handleOperation(async () => {
+      this.validateRequiredParams({ chatId, profileId }, ['chatId', 'profileId']);
+      
+      // 🔒 SECURITY FIX: Sanitize chat ID to prevent MongoDB injection
+      const sanitizedChatId = MongoDBSanitizer.sanitizeObjectId(chatId);
+      if (!sanitizedChatId) {
+        throw new ValidationError('Invalid chat ID');
       }
-    }
-    
-    if (cleaned > 0) {
-      console.log(`🧹 Cleaned ${cleaned} expired deduplication entries`);
-    }
-  }
-  
-  /**
-   * Cleanup stale typing indicators
-   */
-  cleanupTypingIndicators() {
-    // This is handled by individual timeouts, but we clean up any orphaned entries
-    const staleKeys = [];
-    
-    for (const [key, timeoutId] of this.typingTimeouts.entries()) {
-      // Check if timeout is still valid (defensive cleanup)
-      if (!timeoutId) {
-        staleKeys.push(key);
+
+      const chat = await this.chatRepository.getChatByIdAndProfileId(sanitizedChatId, profileId);
+      
+      if (!chat) {
+        throw new NotFoundError('Chat not found');
       }
-    }
-    
-    staleKeys.forEach(key => this.typingTimeouts.delete(key));
-    
-    if (staleKeys.length > 0) {
-      console.log(`🧹 Cleaned ${staleKeys.length} stale typing indicators`);
-    }
+
+      // Check if user is a participant
+      if (!chat.participants || !chat.participants.some(p => p.profileid === profileId)) {
+        throw new AuthorizationError('Not a participant in this chat');
+      }
+
+      return chat;
+    }, 'getChatById', { chatId, profileId });
   }
-  
+
   /**
-   * Get statistics
+   * Get chat by participants
+   * @param {Array<string>} participants - Array of participant profile IDs
+   * @param {string} profileId - Requesting user profile ID
+   * @returns {Promise<Object>} Chat object
    */
-  getStats() {
-    return {
-      offlineQueues: this.offlineMessageQueue.size,
-      totalQueuedMessages: Array.from(this.offlineMessageQueue.values())
-        .reduce((sum, queue) => sum + queue.length, 0),
-      deduplicationCacheSize: this.messageDeduplication.size,
-      activeTypingIndicators: Array.from(this.typingIndicators.values())
-        .reduce((sum, map) => sum + map.size, 0),
-      pendingReadReceipts: Array.from(this.readReceiptBatch.values())
-        .reduce((sum, set) => sum + set.size, 0),
-      pendingReactions: Array.from(this.reactionBatch.values())
-        .reduce((sum, map) => sum + map.size, 0)
-    };
+  async getChatByParticipants(participants, profileId) {
+    return this.handleOperation(async () => {
+      this.validateRequiredParams({ participants, profileId }, ['participants', 'profileId']);
+      
+      // Check if current user is in participants
+      if (!participants.includes(profileId)) {
+        throw new AuthorizationError('User not in participants list');
+      }
+
+      let chat;
+      // For direct chats, find existing chat
+      if (participants.length === 2) {
+        chat = await this.chatRepository.getChatByParticipants(participants, 'direct');
+      } else {
+        // For group chats, find exact match
+        chat = await this.chatRepository.getChatByParticipants(participants, 'group');
+      }
+
+      return chat;
+    }, 'getChatByParticipants', { participants, profileId });
+  }
+
+  /**
+   * Create a new chat
+   * @param {Array<string>} participants - Array of participant profile IDs
+   * @param {string} profileId - Creator profile ID
+   * @param {Object} chatData - Additional chat data
+   * @returns {Promise<Object>} Created chat object
+   */
+  async createChat(participants, profileId, chatData = {}) {
+    return this.handleOperation(async () => {
+      this.validateRequiredParams({ participants, profileId }, ['participants', 'profileId']);
+      
+      // Check if current user is in participants
+      if (!participants.includes(profileId)) {
+        throw new AuthorizationError('Creator must be a participant');
+      }
+
+      // Validate all participants exist
+      const participantProfiles = await Profile.find({ 
+        profileid: { $in: participants } 
+      }).select('profileid username profilePic name isOnline lastSeen');
+
+      if (participantProfiles.length !== participants.length) {
+        throw new ValidationError('One or more participants not found');
+      }
+
+      // Determine chat type
+      const chatType = participants.length === 2 ? 'direct' : 'group';
+      
+      // For direct chats, check if chat already exists
+      if (chatType === 'direct') {
+        const existingChat = await this.chatRepository.getChatByParticipants(participants, 'direct');
+        
+        if (existingChat) {
+          return existingChat;
+        }
+      }
+
+      // Create new chat
+      const newChat = new Chat({
+        chatid: uuidv4(),
+        chatType,
+        chatName: chatData.chatName,
+        chatAvatar: chatData.chatAvatar,
+        participants: participants.map(participantId => ({
+          profileid: participantId,
+          unreadCount: 0,
+          joinedAt: new Date()
+        })),
+        adminIds: chatType === 'group' ? [profileId] : [],
+        createdBy: profileId,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+
+      await newChat.save();
+      return this.formatEntity(newChat);
+    }, 'createChat', { participants, profileId });
+  }
+
+  /**
+   * Update chat
+   * @param {string} chatId - Chat ID
+   * @param {string} profileId - User profile ID
+   * @param {Object} updateData - Data to update
+   * @returns {Promise<Object>} Updated chat object
+   */
+  async updateChat(chatId, profileId, updateData) {
+    return this.handleOperation(async () => {
+      this.validateRequiredParams({ chatId, profileId, updateData }, ['chatId', 'profileId', 'updateData']);
+      
+      const chat = await this.chatRepository.getChatByIdAndProfileId(chatId, profileId);
+      
+      if (!chat) {
+        throw new NotFoundError('Chat not found');
+      }
+
+      // Check if user is admin (for group chats) or participant (for direct chats)
+      if (chat.chatType === 'group' && !chat.adminIds.includes(profileId)) {
+        throw new AuthorizationError('Only admins can update group chat');
+      }
+
+      if (!chat.isParticipant(profileId)) {
+        throw new AuthorizationError('Not a participant in this chat');
+      }
+
+      // Update chat
+      if (updateData.chatName !== undefined) chat.chatName = updateData.chatName;
+      if (updateData.chatAvatar !== undefined) chat.chatAvatar = updateData.chatAvatar;
+
+      chat.updatedAt = new Date();
+      await chat.save();
+      
+      return this.formatEntity(chat);
+    }, 'updateChat', { chatId, profileId });
+  }
+
+  /**
+   * Get messages by chat with pagination
+   * @param {string} chatId - Chat ID
+   * @param {string} profileId - User profile ID
+   * @param {Object} paginationOptions - Pagination options
+   * @returns {Promise<Object>} Paginated messages with metadata
+   */
+  async getMessagesByChatPaginated(chatId, profileId, paginationOptions = {}) {
+    return this.handleOperation(async () => {
+      this.validateRequiredParams({ chatId, profileId }, ['chatId', 'profileId']);
+      
+      // Check if user has access to this chat
+      const chat = await this.chatRepository.getChatByIdAndProfileId(chatId, profileId);
+      if (!chat || !chat.participants.some(p => p.profileid === profileId)) {
+        throw new AuthorizationError('Cannot access this chat');
+      }
+
+      // 🔧 PAGINATION #83: Use the new paginated repository method
+      const paginatedMessages = await this.messageRepository.getMessagesByChatIdPaginated(chatId, paginationOptions);
+
+      return paginatedMessages;
+    }, 'getMessagesByChatPaginated', { chatId, profileId, paginationOptions });
+  }
+
+  /**
+   * Get messages by chat
+   * @param {string} chatId - Chat ID
+   * @param {string} profileId - User profile ID
+   * @param {Object} options - Pagination options
+   * @returns {Promise<Object>} Messages with pagination info
+   */
+  async getMessagesByChat(chatId, profileId, options = {}) {
+    return this.handleOperation(async () => {
+      this.validateRequiredParams({ chatId, profileId }, ['chatId', 'profileId']);
+      
+      const { limit = 50, cursor } = options;
+
+      // Check if user has access to this chat
+      const chat = await this.chatRepository.getChatByIdAndProfileId(chatId, profileId);
+      if (!chat || !chat.participants.some(p => p.profileid === profileId)) {
+        throw new AuthorizationError('Cannot access this chat');
+      }
+
+      // Build query conditions
+      const queryConditions = {
+        chatid: chatId,
+        isDeleted: false
+      };
+
+      // If cursor is provided, use it for pagination
+      if (cursor) {
+        queryConditions.createdAt = { $lt: new Date(cursor) };
+      }
+
+      // 🔧 OPTIMIZATION #75: Use repository method with proper indexing
+      const messages = await this.messageRepository.find(queryConditions, {
+        sort: { createdAt: -1 },
+        limit: limit,
+        lean: true
+      });
+
+      // Reverse to get chronological order
+      const orderedMessages = messages.reverse();
+
+      // Determine if there are more messages
+      let hasNextPage = false;
+      if (messages.length > 0) {
+        const lastMessage = messages[messages.length - 1];
+        const nextMessages = await this.messageRepository.find({
+          chatid: chatId,
+          isDeleted: false,
+          createdAt: { $lt: lastMessage.createdAt }
+        }, {
+          limit: 1,
+          lean: true
+        });
+        
+        hasNextPage = nextMessages.length > 0;
+      }
+
+      // Get total count for this chat
+      const totalCount = await this.messageRepository.count({
+        chatid: chatId,
+        isDeleted: false
+      });
+
+      // Return cursor-based pagination structure
+      return {
+        messages: orderedMessages,
+        pageInfo: {
+          hasNextPage,
+          hasPreviousPage: !!cursor,
+          startCursor: orderedMessages.length > 0 ? orderedMessages[0].createdAt.toISOString() : null,
+          endCursor: orderedMessages.length > 0 ? orderedMessages[orderedMessages.length - 1].createdAt.toISOString() : null
+        },
+        totalCount
+      };
+    }, 'getMessagesByChat', { chatId, profileId });
+  }
+
+  /**
+   * Get unread message count for a user
+   * @param {string} profileId - User profile ID
+   * @returns {Promise<number>} Unread message count
+   */
+  async getUnreadMessageCount(profileId) {
+    return this.handleOperation(async () => {
+      this.validateRequiredParams({ profileId }, ['profileId']);
+
+      // 🔧 OPTIMIZATION #75: Use aggregation pipeline for better performance
+      const result = await Chat.aggregate([
+        {
+          $match: {
+            'participants.profileid': profileId,
+            isActive: true
+          }
+        },
+        {
+          $lookup: {
+            from: 'messages',
+            localField: 'chatid',
+            foreignField: 'chatid',
+            as: 'messages'
+          }
+        },
+        {
+          $unwind: '$messages'
+        },
+        {
+          $match: {
+            'messages.senderid': { $ne: profileId },
+            'messages.readBy.profileid': { $ne: profileId },
+            'messages.isDeleted': false
+          }
+        },
+        {
+          $count: 'unreadCount'
+        }
+      ]);
+
+      return result.length > 0 ? result[0].unreadCount : 0;
+    }, 'getUnreadMessageCount', { profileId });
+  }
+
+  /**
+   * Get unread count for a specific chat
+   * @param {string} chatId - Chat ID
+   * @param {string} profileId - User profile ID
+   * @returns {Promise<number>} Unread message count for chat
+   */
+  async getChatUnreadCount(chatId, profileId) {
+    return this.handleOperation(async () => {
+      this.validateRequiredParams({ chatId, profileId }, ['chatId', 'profileId']);
+
+      // Check if user has access to this chat
+      const chat = await this.chatRepository.getChatByIdAndProfileId(chatId, profileId);
+      if (!chat || !chat.participants.some(p => p.profileid === profileId)) {
+        throw new AuthorizationError('Cannot access this chat');
+      }
+
+      // 🔧 OPTIMIZATION #75: Use count with proper indexing
+      const count = await this.messageRepository.count({
+        chatid: chatId,
+        senderid: { $ne: profileId },
+        'readBy.profileid': { $ne: profileId },
+        isDeleted: false
+      });
+
+      return count;
+    }, 'getChatUnreadCount', { chatId, profileId });
+  }
+
+  /**
+   * Mark chat as read
+   * @param {string} chatId - Chat ID
+   * @param {string} profileId - User profile ID
+   * @returns {Promise<boolean>} Success status
+   */
+  async markChatAsRead(chatId, profileId) {
+    return this.handleOperation(async () => {
+      this.validateRequiredParams({ chatId, profileId }, ['chatId', 'profileId']);
+
+      const chat = await this.chatRepository.getChatByIdAndProfileId(chatId, profileId);
+      
+      if (!chat) {
+        throw new NotFoundError('Chat not found');
+      }
+      
+      // Check if user is a participant
+      if (!chat.isParticipant(profileId)) {
+        throw new AuthorizationError('Not a participant in this chat');
+      }
+      
+      // Mark all messages as read
+      await Message.updateMany(
+        {
+          chatid: chatId,
+          senderid: { $ne: profileId },
+          'readBy.profileid': { $ne: profileId },
+          isDeleted: false
+        },
+        {
+          $addToSet: {
+            readBy: {
+              profileid: profileId,
+              readAt: new Date()
+            }
+          }
+        }
+      );
+      
+      // Reset unread count for user
+      const participantIndex = chat.participants.findIndex(p => p.profileid === profileId);
+      if (participantIndex !== -1) {
+        chat.participants[participantIndex].unreadCount = 0;
+        await chat.save();
+      }
+      
+      return true;
+    }, 'markChatAsRead', { chatId, profileId });
   }
 }
 
-export default new ChatService();
+export default ChatService;
+
+
+
+
+
+

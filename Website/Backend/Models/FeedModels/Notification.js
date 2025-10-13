@@ -42,7 +42,8 @@ const NotificationSchema = new mongoose.Schema({
 });
 
 // Indexes for efficient querying
-NotificationSchema.index({ recipientid: 1, isRead: 1, createdAt: -1 });
+// Removed duplicate index on createdAt since timestamps: true already creates it
+NotificationSchema.index({ recipientid: 1, isRead: 1 });
 NotificationSchema.index({ recipientid: 1, type: 1 });
 NotificationSchema.index({ contextType: 1, contextId: 1 });
 NotificationSchema.index({ expiresAt: 1 });

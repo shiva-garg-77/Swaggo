@@ -1198,7 +1198,7 @@ class CallService extends EventEmitter {
   }
 
   /**
-   * Check connection quality
+   * Check connection quality with enhanced packet loss detection
    */
   async checkConnectionQuality(callId) {
     try {
@@ -1207,32 +1207,56 @@ class CallService extends EventEmitter {
 
       let overallQuality = CONNECTION_QUALITY.EXCELLENT;
       const participantQualities = {};
+      let hasPoorConnection = false;
 
       for (const [participantId, peerConnection] of this.peerConnections) {
         const stats = await peerConnection.getStats();
         let participantQuality = CONNECTION_QUALITY.EXCELLENT;
         
+        let packetsLost = 0;
+        let packetsReceived = 0;
+        let jitter = 0;
+        let rtt = 0;
+        
         stats.forEach(stat => {
-          if (stat.type === 'inbound-rtp' && stat.kind === 'video') {
-            const packetsLost = stat.packetsLost || 0;
-            const packetsReceived = stat.packetsReceived || 0;
-            const totalPackets = packetsLost + packetsReceived;
+          if (stat.type === 'inbound-rtp') {
+            packetsLost += stat.packetsLost || 0;
+            packetsReceived += stat.packetsReceived || 0;
             
-            if (totalPackets > 0) {
-              const lossRate = packetsLost / totalPackets;
-              
-              if (lossRate > 0.05) {
-                participantQuality = CONNECTION_QUALITY.POOR;
-              } else if (lossRate > 0.02) {
-                participantQuality = CONNECTION_QUALITY.FAIR;
-              } else if (lossRate > 0.01) {
-                participantQuality = CONNECTION_QUALITY.GOOD;
-              }
+            if (stat.jitter !== undefined) {
+              jitter = stat.jitter;
             }
+          }
+          
+          // Get round-trip time from candidate-pair reports
+          if (stat.type === 'candidate-pair' && stat.state === 'succeeded') {
+            rtt = stat.currentRoundTripTime || 0;
           }
         });
         
-        participantQualities[participantId] = participantQuality;
+        // Calculate packet loss percentage
+        const totalPackets = packetsLost + packetsReceived;
+        const lossRate = totalPackets > 0 ? packetsLost / totalPackets : 0;
+        const packetLossPercentage = lossRate * 100;
+        
+        // Determine quality based on multiple factors
+        if (packetLossPercentage < 1 && jitter < 0.03 && rtt < 0.2) {
+          participantQuality = CONNECTION_QUALITY.EXCELLENT;
+        } else if (packetLossPercentage < 3 && jitter < 0.05 && rtt < 0.5) {
+          participantQuality = CONNECTION_QUALITY.GOOD;
+        } else if (packetLossPercentage < 5 && jitter < 0.1 && rtt < 1) {
+          participantQuality = CONNECTION_QUALITY.FAIR;
+        } else {
+          participantQuality = CONNECTION_QUALITY.POOR;
+          hasPoorConnection = true;
+        }
+        
+        participantQualities[participantId] = {
+          quality: participantQuality,
+          packetLoss: packetLossPercentage,
+          jitter: jitter,
+          rtt: rtt
+        };
         
         // Update overall quality to the worst participant quality
         const qualityLevels = [
@@ -1262,11 +1286,16 @@ class CallService extends EventEmitter {
           participantQualities
         });
         
-        if (overallQuality === CONNECTION_QUALITY.POOR) {
+        // Show warning notification for poor connection
+        if (hasPoorConnection) {
           this.stats.connectionIssues++;
           notificationService.warning(
             'Connection Quality',
-            'Call quality is poor. Check your internet connection.'
+            'Call quality is poor. Check your internet connection.',
+            { 
+              duration: 5000,
+              allowClose: true
+            }
           );
         }
       }
@@ -1277,7 +1306,7 @@ class CallService extends EventEmitter {
   }
 
   /**
-   * Collect connection statistics
+   * Collect connection statistics with detailed metrics
    */
   async collectConnectionStats(callId) {
     try {
@@ -1288,8 +1317,16 @@ class CallService extends EventEmitter {
           timestamp: Date.now(),
           audio: {},
           video: {},
-          connection: {}
+          connection: {},
+          qualityMetrics: {}
         };
+
+        let packetsLost = 0;
+        let packetsReceived = 0;
+        let jitter = 0;
+        let rtt = 0;
+        let bytesReceived = 0;
+        let bytesSent = 0;
 
         stats.forEach(stat => {
           switch (stat.type) {
@@ -1301,6 +1338,12 @@ class CallService extends EventEmitter {
                   jitter: stat.jitter,
                   audioLevel: stat.audioLevel
                 };
+                packetsLost += stat.packetsLost || 0;
+                packetsReceived += stat.packetsReceived || 0;
+                bytesReceived += stat.bytesReceived || 0;
+                if (stat.jitter !== undefined) {
+                  jitter = stat.jitter;
+                }
               } else if (stat.kind === 'video') {
                 participantStats.video = {
                   packetsReceived: stat.packetsReceived,
@@ -1310,7 +1353,13 @@ class CallService extends EventEmitter {
                   frameWidth: stat.frameWidth,
                   frameHeight: stat.frameHeight
                 };
+                packetsLost += stat.packetsLost || 0;
+                packetsReceived += stat.packetsReceived || 0;
               }
+              break;
+              
+            case 'outbound-rtp':
+              bytesSent += stat.bytesSent || 0;
               break;
               
             case 'candidate-pair':
@@ -1320,10 +1369,23 @@ class CallService extends EventEmitter {
                   availableOutgoingBitrate: stat.availableOutgoingBitrate,
                   availableIncomingBitrate: stat.availableIncomingBitrate
                 };
+                rtt = stat.currentRoundTripTime || 0;
               }
               break;
           }
         });
+
+        // Calculate quality metrics
+        const totalPackets = packetsLost + packetsReceived;
+        const packetLossPercentage = totalPackets > 0 ? (packetsLost / totalPackets) * 100 : 0;
+        
+        participantStats.qualityMetrics = {
+          packetLossPercentage: packetLossPercentage,
+          jitter: jitter,
+          rtt: rtt,
+          bytesReceived: bytesReceived,
+          bytesSent: bytesSent
+        };
 
         this.connectionStats.set(participantId, participantStats);
       }
@@ -1543,6 +1605,154 @@ class CallService extends EventEmitter {
     activeCalls.forEach(call => {
       this.endCall(call.id, reason);
     });
+  }
+
+  /**
+   * Enhanced method to get call history with quality metrics
+   * @param {number} limit - Maximum number of calls to retrieve
+   * @returns {Array} Array of call history objects with quality metrics
+   */
+  getCallHistory(limit = 50) {
+    try {
+      const history = localStorage.getItem('call_history');
+      if (history) {
+        const calls = JSON.parse(history);
+        // Sort by timestamp (newest first) and limit results
+        return calls
+          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+          .slice(0, limit)
+          .map(call => ({
+            ...call,
+            // Enhanced: Add quality metrics if available
+            quality: call.quality || { overall: 'unknown', audio: 'unknown', video: 'unknown' },
+            durationFormatted: this.formatDuration(call.duration || 0)
+          }));
+      }
+      return [];
+    } catch (error) {
+      console.error('❌ Error retrieving call history:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Enhanced method to persist call information with quality metrics
+   * @param {Object} callData - Call information to persist
+   */
+  persistCall(callData) {
+    try {
+      // Get existing call history
+      let history = this.getCallHistory(100); // Get up to 100 recent calls
+      
+      // Add new call to history
+      history.unshift({
+        ...callData,
+        timestamp: new Date().toISOString(),
+        // Enhanced: Include quality metrics if available
+        quality: callData.quality || { overall: 'unknown', audio: 'unknown', video: 'unknown' },
+        duration: callData.duration || 0,
+        durationFormatted: this.formatDuration(callData.duration || 0)
+      });
+      
+      // Limit to 100 most recent calls
+      if (history.length > 100) {
+        history = history.slice(0, 100);
+      }
+      
+      // Save to localStorage
+      localStorage.setItem('call_history', JSON.stringify(history));
+      console.log('✅ Call information persisted to localStorage');
+    } catch (error) {
+      console.error('❌ Error persisting call information:', error);
+    }
+  }
+
+  /**
+   * Enhanced method to update call quality metrics
+   * @param {string} callId - ID of the call to update
+   * @param {Object} qualityMetrics - Quality metrics to update
+   */
+  updateCallQuality(callId, qualityMetrics) {
+    try {
+      // Get existing call history
+      let history = this.getCallHistory(100);
+      
+      // Find the call and update its quality metrics
+      const callIndex = history.findIndex(call => call.callId === callId);
+      if (callIndex !== -1) {
+        history[callIndex] = {
+          ...history[callIndex],
+          quality: {
+            ...history[callIndex].quality,
+            ...qualityMetrics
+          }
+        };
+        
+        // Save updated history
+        localStorage.setItem('call_history', JSON.stringify(history));
+        console.log(`✅ Call quality updated for call ${callId}`);
+      }
+    } catch (error) {
+      console.error('❌ Error updating call quality:', error);
+    }
+  }
+
+  /**
+   * Enhanced method to get current call state
+   * @returns {Object} Current call state information
+   */
+  getCurrentCallState() {
+    try {
+      const callState = localStorage.getItem('current_call_state');
+      return callState ? JSON.parse(callState) : null;
+    } catch (error) {
+      console.error('❌ Error retrieving current call state:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Enhanced method to persist current call state
+   * @param {Object} state - Current call state to persist
+   */
+  persistCurrentCallState(state) {
+    try {
+      localStorage.setItem('current_call_state', JSON.stringify({
+        ...state,
+        timestamp: Date.now(),
+        // Enhanced: Include additional call information
+        callStats: state.callStats || {},
+        callStartTime: state.callStartTime || null,
+        lastUpdated: new Date().toISOString()
+      }));
+      console.log('✅ Current call state persisted to localStorage');
+    } catch (error) {
+      console.error('❌ Error persisting current call state:', error);
+    }
+  }
+
+  /**
+   * Enhanced method to clear current call state
+   */
+  clearCurrentCallState() {
+    try {
+      localStorage.removeItem('current_call_state');
+      console.log('✅ Current call state cleared from localStorage');
+    } catch (error) {
+      console.error('❌ Error clearing current call state:', error);
+    }
+  }
+
+  /**
+   * Enhanced method to format duration in HH:mm:ss format
+   * @param {number} duration - Duration in milliseconds
+   * @returns {string} Formatted duration string
+   */
+  formatDuration(duration) {
+    const hours = Math.floor(duration / 3600000);
+    const minutes = Math.floor((duration % 3600000) / 60000);
+    const seconds = Math.floor((duration % 60000) / 1000);
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   }
 
   /**

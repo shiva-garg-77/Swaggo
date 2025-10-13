@@ -11,6 +11,7 @@ import {
   TOGGLE_COMMENT_LIKE 
 } from '../../../lib/graphql/queries';
 import { triggerCommentsRefetch } from '../../../lib/apollo/refetchHelper';
+import { LazyImage } from '../../../utils/performanceOptimizations';
 
 export default function SimpleCommentSection({ 
   postId, 
@@ -224,7 +225,7 @@ export default function SimpleCommentSection({
       <div className={`flex items-center space-x-3 px-4 py-3 border-t ${
         actualTheme === 'dark' ? 'border-gray-700' : 'border-gray-100'
       }`}>
-        <img
+        <LazyImage
           src={user?.profilePic || '/default-profile.svg'}
           alt="Your avatar"
           className="w-8 h-8 rounded-full object-cover"

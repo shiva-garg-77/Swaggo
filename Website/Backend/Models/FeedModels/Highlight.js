@@ -68,7 +68,6 @@ const HighlightSchema = new mongoose.Schema({
 
 // Indexes for better performance
 HighlightSchema.index({ profileid: 1 });
-HighlightSchema.index({ highlightid: 1 });
 HighlightSchema.index({ isActive: 1 });
 HighlightSchema.index({ createdAt: -1 });
 

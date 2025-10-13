@@ -6,6 +6,7 @@ import { useMutation, useQuery } from '@apollo/client/react';
 import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { gql } from '@apollo/client';
 import SimpleFlatCommentSystem from './SimpleFlatCommentSystem';
+import { LazyImage } from '../../../utils/performanceOptimizations';
 
 // GraphQL mutations and queries
 const TOGGLE_POST_LIKE = gql`
@@ -463,7 +464,7 @@ export default function InstagramPostModal({
               style={{ maxHeight: '90vh' }}
             />
           ) : (
-            <img
+            <LazyImage
               src={post.postUrl}
               alt={post.title}
               className="w-full h-full object-contain max-w-none"

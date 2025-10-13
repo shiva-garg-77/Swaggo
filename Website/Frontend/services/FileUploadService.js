@@ -82,7 +82,7 @@ const DEFAULT_CONFIG = {
   generateThumbnails: true,
   compressImages: false,
   allowedTypes: [FILE_TYPES.ANY],
-  endpoint: '/api/upload',
+  endpoint: '/upload', // Fixed: Aligned with backend endpoint in main.js
   timeout: 30000
 };
 
@@ -375,7 +375,7 @@ class FileUploadService extends EventEmitter {
   }
 
   /**
-   * Validate file against configured rules
+   * Validate file against configured rules with visible size limits
    */
   validateFile(file, options) {
     try {
@@ -384,13 +384,14 @@ class FileUploadService extends EventEmitter {
         return { isValid: false, error: 'Invalid file object' };
       }
       
-      // Size validation
+      // Size validation with visible limits
       const maxSize = options.maxSize || this.getMaxSizeForFile(file);
       if (file.size > maxSize) {
         const maxSizeMB = Math.round(maxSize / (1024 * 1024));
+        const fileType = this.getFileTypeCategory(file);
         return { 
           isValid: false, 
-          error: `File size exceeds limit of ${maxSizeMB}MB` 
+          error: `File size exceeds limit of ${maxSizeMB}MB for ${fileType} files` 
         };
       }
       
@@ -432,6 +433,28 @@ class FileUploadService extends EventEmitter {
         error: 'File validation failed: ' + error.message 
       };
     }
+  }
+
+  /**
+   * Get file type category for user-friendly messages
+   */
+  getFileTypeCategory(file) {
+    if (file.type.startsWith('image/')) return 'image';
+    if (file.type.startsWith('video/')) return 'video';
+    if (file.type.startsWith('audio/')) return 'audio';
+    if (file.type.startsWith('application/') || file.type.startsWith('text/')) return 'document';
+    return 'file';
+  }
+
+  /**
+   * Get maximum size for file based on type
+   */
+  getMaxSizeForFile(file) {
+    if (file.type.startsWith('image/')) return FILE_TYPES.IMAGE.maxSize;
+    if (file.type.startsWith('video/')) return FILE_TYPES.VIDEO.maxSize;
+    if (file.type.startsWith('audio/')) return FILE_TYPES.AUDIO.maxSize;
+    if (file.type.startsWith('application/') || file.type.startsWith('text/')) return FILE_TYPES.DOCUMENT.maxSize;
+    return FILE_TYPES.ANY.maxSize;
   }
 
   /**
@@ -543,7 +566,7 @@ class FileUploadService extends EventEmitter {
       upload.chunks = [];
       
       // Initialize chunked upload
-      const initResponse = await apiService.post('/api/upload/init', {
+      const initResponse = await apiService.post('/upload/init', {
         uploadId: upload.id,
         filename: upload.originalName,
         fileSize: fileToUpload.size,
@@ -566,7 +589,7 @@ class FileUploadService extends EventEmitter {
       }
       
       // Complete chunked upload
-      const completeResponse = await apiService.post('/api/upload/complete', {
+      const completeResponse = await apiService.post('/upload/complete', {
         uploadId: upload.id
       });
       
@@ -600,7 +623,7 @@ class FileUploadService extends EventEmitter {
     
     while (retryCount <= maxRetries) {
       try {
-        const response = await apiService.post('/api/upload/chunk', chunkData, {
+        const response = await apiService.post('/upload/chunk', chunkData, {
           timeout: upload.options.timeout,
           onProgress: (progressData) => {
             const chunkProgress = (start + (progressData.loaded * progressData.total / 100)) / file.size * 100;
@@ -858,15 +881,6 @@ class FileUploadService extends EventEmitter {
 
   isAudio(file) {
     return file.type.startsWith('audio/');
-  }
-
-  getMaxSizeForFile(file) {
-    for (const [, typeConfig] of Object.entries(FILE_TYPES)) {
-      if (this.isFileTypeAllowed(file, typeConfig)) {
-        return typeConfig.maxSize;
-      }
-    }
-    return FILE_TYPES.ANY.maxSize;
   }
 
   isFileTypeAllowed(file, typeConfig) {

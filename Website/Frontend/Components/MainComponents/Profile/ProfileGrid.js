@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from 'react';
 import InstagramPostModal from '../Post/InstagramPostModal';
 // Import centralized environment configuration
 import { getConfig, apiConfig } from '../../../config/environment.js';
+import { LazyImage } from '../../../utils/performanceOptimizations';
+import { ProfileErrorDisplay } from '../../Helper/OptimizedErrorDisplay';
 
 export default function ProfileGrid({ posts, activeTab, loading, theme, currentUser, onEditDraft, onDeleteDraft, onPublishDraft }) {
   const [selectedPostIndex, setSelectedPostIndex] = useState(null);
@@ -426,6 +428,7 @@ function getTimeAgo(date) {
 // Individual post grid item
 function PostGridItem({ post, onClick, theme }) {
   const [isInView, setIsInView] = useState(false);
+  const [showVideoError, setShowVideoError] = useState(false);
   const videoRef = useRef(null);
   
   const isVideo = post.postType === 'VIDEO' || post.postType === 'video';
@@ -503,6 +506,7 @@ function PostGridItem({ post, onClick, theme }) {
       let attemptedUrls = []; // Track URLs we've already tried
       
       return (
+        <>
           <video
             ref={videoRef}
             src={mediaUrl}
@@ -525,23 +529,8 @@ function PostGridItem({ post, onClick, theme }) {
               // Hide the failed video immediately
               e.target.style.display = 'none';
               
-              // Show fallback placeholder
-              const parent = e.target.parentElement;
-              if (parent && !parent.querySelector('.error-placeholder')) {
-                const errorDiv = document.createElement('div');
-                errorDiv.className = `error-placeholder w-full h-full flex items-center justify-center ${
-                  theme === 'dark' ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-600'
-                }`;
-                errorDiv.innerHTML = `
-                  <div class="text-center p-4">
-                    <div class="text-3xl mb-3">📹</div>
-                    <div class="text-sm font-medium mb-1">Video Loading Failed</div>
-                    <div class="text-xs opacity-75">Backend may be offline</div>
-                    <div class="text-xs opacity-50 mt-2 max-w-xs break-all">${post.postUrl}</div>
-                  </div>
-                `;
-                parent.appendChild(errorDiv);
-              }
+              // Show fallback placeholder using React component
+              setShowVideoError(true);
             }}
             onLoadStart={() => {
               console.log('Video loading started:', mediaUrl);
@@ -577,10 +566,14 @@ function PostGridItem({ post, onClick, theme }) {
               console.warn('Video aborted:', mediaUrl);
             }}
           />
+          {showVideoError && (
+            <ProfileErrorDisplay postUrl={post.postUrl} theme={theme} />
+          )}
+        </>
       );
     } else if (isImage) {
       return (
-        <img
+        <LazyImage
           src={mediaUrl}
           alt={post.title || 'Post'}
           className="w-full h-full object-cover"
@@ -601,9 +594,6 @@ function PostGridItem({ post, onClick, theme }) {
                 return;
               }
             }
-            
-            // If all alternatives fail, show placeholder
-            e.target.src = '/default-profile.svg';
           }}
         />
       );

@@ -14,15 +14,21 @@ export default function Home() {
   const [authError, setAuthError] = useState(null);
   const [bypassAuth, setBypassAuth] = useState(false);
   const [mockAuthData, setMockAuthData] = useState(null);
+  const [authData, setAuthData] = useState({ isAuthenticated: false, isLoading: true });
+  const [redirecting, setRedirecting] = useState(false);
   
-  let authData;
-  try {
-    authData = useSecureAuth();
-  } catch (error) {
-    console.error('😨 SecureAuth Hook Error:', error);
-    setAuthError(error.message);
-    authData = { isAuthenticated: false, isLoading: false };
-  }
+  const router = useRouter();
+  
+  useEffect(() => {
+    try {
+      const data = useSecureAuth();
+      setAuthData(data);
+    } catch (error) {
+      console.error('😨 SecureAuth Hook Error:', error);
+      setAuthError(error.message);
+      setAuthData({ isAuthenticated: false, isLoading: false });
+    }
+  }, []);
   
   // Handle auth bypass for development
   const handleAuthBypass = (mockData) => {
@@ -39,14 +45,9 @@ export default function Home() {
   };
   
   // Use bypass data if available
-  if (bypassAuth && mockAuthData) {
-    authData = mockAuthData;
-  }
-  
-  const { isAuthenticated, isLoading } = authData;
+  const effectiveAuthData = bypassAuth && mockAuthData ? mockAuthData : authData;
+  const { isAuthenticated, isLoading } = effectiveAuthData;
   const initialized = !isLoading; // Map isLoading to initialized
-  const router = useRouter();
-  const [redirecting, setRedirecting] = useState(false);
 
   // Debug logging
   console.log('📊 Page Debug:', {
@@ -78,11 +79,11 @@ export default function Home() {
 
   // Redirect if already logged in (only after initialization)
   useEffect(() => {
-    if (initialized && isAuthenticated) {
+    if (initialized && isAuthenticated && !redirecting) {
       setRedirecting(true);
       router.push("/home");
     }
-  }, [initialized, isAuthenticated, router]);
+  }, [initialized, isAuthenticated, redirecting, router]);
 
   // Show splash screen until initialized or while redirecting
   if (!initialized || redirecting) {

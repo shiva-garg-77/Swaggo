@@ -638,17 +638,15 @@ class EnterpriseSecurityCore extends EventEmitter {
   }
   
   /**
-   * Derive quantum-safe key using advanced KDF
+   * Derive key using quantum-safe algorithm with async crypto
    */
   async deriveQuantumSafeKey(keyId, purpose, additionalData = '') {
-    const cacheKey = `${keyId}:${purpose}:${crypto.createHash('sha256').update(additionalData).digest('hex')}`;
+    const cacheKey = `${keyId}:${purpose}:${additionalData}`;
     
     // Check cache first
-    if (this.keyDerivationCache.has(cacheKey)) {
-      const cached = this.keyDerivationCache.get(cacheKey);
-      if (Date.now() - cached.timestamp < 300000) { // 5 minutes cache
-        return cached.key;
-      }
+    const cached = this.keyDerivationCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < 300000) { // 5 minute cache
+      return cached.key;
     }
     
     try {
@@ -656,7 +654,8 @@ class EnterpriseSecurityCore extends EventEmitter {
       const salt = crypto.createHash('sha256').update(`${keyId}:${purpose}`).digest();
       const iterations = 100000;
       
-      const derivedKey = crypto.pbkdf2Sync(
+      // 🔧 CRYPTO #84: Use async crypto for key derivation
+      const derivedKey = await AsyncCrypto.deriveKey(
         SecurityConfig.auth.jwt.accessTokenSecret + additionalData,
         salt,
         iterations,

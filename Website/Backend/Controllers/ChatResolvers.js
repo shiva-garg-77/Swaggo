@@ -2,682 +2,296 @@ import Chat from '../Models/FeedModels/Chat.js';
 import Message from '../Models/FeedModels/Message.js';
 import Profile from '../Models/FeedModels/Profile.js';
 import { v4 as uuidv4 } from 'uuid';
+import XSSSanitizer from '../Utils/XSSSanitizer.js';
+import DataLoaderService from '../Services/DataLoaderService.js';
+import MongoDBSanitizer from '../utils/MongoDBSanitizer.js';
+// 🔧 FIX #20: Add input validation with Joi
+import { validateArgs } from '../utils/ValidationUtils.js';
+// 🛠️ Standardized error handling
+import { asyncHandler, AppError, NotFoundError, AuthorizationError, ValidationError } from '../Helper/ErrorHandling.js';
+
+// Import services
+import chatService from '../Services/ChatService.js';
+import messageService from '../Services/MessageService.js';
 
 const ChatResolvers = {
     // Chat field resolvers
     Chat: {
-        participants: async (parent) => {
-            try {
-                const participantIds = parent.participants.map(p => p.profileid);
-                const profiles = await Profile.find({ profileid: { $in: participantIds } });
-                return profiles;
-            } catch (error) {
-                console.error('Error fetching chat participants:', error);
-                return [];
-            }
-        },
-        lastMessage: async (parent) => {
+        participants: asyncHandler(async (parent, args, context) => {
+            // Use DataLoaderService for batching profile queries
+            const dataLoaders = context.dataloaders || DataLoaderService.createContext();
+            const participantIds = parent.participants.map(p => p.profileid);
+            const profiles = await Promise.all(participantIds.map(id => dataLoaders.loadProfile(id)));
+            return profiles.filter(profile => profile !== null);
+        }, 'graphql'),
+        lastMessage: asyncHandler(async (parent, args, context) => {
             if (!parent.lastMessage) return null;
-            try {
-                const message = await Message.findOne({ messageid: parent.lastMessage });
-                return message;
-            } catch (error) {
-                console.error('Error fetching last message:', error);
-                return null;
-            }
-        },
-        mutedBy: async (parent) => {
+            // Use DataLoaderService for batching message queries
+            const dataLoaders = context.dataloaders || DataLoaderService.createContext();
+            const message = await dataLoaders.loadMessage(parent.lastMessage);
+            return message;
+        }, 'graphql'),
+        mutedBy: asyncHandler(async (parent, args, context) => {
             if (!parent.mutedBy || parent.mutedBy.length === 0) return [];
-            try {
-                const profiles = await Profile.find({ profileid: { $in: parent.mutedBy } });
-                return profiles;
-            } catch (error) {
-                console.error('Error fetching muted by profiles:', error);
-                return [];
-            }
-        },
-        adminIds: async (parent) => {
+            // Use DataLoaderService for batching profile queries
+            const dataLoaders = context.dataloaders || DataLoaderService.createContext();
+            const profiles = await Promise.all(parent.mutedBy.map(id => dataLoaders.loadProfile(id)));
+            return profiles.filter(profile => profile !== null);
+        }, 'graphql'),
+        adminIds: asyncHandler(async (parent, args, context) => {
             if (!parent.adminIds || parent.adminIds.length === 0) return [];
-            try {
-                const profiles = await Profile.find({ profileid: { $in: parent.adminIds } });
-                return profiles;
-            } catch (error) {
-                console.error('Error fetching admin profiles:', error);
-                return [];
-            }
-        },
-        createdBy: async (parent) => {
-            try {
-                const profile = await Profile.findOne({ profileid: parent.createdBy });
-                return profile;
-            } catch (error) {
-                console.error('Error fetching created by profile:', error);
-                return null;
-            }
-        },
-        messages: async (parent, { limit = 50, offset = 0 }) => {
-            try {
-                const messages = await Message.find({ 
-                    chatid: parent.chatid,
-                    isDeleted: false
-                })
-                .sort({ createdAt: -1 })
-                .limit(limit)
-                .skip(offset);
-                return messages.reverse(); // Return in chronological order
-            } catch (error) {
-                console.error('Error fetching chat messages:', error);
-                return [];
-            }
-        }
+            // Use DataLoaderService for batching profile queries
+            const dataLoaders = context.dataloaders || DataLoaderService.createContext();
+            const profiles = await Promise.all(parent.adminIds.map(id => dataLoaders.loadProfile(id)));
+            return profiles.filter(profile => profile !== null);
+        }, 'graphql'),
+        createdBy: asyncHandler(async (parent, args, context) => {
+            // Use DataLoaderService for batching profile queries
+            const dataLoaders = context.dataloaders || DataLoaderService.createContext();
+            const profile = await dataLoaders.loadProfile(parent.createdBy);
+            return profile;
+        }, 'graphql'),
+        messages: asyncHandler(async (parent, { limit = 50, offset = 0 }) => {
+            const messages = await Message.find({ 
+                chatid: parent.chatid,
+                isDeleted: false
+            })
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .skip(offset);
+            return messages.reverse(); // Return in chronological order
+        }, 'graphql')
     },
 
     // Message field resolvers
     Message: {
-        chat: async (parent) => {
-            try {
-                const chat = await Chat.findOne({ chatid: parent.chatid });
-                return chat;
-            } catch (error) {
-                console.error('Error fetching message chat:', error);
-                return null;
-            }
-        },
-        sender: async (parent) => {
-            try {
-                const profile = await Profile.findOne({ profileid: parent.senderid });
-                return profile;
-            } catch (error) {
-                console.error('Error fetching message sender:', error);
-                return null;
-            }
-        },
-        replyTo: async (parent) => {
+        chat: asyncHandler(async (parent, args, context) => {
+            // Use DataLoaderService for batching chat queries
+            const dataLoaders = context.dataloaders || DataLoaderService.createContext();
+            const chat = await dataLoaders.loadChat(parent.chatid);
+            return chat;
+        }, 'graphql'),
+        sender: asyncHandler(async (parent, args, context) => {
+            // Use DataLoaderService for batching profile queries
+            const dataLoaders = context.dataloaders || DataLoaderService.createContext();
+            const profile = await dataLoaders.loadProfile(parent.senderid);
+            return profile;
+        }, 'graphql'),
+        replyTo: asyncHandler(async (parent, args, context) => {
             if (!parent.replyTo) return null;
-            try {
-                const message = await Message.findOne({ messageid: parent.replyTo });
-                return message;
-            } catch (error) {
-                console.error('Error fetching reply to message:', error);
-                return null;
-            }
-        },
-        mentions: async (parent) => {
+            // Use DataLoaderService for batching message queries
+            const dataLoaders = context.dataloaders || DataLoaderService.createContext();
+            const message = await dataLoaders.loadMessage(parent.replyTo);
+            return message;
+        }, 'graphql'),
+        mentions: asyncHandler(async (parent, args, context) => {
             if (!parent.mentions || parent.mentions.length === 0) return [];
-            try {
-                const profiles = await Profile.find({ profileid: { $in: parent.mentions } });
-                return profiles;
-            } catch (error) {
-                console.error('Error fetching mentioned profiles:', error);
-                return [];
-            }
-        },
-        deletedBy: async (parent) => {
+            // Use DataLoaderService for batching profile queries
+            const dataLoaders = context.dataloaders || DataLoaderService.createContext();
+            const profiles = await Promise.all(parent.mentions.map(id => dataLoaders.loadProfile(id)));
+            return profiles.filter(profile => profile !== null);
+        }, 'graphql'),
+        deletedBy: asyncHandler(async (parent, args, context) => {
             if (!parent.deletedBy) return null;
-            try {
-                const profile = await Profile.findOne({ profileid: parent.deletedBy });
-                return profile;
-            } catch (error) {
-                console.error('Error fetching deleted by profile:', error);
-                return null;
-            }
-        }
+            // Use DataLoaderService for batching profile queries
+            const dataLoaders = context.dataloaders || DataLoaderService.createContext();
+            const profile = await dataLoaders.loadProfile(parent.deletedBy);
+            return profile;
+        }, 'graphql')
     },
 
     // MessageReaction field resolvers
     MessageReaction: {
-        profile: async (parent) => {
-            try {
-                const profile = await Profile.findOne({ profileid: parent.profileid });
-                return profile;
-            } catch (error) {
-                console.error('Error fetching reaction profile:', error);
-                return null;
-            }
-        }
+        profile: asyncHandler(async (parent, args, context) => {
+            // Use DataLoaderService for batching profile queries
+            const dataLoaders = context.dataloaders || DataLoaderService.createContext();
+            const profile = await dataLoaders.loadProfile(parent.profileid);
+            return profile;
+        }, 'graphql')
     },
 
     // MessageReadStatus field resolvers
     MessageReadStatus: {
-        profile: async (parent) => {
-            try {
-                const profile = await Profile.findOne({ profileid: parent.profileid });
-                return profile;
-            } catch (error) {
-                console.error('Error fetching read status profile:', error);
-                return null;
-            }
-        }
+        profile: asyncHandler(async (parent, args, context) => {
+            // Use DataLoaderService for batching profile queries
+            const dataLoaders = context.dataloaders || DataLoaderService.createContext();
+            const profile = await dataLoaders.loadProfile(parent.profileid);
+            return profile;
+        }, 'graphql')
     },
 
     Query: {
         // Chat queries
-        getChats: async (parent, { profileid }, context) => {
-            try {
-                if (!context.user || context.user.profileid !== profileid) {
-                    throw new Error('Unauthorized: Cannot access other user\'s chats');
-                }
-
-                const chats = await Chat.find({
-                    'participants.profileid': profileid,
-                    isActive: true
-                }).sort({ lastMessageAt: -1 });
-
-                return chats;
-            } catch (error) {
-                console.error('Error fetching chats:', error);
-                throw new Error('Failed to fetch chats');
+        getChats: asyncHandler(async (parent, args, context) => {
+            // 🔧 FIX #20: Add input validation
+            const validatedArgs = validateArgs(args, 'getChats');
+            
+            if (!context.user || context.user.profileid !== validatedArgs.profileid) {
+                throw new AuthorizationError('Cannot access other user\'s chats');
             }
-        },
 
-        getChatById: async (parent, { chatid }, context) => {
-            try {
-                const chat = await Chat.findOne({ chatid, isActive: true });
-                
-                if (!chat) {
-                    throw new Error('Chat not found');
-                }
+            // Use chat service to get chats
+            return await chatService.getChats(validatedArgs.profileid);
+        }, 'graphql'),
 
-                // Check if user is a participant
-                if (!chat.isParticipant(context.user.profileid)) {
-                    throw new Error('Unauthorized: Not a participant in this chat');
-                }
+        getChatById: asyncHandler(async (parent, args, context) => {
+            // 🔧 FIX #20: Add input validation
+            const validatedArgs = validateArgs(args, 'getChatById');
+            
+            // Use chat service to get chat by ID
+            return await chatService.getChatById(validatedArgs.chatid, context.user.profileid);
+        }, 'graphql'),
 
-                return chat;
-            } catch (error) {
-                console.error('Error fetching chat by ID:', error);
-                throw new Error('Failed to fetch chat');
-            }
-        },
-
-        getChatByParticipants: async (parent, { participants }, context) => {
-            try {
-                // Check if current user is in participants
-                if (!participants.includes(context.user.profileid)) {
-                    throw new Error('Unauthorized: User not in participants list');
-                }
-
-                // For direct chats, find existing chat
-                if (participants.length === 2) {
-                    const chat = await Chat.findOne({
-                        'participants.profileid': { $all: participants, $size: 2 },
-                        chatType: 'direct',
-                        isActive: true
-                    });
-                    return chat;
-                }
-
-                // For group chats, find exact match
-                const chat = await Chat.findOne({
-                    'participants.profileid': { $all: participants, $size: participants.length },
-                    chatType: 'group',
-                    isActive: true
-                });
-
-                return chat;
-            } catch (error) {
-                console.error('Error fetching chat by participants:', error);
-                throw new Error('Failed to fetch chat');
-            }
-        },
+        getChatByParticipants: asyncHandler(async (parent, args, context) => {
+            // 🔧 FIX #20: Add input validation
+            const validatedArgs = validateArgs(args, 'getChatByParticipants');
+            
+            // Use chat service to get chat by participants
+            return await chatService.getChatByParticipants(validatedArgs.participants, context.user.profileid);
+        }, 'graphql'),
 
         // Message queries
-        getMessagesByChat: async (parent, { chatid, limit = 50, offset = 0 }, context) => {
-            try {
-                // Check if user has access to this chat
-                const chat = await Chat.findOne({ chatid, isActive: true });
-                if (!chat || !chat.isParticipant(context.user.profileid)) {
-                    throw new Error('Unauthorized: Cannot access this chat');
-                }
+        getMessagesByChat: asyncHandler(async (parent, args, context) => {
+            // 🔧 FIX #20: Add input validation
+            const validatedArgs = validateArgs(args, 'getMessagesByChat');
+            
+            // Use chat service to get messages by chat
+            return await chatService.getMessagesByChat(validatedArgs.chatid, context.user.profileid, {
+                limit: validatedArgs.limit,
+                cursor: validatedArgs.cursor
+            });
+        }, 'graphql'),
 
-                const messages = await Message.find({
-                    chatid,
-                    isDeleted: false
-                })
-                .sort({ createdAt: -1 })
-                .limit(limit)
-                .skip(offset);
+        getMessageById: asyncHandler(async (parent, args, context) => {
+            // 🔧 FIX #20: Add input validation
+            const validatedArgs = validateArgs(args, 'getMessageById');
+            
+            // Use message service to get message by ID
+            return await messageService.getMessageById(validatedArgs.messageid, context.user.profileid);
+        }, 'graphql'),
 
-                return messages.reverse(); // Return in chronological order
-            } catch (error) {
-                console.error('Error fetching messages:', error);
-                throw new Error('Failed to fetch messages');
-            }
-        },
-
-        getMessageById: async (parent, { messageid }, context) => {
-            try {
-                const message = await Message.findOne({ messageid, isDeleted: false });
-                
-                if (!message) {
-                    throw new Error('Message not found');
-                }
-
-                // Check if user has access to this chat
-                const chat = await Chat.findOne({ chatid: message.chatid });
-                if (!chat || !chat.isParticipant(context.user.profileid)) {
-                    throw new Error('Unauthorized: Cannot access this message');
-                }
-
-                return message;
-            } catch (error) {
-                console.error('Error fetching message by ID:', error);
-                throw new Error('Failed to fetch message');
-            }
-        },
-
-        searchMessages: async (parent, { chatid, query }, context) => {
-            try {
-                // Check if user has access to this chat
-                const chat = await Chat.findOne({ chatid, isActive: true });
-                if (!chat || !chat.isParticipant(context.user.profileid)) {
-                    throw new Error('Unauthorized: Cannot search this chat');
-                }
-
-                const messages = await Message.find({
-                    chatid,
-                    content: { $regex: query, $options: 'i' },
-                    messageType: 'text',
-                    isDeleted: false
-                }).sort({ createdAt: -1 }).limit(20);
-
-                return messages;
-            } catch (error) {
-                console.error('Error searching messages:', error);
-                throw new Error('Failed to search messages');
-            }
-        },
+        searchMessages: asyncHandler(async (parent, args, context) => {
+            // 🔧 FIX #20: Add input validation
+            const validatedArgs = validateArgs(args, 'searchMessages');
+            
+            // Use message service to search messages
+            return await messageService.searchMessages(validatedArgs.chatid, context.user.profileid, validatedArgs.query);
+        }, 'graphql'),
 
         // Chat statistics
-        getUnreadMessageCount: async (parent, { profileid }, context) => {
-            try {
-                if (!context.user || context.user.profileid !== profileid) {
-                    throw new Error('Unauthorized');
-                }
-
-                // Get all chats user participates in
-                const chats = await Chat.find({
-                    'participants.profileid': profileid,
-                    isActive: true
-                });
-
-                let unreadCount = 0;
-                for (const chat of chats) {
-                    const count = await Message.countDocuments({
-                        chatid: chat.chatid,
-                        senderid: { $ne: profileid },
-                        'readBy.profileid': { $ne: profileid },
-                        isDeleted: false
-                    });
-                    unreadCount += count;
-                }
-
-                return unreadCount;
-            } catch (error) {
-                console.error('Error getting unread message count:', error);
-                return 0;
+        getUnreadMessageCount: asyncHandler(async (parent, args, context) => {
+            // 🔧 FIX #20: Add input validation
+            const validatedArgs = validateArgs(args, 'getUnreadMessageCount');
+            
+            if (!context.user || context.user.profileid !== validatedArgs.profileid) {
+                throw new AuthorizationError('Unauthorized');
             }
-        },
 
-        getChatUnreadCount: async (parent, { chatid, profileid }, context) => {
-            try {
-                if (!context.user || context.user.profileid !== profileid) {
-                    throw new Error('Unauthorized');
-                }
+            // Use chat service to get unread message count
+            return await chatService.getUnreadMessageCount(validatedArgs.profileid);
+        }, 'graphql'),
 
-                // Check if user has access to this chat
-                const chat = await Chat.findOne({ chatid, isActive: true });
-                if (!chat || !chat.isParticipant(profileid)) {
-                    throw new Error('Unauthorized: Cannot access this chat');
-                }
-
-                const count = await Message.countDocuments({
-                    chatid,
-                    senderid: { $ne: profileid },
-                    'readBy.profileid': { $ne: profileid },
-                    isDeleted: false
-                });
-
-                return count;
-            } catch (error) {
-                console.error('Error getting chat unread count:', error);
-                return 0;
+        getChatUnreadCount: asyncHandler(async (parent, args, context) => {
+            // 🔧 FIX #20: Add input validation
+            const validatedArgs = validateArgs(args, 'getChatUnreadCount');
+            
+            if (!context.user || context.user.profileid !== validatedArgs.profileid) {
+                throw new AuthorizationError('Unauthorized');
             }
-        }
+
+            // Use chat service to get chat unread count
+            return await chatService.getChatUnreadCount(validatedArgs.chatid, validatedArgs.profileid);
+        }, 'graphql')
     },
 
     Mutation: {
-        // ⚠️ DUPLICATE RESOLVER - COMMENTED OUT
-        // This CreateChat resolver is a duplicate of the one in Resolver.js
-        // The Resolver.js version is the active one and includes smart userid->profileid conversion
-        // Keep this commented out to avoid conflicts
-        
-        /* CreateChat: async (parent, { participants, chatType, chatName, chatAvatar }, context) => {
-            try {
-                console.log('🚀 CHAT CREATE: Starting chat creation:......................................', { participants, chatType, chatName, chatAvatar });
-                if (!context.user) {
-                    throw new Error('Authentication required');
-                }
-
-                // Ensure current user is in participants
-                if (!participants.includes(context.user.profileid)) {
-                    participants.push(context.user.profileid);
-                }
-
-                // Validate participants exist
-                const validParticipants = await Profile.find({
-                    profileid: { $in: participants }
-                });
-
-                if (validParticipants.length !== participants.length) {
-                    throw new Error('Some participants do not exist');
-                }
-
-                // For direct chats, check if chat already exists
-                if (chatType === 'direct' && participants.length === 2) {
-                    const existingChat = await Chat.findOne({
-                        'participants.profileid': { $all: participants, $size: 2 },
-                        chatType: 'direct',
-                        isActive: true
-                    });
-
-                    if (existingChat) {
-                        return existingChat;
-                    }
-                }
-
-                // Create new chat
-                const formattedParticipants = participants.map(profileid => ({
-                    profileid,
-                    role: profileid === context.user.profileid ? 'owner' : 'member',
-                    joinedAt: new Date(),
-                    permissions: profileid === context.user.profileid ? {
-                        canSendMessages: true,
-                        canAddMembers: true,
-                        canRemoveMembers: true,
-                        canEditChat: true,
-                        canDeleteMessages: true,
-                        canPinMessages: true
-                    } : {
-                        canSendMessages: true,
-                        canAddMembers: false,
-                        canRemoveMembers: false,
-                        canEditChat: false,
-                        canDeleteMessages: false,
-                        canPinMessages: false
-                    }
-                }));
-                
-                const newChat = new Chat({
-                    chatid: uuidv4(),
-                    participants: formattedParticipants,
-                    chatType,
-                    chatName: chatType === 'group' ? chatName || 'New Group' : null,
-                    chatAvatar,
-                    createdBy: context.user.profileid
-                });
-
-                await newChat.save();
-                return newChat;
-            } catch (error) {
-                console.error('Error creating chat:..............', error);
-                throw new Error('Failed to create chat');
-            }
-        }, */
-
-        UpdateChat: async (parent, { chatid, chatName, chatAvatar }, context) => {
-            try {
-                const chat = await Chat.findOne({ chatid, isActive: true });
-                
-                if (!chat) {
-                    throw new Error('Chat not found');
-                }
-
-                // Check if user is admin (for group chats) or participant (for direct chats)
-                if (chat.chatType === 'group' && !chat.adminIds.includes(context.user.profileid)) {
-                    throw new Error('Unauthorized: Only admins can update group chat');
-                }
-
-                if (!chat.isParticipant(context.user.profileid)) {
-                    throw new Error('Unauthorized: Not a participant in this chat');
-                }
-
-                // Update chat
-                if (chatName !== undefined) chat.chatName = chatName;
-                if (chatAvatar !== undefined) chat.chatAvatar = chatAvatar;
-
-                await chat.save();
-                return chat;
-            } catch (error) {
-                console.error('Error updating chat:', error);
-                throw new Error('Failed to update chat');
-            }
-        },
+        UpdateChat: asyncHandler(async (parent, args, context) => {
+            // 🔧 FIX #20: Add input validation
+            const validatedArgs = validateArgs(args, 'UpdateChat');
+            
+            // Use chat service to update chat
+            return await chatService.updateChat(validatedArgs.chatid, context.user.profileid, {
+                chatName: validatedArgs.chatName,
+                chatAvatar: validatedArgs.chatAvatar
+            });
+        }, 'graphql'),
 
         // Message mutations
-        SendMessage: async (parent, { chatid, messageType, content, attachments, replyTo, mentions }, context) => {
-            try {
-                if (!context.user) {
-                    throw new Error('Authentication required');
-                }
-
-                // Check if user has access to this chat
-                const chat = await Chat.findOne({ chatid, isActive: true });
-                if (!chat || !chat.isParticipant(context.user.profileid)) {
-                    throw new Error('Unauthorized: Cannot send message to this chat');
-                }
-
-                // Create new message
-                const newMessage = new Message({
-                    messageid: uuidv4(),
-                    chatid,
-                    senderid: context.user.profileid,
-                    messageType,
-                    content,
-                    attachments: attachments || [],
-                    replyTo,
-                    mentions: mentions || [],
-                    messageStatus: 'sent'
-                });
-
-                await newMessage.save();
-
-                // Update chat's last message
-                chat.lastMessage = newMessage.messageid;
-                chat.lastMessageAt = new Date();
-                await chat.save();
-
-                return newMessage;
-            } catch (error) {
-                console.error('Error sending message:', error);
-                throw new Error('Failed to send message');
+        SendMessage: asyncHandler(async (parent, args, context) => {
+            // 🔧 FIX #20: Add input validation
+            const validatedArgs = validateArgs(args, 'SendMessage');
+            
+            if (!context.user) {
+                throw new AuthenticationError('Authentication required');
             }
-        },
 
-        EditMessage: async (parent, { messageid, content }, context) => {
-            try {
-                const message = await Message.findOne({ messageid, isDeleted: false });
-                
-                if (!message) {
-                    throw new Error('Message not found');
-                }
+            // Use message service to send message
+            return await messageService.sendMessage(validatedArgs.chatid, context.user.profileid, {
+                content: validatedArgs.content,
+                messageType: validatedArgs.messageType,
+                attachments: validatedArgs.attachments,
+                replyTo: validatedArgs.replyTo,
+                mentions: validatedArgs.mentions
+            });
+        }, 'graphql'),
 
-                if (message.senderid !== context.user.profileid) {
-                    throw new Error('Unauthorized: Can only edit your own messages');
-                }
+        EditMessage: asyncHandler(async (parent, args, context) => {
+            // 🔧 FIX #20: Add input validation
+            const validatedArgs = validateArgs(args, 'EditMessage');
+            
+            // Use message service to edit message
+            return await messageService.editMessage(validatedArgs.messageid, context.user.profileid, validatedArgs.content);
+        }, 'graphql'),
 
-                // Store edit history
-                message.editHistory.push({
-                    content: message.content,
-                    editedAt: new Date()
-                });
+        DeleteMessage: asyncHandler(async (parent, args, context) => {
+            // 🔧 FIX #20: Add input validation
+            const validatedArgs = validateArgs(args, 'DeleteMessage');
+            
+            // Use message service to delete message
+            return await messageService.deleteMessage(validatedArgs.messageid, context.user.profileid);
+        }, 'graphql'),
 
-                message.content = content;
-                message.isEdited = true;
+        ReactToMessage: asyncHandler(async (parent, args, context) => {
+            // 🔧 FIX #20: Add input validation
+            const validatedArgs = validateArgs(args, 'ReactToMessage');
+            
+            // Use message service to react to message
+            return await messageService.reactToMessage(validatedArgs.messageid, context.user.profileid, validatedArgs.emoji);
+        }, 'graphql'),
 
-                await message.save();
-                return message;
-            } catch (error) {
-                console.error('Error editing message:', error);
-                throw new Error('Failed to edit message');
-            }
-        },
+        RemoveReaction: asyncHandler(async (parent, args, context) => {
+            // 🔧 FIX #20: Add input validation
+            const validatedArgs = validateArgs(args, 'RemoveReaction');
+            
+            // Use message service to remove reaction
+            return await messageService.removeReaction(validatedArgs.messageid, context.user.profileid, validatedArgs.emoji);
+        }, 'graphql'),
 
-        DeleteMessage: async (parent, { messageid }, context) => {
-            try {
-                const message = await Message.findOne({ messageid, isDeleted: false });
-                
-                if (!message) {
-                    throw new Error('Message not found');
-                }
+        MarkMessageAsRead: asyncHandler(async (parent, args, context) => {
+            // 🔧 FIX #20: Add input validation
+            const validatedArgs = validateArgs(args, 'MarkMessageAsRead');
+            
+            // Use message service to mark message as read
+            return await messageService.markMessageAsRead(validatedArgs.messageid, context.user.profileid);
+        }, 'graphql'),
 
-                if (message.senderid !== context.user.profileid) {
-                    throw new Error('Unauthorized: Can only delete your own messages');
-                }
-
-                message.isDeleted = true;
-                message.deletedBy = context.user.profileid;
-                message.deletedAt = new Date();
-
-                await message.save();
-                return message;
-            } catch (error) {
-                console.error('Error deleting message:', error);
-                throw new Error('Failed to delete message');
-            }
-        },
-
-        ReactToMessage: async (parent, { messageid, emoji }, context) => {
-            try {
-                const message = await Message.findOne({ messageid, isDeleted: false });
-                
-                if (!message) {
-                    throw new Error('Message not found');
-                }
-
-                // Check if user has access to this chat
-                const chat = await Chat.findOne({ chatid: message.chatid });
-                if (!chat || !chat.participants.includes(context.user.profileid)) {
-                    throw new Error('Unauthorized: Cannot react to this message');
-                }
-
-                // Remove existing reaction from this user
-                message.reactions = message.reactions.filter(
-                    reaction => reaction.profileid !== context.user.profileid
-                );
-
-                // Add new reaction
-                message.reactions.push({
-                    profileid: context.user.profileid,
-                    emoji,
-                    createdAt: new Date()
-                });
-
-                await message.save();
-                return message;
-            } catch (error) {
-                console.error('Error reacting to message:', error);
-                throw new Error('Failed to react to message');
-            }
-        },
-
-        RemoveReaction: async (parent, { messageid, emoji }, context) => {
-            try {
-                const message = await Message.findOne({ messageid, isDeleted: false });
-                
-                if (!message) {
-                    throw new Error('Message not found');
-                }
-
-                // Remove reaction
-                message.reactions = message.reactions.filter(
-                    reaction => !(reaction.profileid === context.user.profileid && reaction.emoji === emoji)
-                );
-
-                await message.save();
-                return message;
-            } catch (error) {
-                console.error('Error removing reaction:', error);
-                throw new Error('Failed to remove reaction');
-            }
-        },
-
-        MarkMessageAsRead: async (parent, { messageid }, context) => {
-            try {
-                const message = await Message.findOne({ messageid, isDeleted: false });
-                
-                if (!message) {
-                    throw new Error('Message not found');
-                }
-
-                // Check if user has access to this chat
-                const chat = await Chat.findOne({ chatid: message.chatid });
-                if (!chat || !chat.participants.includes(context.user.profileid)) {
-                    throw new Error('Unauthorized: Cannot mark this message as read');
-                }
-
-                // Check if already marked as read
-                const existingRead = message.readBy.find(
-                    read => read.profileid === context.user.profileid
-                );
-
-                if (!existingRead) {
-                    message.readBy.push({
-                        profileid: context.user.profileid,
-                        readAt: new Date()
-                    });
-                    await message.save();
-                }
-
-                return message;
-            } catch (error) {
-                console.error('Error marking message as read:', error);
-                throw new Error('Failed to mark message as read');
-            }
-        },
-
-        MarkChatAsRead: async (parent, { chatid }, context) => {
-            try {
-                // Check if user has access to this chat
-                const chat = await Chat.findOne({ chatid, isActive: true });
-                if (!chat || !chat.participants.includes(context.user.profileid)) {
-                    throw new Error('Unauthorized: Cannot access this chat');
-                }
-
-                // Find unread messages
-                const unreadMessages = await Message.find({
-                    chatid,
-                    senderid: { $ne: context.user.profileid },
-                    'readBy.profileid': { $ne: context.user.profileid },
-                    isDeleted: false
-                });
-
-                // Mark all as read
-                const bulkOps = unreadMessages.map(message => ({
-                    updateOne: {
-                        filter: { _id: message._id },
-                        update: {
-                            $push: {
-                                readBy: {
-                                    profileid: context.user.profileid,
-                                    readAt: new Date()
-                                }
-                            }
-                        }
-                    }
-                }));
-
-                if (bulkOps.length > 0) {
-                    await Message.bulkWrite(bulkOps);
-                }
-
-                return unreadMessages;
-            } catch (error) {
-                console.error('Error marking chat as read:', error);
-                throw new Error('Failed to mark chat as read');
-            }
-        }
+        MarkChatAsRead: asyncHandler(async (parent, args, context) => {
+            // 🔧 FIX #20: Add input validation
+            const validatedArgs = validateArgs(args, 'MarkChatAsRead');
+            
+            // Use chat service to mark chat as read
+            const result = await chatService.markChatAsRead(validatedArgs.chatid, context.user.profileid);
+            return result;
+        }, 'graphql')
     }
 };
 
 export default ChatResolvers;
+
+
+
+
+
+
+
+

@@ -27,656 +27,325 @@ const rtcConfiguration = {
   rtcpMuxPolicy: 'require'
 };
 
-export default function VideoCallModal({ isOpen, onClose, chat, user, socket }) {
+const VideoCallModal = ({ 
+  isOpen, 
+  onClose, 
+  chat, 
+  user, 
+  socket,
+  // Enhanced call state props
+  callQuality = 'unknown',
+  callStats = {},
+  onCallQualityUpdate,
+  onCallStatsUpdate
+}) => {
   const { theme } = useTheme();
-  const [callStatus, setCallStatus] = useState('connecting'); // connecting, connected, ended
-  const [isMuted, setIsMuted] = useState(false);
-  const [isVideoOn, setIsVideoOn] = useState(true);
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [callStatus, setCallStatus] = useState('connecting'); // connecting, ringing, connected, ended
   const [callDuration, setCallDuration] = useState(0);
-  const [participants, setParticipants] = useState([]);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showDebug, setShowDebug] = useState(process.env.NODE_ENV === 'development');
-  
-  const callStartTime = useRef(null);
-  const durationInterval = useRef(null);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isVideoOff, setIsVideoOff] = useState(false);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [callTimer, setCallTimer] = useState(null);
+  const [remoteUser, setRemoteUser] = useState(null);
+  const [error, setError] = useState(null);
+  // Enhanced state for call quality
+  const [quality, setQuality] = useState(callQuality);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
-  const peerConnection = useRef(null);
-  const localStream = useRef(null);
-  const remoteStream = useRef(null);
 
+  // Get remote user
   useEffect(() => {
-    if (isOpen) {
-      setCallStatus('connecting');
-      callStartTime.current = Date.now();
-      initializeCall();
-      
-      // Set participants
-      if (chat?.participants) {
-        setParticipants(chat.participants.filter(p => p.profileid !== user.profileid));
-      }
+    if (chat && user) {
+      const remote = chat.participants?.find(p => p.profileid !== user.profileid);
+      setRemoteUser(remote);
     }
+  }, [chat, user]);
+
+  // Update quality when prop changes
+  useEffect(() => {
+    setQuality(callQuality);
+  }, [callQuality]);
+
+  // Handle incoming call
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleIncomingCall = (data) => {
+      console.log('📞 Incoming video call:', data);
+      setCallStatus('ringing');
+    };
+
+    const handleCallAnswered = (data) => {
+      console.log('📞 Video call answered:', data);
+      setCallStatus('connected');
+      startCallTimer();
+    };
+
+    const handleCallEnded = (data) => {
+      console.log('📞 Video call ended:', data);
+      endCall('Call ended');
+    };
+
+    const handleCallFailed = (data) => {
+      console.log('📞 Video call failed:', data);
+      setError(data.reason || 'Call failed');
+      endCall(data.reason || 'Call failed');
+    };
+
+    // Enhanced: Handle call quality updates
+    const handleCallQualityUpdate = (data) => {
+      console.log('📊 Video call quality update:', data);
+      if (onCallQualityUpdate) {
+        onCallQualityUpdate(data.quality);
+      }
+      setQuality(data.quality);
+    };
+
+    socket.on('incoming_call', handleIncomingCall);
+    socket.on('call_answered', handleCallAnswered);
+    socket.on('call_ended', handleCallEnded);
+    socket.on('call_failed', handleCallFailed);
+    // Enhanced: Listen for quality updates
+    socket.on('call_quality_update', handleCallQualityUpdate);
 
     return () => {
-      cleanup();
+      socket.off('incoming_call', handleIncomingCall);
+      socket.off('call_answered', handleCallAnswered);
+      socket.off('call_ended', handleCallEnded);
+      socket.off('call_failed', handleCallFailed);
+      socket.off('call_quality_update', handleCallQualityUpdate);
     };
-  }, [isOpen, chat, user]);
+  }, [socket, onCallQualityUpdate]);
 
-  const initializeCall = async () => {
-    try {
-      console.log('🎥 Initializing video call...');
-      
-      // Check if media devices are available
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Media devices not supported by this browser');
-      }
-      
-      // Try to get user media with error handling
-      try {
-        localStream.current = await navigator.mediaDevices.getUserMedia({
-          video: isVideoOn ? { 
-            width: { min: 320, ideal: 640, max: 1280 },
-            height: { min: 240, ideal: 480, max: 720 },
-            frameRate: { min: 15, ideal: 30, max: 60 }
-          } : false,
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          }
-        });
-        console.log('📷 Got user media successfully');
-      } catch (mediaError) {
-        console.warn('❌ Failed to get media with ideal constraints, trying fallback...', mediaError.message);
-        
-        // Try fallback constraints
-        try {
-          localStream.current = await navigator.mediaDevices.getUserMedia({
-            video: isVideoOn ? { width: 640, height: 480 } : false,
-            audio: true
-          });
-          console.log('📷 Got user media with fallback constraints');
-        } catch (fallbackError) {
-          console.error('❌ Failed to get user media even with fallback:', fallbackError.message);
-          
-          if (fallbackError.name === 'NotAllowedError') {
-            alert('Please allow camera and microphone access to join the video call.');
-          } else if (fallbackError.name === 'NotFoundError') {
-            alert('Camera or microphone not found. Please check your devices.');
-          } else {
-            alert('Failed to access camera/microphone: ' + fallbackError.message);
-          }
-          
-          setCallStatus('ended');
-          return;
-        }
-      }
-      
-      // Display local video
-      if (localVideoRef.current && localStream.current) {
-        localVideoRef.current.srcObject = localStream.current;
-      }
-      
-      // Create peer connection
-      peerConnection.current = new RTCPeerConnection(rtcConfiguration);
-      console.log('🔗 Created peer connection with configuration:', rtcConfiguration);
-      
-      // Add local stream to peer connection
-      localStream.current.getTracks().forEach(track => {
-        peerConnection.current.addTrack(track, localStream.current);
-      });
-      
-      // Handle remote stream
-      peerConnection.current.ontrack = (event) => {
-        console.log('📹 Received remote stream');
-        remoteStream.current = event.streams[0];
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = remoteStream.current;
-        }
-      };
-      
-      // Handle ICE candidates
-      peerConnection.current.onicecandidate = (event) => {
-        if (event.candidate && socket) {
-          console.log('🧊 Sending ICE candidate');
-          socket.emit('webrtc_ice_candidate', {
-            chatid: chat.chatid,
-            candidate: event.candidate
-          });
-        }
-      };
-      
-      // Handle connection state changes
-      peerConnection.current.onconnectionstatechange = () => {
-        console.log('🔗 Connection state:', peerConnection.current.connectionState);
-        if (peerConnection.current.connectionState === 'connected') {
-          setCallStatus('connected');
-          startDurationTimer();
-          console.log('✨ Video call connected successfully!');
-        } else if (peerConnection.current.connectionState === 'connecting') {
-          console.log('🔄 Establishing connection...');
-        } else if (peerConnection.current.connectionState === 'disconnected') {
-          console.warn('⚠️ Connection disconnected');
-          setCallStatus('ended');
-        } else if (peerConnection.current.connectionState === 'failed') {
-          console.error('❌ Connection failed');
-          setCallStatus('ended');
-          alert('Video call connection failed. Please try again.');
-        }
-      };
-      
-      // Handle ICE connection state changes
-      peerConnection.current.oniceconnectionstatechange = () => {
-        console.log('🧨 ICE connection state:', peerConnection.current.iceConnectionState);
-        if (peerConnection.current.iceConnectionState === 'failed') {
-          console.error('❌ ICE connection failed');
-          // Try to restart ICE
-          peerConnection.current.restartIce();
-        }
-      };
-      
-      // Handle ICE gathering state
-      peerConnection.current.onicegatheringstatechange = () => {
-        console.log('🧨 ICE gathering state:', peerConnection.current.iceGatheringState);
-      };
-      
-      // Set up WebRTC signaling listeners first
-      if (socket) {
-        // Remove any existing listeners to prevent duplicates
-        socket.off('webrtc_offer', handleOffer);
-        socket.off('webrtc_answer', handleAnswer);
-        socket.off('webrtc_ice_candidate', handleIceCandidate);
-        socket.off('call_ended', handleCallEnded);
-        
-        // Add fresh listeners
-        socket.on('webrtc_offer', handleOffer);
-        socket.on('webrtc_answer', handleAnswer);
-        socket.on('webrtc_ice_candidate', handleIceCandidate);
-        socket.on('call_ended', handleCallEnded);
-        
-        console.log('📡 Socket listeners set up for WebRTC signaling');
-        
-        // Create and send offer if we're the caller (after a short delay to ensure everything is set up)
-        if (shouldCreateOffer()) {
-          setTimeout(() => {
-            console.log('📤 Starting call as initiator');
-            createOffer();
-          }, 500);
-        } else {
-          console.log('📥 Waiting for incoming offer');
-        }
-      }
-      
-    } catch (error) {
-      console.error('🔥 Error initializing call:', error);
-      setCallStatus('ended');
+  // Start call timer
+  const startCallTimer = () => {
+    const startTime = Date.now();
+    const timer = setInterval(() => {
+      setCallDuration(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+    setCallTimer(timer);
+  };
+
+  // End call
+  const endCall = (reason = 'Call ended') => {
+    if (callTimer) {
+      clearInterval(callTimer);
+      setCallTimer(null);
     }
-  };
-  
-  const shouldCreateOffer = () => {
-    // Simple logic: user with higher profileid creates the offer
-    // This ensures only one user creates the offer
-    const otherParticipant = participants[0];
-    return otherParticipant && user?.profileid > otherParticipant.profileid;
-  };
-  
-  const createOffer = async () => {
-    try {
-      const offer = await peerConnection.current.createOffer();
-      await peerConnection.current.setLocalDescription(offer);
-      
-      console.log('📤 Sending WebRTC offer');
-      socket.emit('webrtc_offer', {
+    
+    // Notify backend
+    if (socket && chat) {
+      socket.emit('end_call', {
         chatid: chat.chatid,
-        offer: offer
+        reason
       });
-    } catch (error) {
-      console.error('🔥 Error creating offer:', error);
     }
-  };
-  
-  const handleOffer = async (data) => {
-    try {
-      console.log('📥 Received WebRTC offer');
-      
-      if (!peerConnection.current) {
-        console.error('No peer connection available to handle offer');
-        return;
-      }
-      
-      if (peerConnection.current.signalingState === 'closed') {
-        console.error('Peer connection is closed, cannot handle offer');
-        return;
-      }
-      
-      await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.offer));
-      console.log('✅ Set remote description from offer');
-      
-      const answer = await peerConnection.current.createAnswer();
-      await peerConnection.current.setLocalDescription(answer);
-      console.log('✅ Created and set local answer');
-      
-      console.log('📤 Sending WebRTC answer');
-      socket.emit('webrtc_answer', {
-        chatid: chat.chatid,
-        answer: answer
-      });
-    } catch (error) {
-      console.error('🔥 Error handling offer:', error);
-      alert('Failed to process incoming call. Please try again.');
-      setCallStatus('ended');
-    }
-  };
-  
-  const handleAnswer = async (data) => {
-    try {
-      console.log('📥 Received WebRTC answer');
-      
-      if (!peerConnection.current) {
-        console.error('No peer connection available to handle answer');
-        return;
-      }
-      
-      if (peerConnection.current.signalingState === 'closed') {
-        console.error('Peer connection is closed, cannot handle answer');
-        return;
-      }
-      
-      await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.answer));
-      console.log('✅ Set remote description from answer');
-    } catch (error) {
-      console.error('🔥 Error handling answer:', error);
-      alert('Failed to establish call connection. Please try again.');
-      setCallStatus('ended');
-    }
-  };
-  
-  const handleIceCandidate = async (data) => {
-    try {
-      console.log('🧊 Received ICE candidate');
-      await peerConnection.current.addIceCandidate(data.candidate);
-    } catch (error) {
-      console.error('🔥 Error handling ICE candidate:', error);
-    }
-  };
-  
-  const handleCallEnded = () => {
-    console.log('📞 Call ended by remote participant');
+    
     setCallStatus('ended');
     setTimeout(() => {
       onClose();
     }, 1000);
   };
-  
-  const cleanup = () => {
-    console.log('🧹 Cleaning up video call resources');
+
+  // Toggle mute
+  const toggleMute = () => {
+    const newMuteState = !isMuted;
+    setIsMuted(newMuteState);
     
-    if (durationInterval.current) {
-      clearInterval(durationInterval.current);
-    }
-    
-    // Stop local media tracks
-    if (localStream.current) {
-      localStream.current.getTracks().forEach(track => {
-        track.stop();
+    // Notify backend
+    if (socket && chat) {
+      socket.emit('toggle_mute', {
+        chatid: chat.chatid,
+        muted: newMuteState
       });
-      localStream.current = null;
-    }
-    
-    // Close peer connection
-    if (peerConnection.current) {
-      peerConnection.current.close();
-      peerConnection.current = null;
-    }
-    
-    // Remove socket listeners
-    if (socket) {
-      socket.off('webrtc_offer', handleOffer);
-      socket.off('webrtc_answer', handleAnswer);
-      socket.off('webrtc_ice_candidate', handleIceCandidate);
-      socket.off('call_ended', handleCallEnded);
     }
   };
 
-  const startDurationTimer = () => {
-    durationInterval.current = setInterval(() => {
-      if (callStartTime.current) {
-        setCallDuration(Math.floor((Date.now() - callStartTime.current) / 1000));
-      }
-    }, 1000);
+  // Toggle video
+  const toggleVideo = () => {
+    const newVideoState = !isVideoOff;
+    setIsVideoOff(newVideoState);
+    
+    // Notify backend
+    if (socket && chat) {
+      socket.emit('toggle_video', {
+        chatid: chat.chatid,
+        videoOn: !newVideoState
+      });
+    }
   };
 
+  // Toggle screen share
+  const toggleScreenShare = () => {
+    const newScreenShareState = !isScreenSharing;
+    setIsScreenSharing(newScreenShareState);
+    
+    // Notify backend
+    if (socket && chat) {
+      socket.emit('toggle_screen_share', {
+        chatid: chat.chatid,
+        sharing: newScreenShareState
+      });
+    }
+  };
+
+  // Format duration
   const formatDuration = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleEndCall = () => {
-    setCallStatus('ended');
-    if (durationInterval.current) {
-      clearInterval(durationInterval.current);
+  // Get quality color
+  const getQualityColor = (quality) => {
+    switch (quality) {
+      case 'excellent': return 'bg-green-400';
+      case 'good': return 'bg-green-300';
+      case 'fair': return 'bg-yellow-400';
+      case 'poor': return 'bg-red-400';
+      default: return 'bg-gray-400';
     }
-    setTimeout(() => {
-      onClose();
-    }, 1000);
-  };
-
-  const toggleMute = () => {
-    setIsMuted(!isMuted);
-    
-    // Mute/unmute local audio tracks
-    if (localStream.current) {
-      localStream.current.getAudioTracks().forEach(track => {
-        track.enabled = isMuted; // Note: isMuted is current state, so we want opposite
-      });
-    }
-    
-    if (socket) {
-      socket.emit('toggle_mute', { chatid: chat.chatid, muted: !isMuted });
-    }
-  };
-
-  const toggleVideo = () => {
-    setIsVideoOn(!isVideoOn);
-    
-    // Enable/disable local video tracks
-    if (localStream.current) {
-      localStream.current.getVideoTracks().forEach(track => {
-        track.enabled = !isVideoOn; // Note: isVideoOn is current state, so we want opposite
-      });
-    }
-    
-    if (socket) {
-      socket.emit('toggle_video', { chatid: chat.chatid, videoOn: !isVideoOn });
-    }
-  };
-
-  const toggleScreenShare = () => {
-    setIsScreenSharing(!isScreenSharing);
-    if (socket) {
-      socket.emit('toggle_screen_share', { chatid: chat.chatid, sharing: !isScreenSharing });
-    }
-  };
-
-  const toggleFullscreen = () => {
-    setIsFullscreen(!isFullscreen);
   };
 
   if (!isOpen) return null;
 
-  const otherParticipant = participants[0] || {};
-  const displayName = chat?.chatType === 'group' 
-    ? (chat.chatName || 'Group Call') 
-    : (otherParticipant?.name || otherParticipant?.username || 'Unknown User');
-
   return (
-    <div className={`fixed inset-0 bg-black z-50 ${isFullscreen ? '' : 'bg-opacity-90 flex items-center justify-center p-4'}`}>
-      <div className={`relative ${isFullscreen ? 'w-full h-full' : 'w-full max-w-4xl h-5/6'} rounded-xl overflow-hidden shadow-2xl bg-black`}>
-        
-        {/* Main Video Area */}
-        <div className="relative w-full h-full">
-          {/* Remote Video / Main Display */}
-          <div className="relative w-full h-full bg-gray-900 flex items-center justify-center">
-            {callStatus === 'connected' ? (
-              <>
-                {/* Remote Video */}
-                <video
-                  ref={remoteVideoRef}
-                  autoPlay
-                  playsInline
-                  className="w-full h-full object-cover"
-                  style={{ display: remoteStream.current ? 'block' : 'none' }}
-                />
-                
-                {/* Fallback when no remote video */}
-                {!remoteStream.current && (
-                  <div className="text-center">
-                    <div className="w-32 h-32 mx-auto mb-4 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 p-1">
-                      <img
-                        src={chat?.chatType === 'group' ? chat.chatAvatar : otherParticipant?.profilePic || '/default-avatar.png'}
-                        alt={displayName}
-                        className="w-full h-full rounded-full object-cover"
-                      />
-                    </div>
-                    <p className="text-white text-xl font-semibold">{displayName}</p>
-                    <p className="text-gray-400 text-sm">Connecting...</p>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="text-center">
-                <div className="w-32 h-32 mx-auto mb-4 rounded-full bg-gradient-to-br from-gray-600 to-gray-700 p-1">
-                  <img
-                    src={chat?.chatType === 'group' ? chat.chatAvatar : otherParticipant?.profilePic || '/default-avatar.png'}
-                    alt={displayName}
-                    className="w-full h-full rounded-full object-cover"
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-90">
+      {/* Video containers */}
+      <div className="absolute inset-0 flex flex-col">
+        {/* Remote video */}
+        <div className="flex-1 relative bg-black">
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            className="w-full h-full object-cover"
+          />
+          
+          {/* Remote user info overlay */}
+          <div className="absolute top-4 left-4 flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold">
+              {remoteUser?.username?.charAt(0) || 'U'}
+            </div>
+            <div>
+              <h3 className="text-white font-semibold">{remoteUser?.username || 'Unknown'}</h3>
+              <p className="text-gray-300 text-sm">
+                {callStatus === 'connecting' && 'Connecting...'}
+                {callStatus === 'ringing' && 'Ringing...'}
+                {callStatus === 'connected' && formatDuration(callDuration)}
+                {callStatus === 'ended' && 'Call ended'}
+              </p>
+            </div>
+          </div>
+          
+          {/* Enhanced: Call Quality Indicator */}
+          {callStatus === 'connected' && quality !== 'unknown' && (
+            <div className="absolute top-4 right-4 flex items-center space-x-1">
+              <div className={`flex space-x-0.5`}>
+                {[1, 2, 3, 4, 5].map(i => (
+                  <div
+                    key={i}
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      i <= (quality === 'excellent' ? 5 : 
+                            quality === 'good' ? 4 :
+                            quality === 'fair' ? 3 : 2)
+                        ? getQualityColor(quality)
+                        : 'bg-gray-600'
+                    }`}
                   />
-                </div>
-                <p className="text-white text-xl font-semibold">{displayName}</p>
-                <p className="text-gray-400 text-sm">
-                  {callStatus === 'connecting' ? 'Connecting...' : 'Camera is off'}
-                </p>
-              </div>
-            )}
-
-            {/* Screen Share Indicator */}
-            {isScreenSharing && (
-              <div className="absolute top-4 left-4 bg-blue-500 text-white px-3 py-1 rounded-full text-sm flex items-center space-x-2">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-                <span>Screen sharing</span>
-              </div>
-            )}
-
-            {/* Call Info Overlay */}
-            <div className="absolute top-4 right-4 bg-black bg-opacity-50 text-white px-4 py-2 rounded-full text-sm">
-              {callStatus === 'connected' && `${formatDuration(callDuration)}`}
-              {chat?.chatType === 'group' && ` • ${participants.length + 1} people`}
-            </div>
-
-            {/* Local Video (Picture-in-Picture) */}
-            <div className="absolute bottom-4 right-4 w-48 h-36 bg-gray-800 rounded-lg overflow-hidden border-2 border-gray-600">
-              {isVideoOn && localStream.current ? (
-                <video
-                  ref={localVideoRef}
-                  autoPlay
-                  playsInline
-                  muted // Mute local video to prevent echo
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full bg-gray-900 flex items-center justify-center">
-                  <div className="text-center">
-                    <div className="w-16 h-16 mx-auto mb-2 rounded-full bg-white/20 p-1">
-                      <img
-                        src={user?.profilePic || '/default-avatar.png'}
-                        alt={user?.name || 'You'}
-                        className="w-full h-full rounded-full object-cover"
-                      />
-                    </div>
-                    <p className="text-white text-sm font-medium">You</p>
-                    <p className="text-gray-400 text-xs">Camera off</p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Group Call Participants */}
-            {chat?.chatType === 'group' && participants.length > 1 && (
-              <div className="absolute bottom-4 left-4 flex space-x-2">
-                {participants.slice(1, 4).map((participant, index) => (
-                  <div key={participant.profileid} className="w-16 h-16 rounded-lg overflow-hidden bg-gray-800">
-                    <img
-                      src={participant.profilePic || '/default-avatar.png'}
-                      alt={participant.username}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
                 ))}
-                {participants.length > 4 && (
-                  <div className="w-16 h-16 rounded-lg bg-gray-700 flex items-center justify-center">
-                    <span className="text-white text-xs font-semibold">+{participants.length - 3}</span>
-                  </div>
-                )}
               </div>
-            )}
-          </div>
-
-          {/* Controls Overlay */}
-          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-6">
-            <div className="flex justify-center space-x-4">
-              
-              {/* Mute Button */}
-              <button
-                onClick={toggleMute}
-                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 ${
-                  isMuted 
-                    ? 'bg-red-500 text-white' 
-                    : 'bg-white bg-opacity-20 text-white hover:bg-opacity-30'
-                }`}
-                title={isMuted ? 'Unmute' : 'Mute'}
-              >
-                {isMuted ? (
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-                  </svg>
-                ) : (
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                  </svg>
-                )}
-              </button>
-
-              {/* Video Toggle Button */}
-              <button
-                onClick={toggleVideo}
-                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 ${
-                  !isVideoOn 
-                    ? 'bg-red-500 text-white' 
-                    : 'bg-white bg-opacity-20 text-white hover:bg-opacity-30'
-                }`}
-                title={isVideoOn ? 'Turn off camera' : 'Turn on camera'}
-              >
-                {isVideoOn ? (
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
-                ) : (
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" />
-                  </svg>
-                )}
-              </button>
-
-              {/* Screen Share Button */}
-              <button
-                onClick={toggleScreenShare}
-                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 ${
-                  isScreenSharing 
-                    ? 'bg-blue-500 text-white' 
-                    : 'bg-white bg-opacity-20 text-white hover:bg-opacity-30'
-                }`}
-                title={isScreenSharing ? 'Stop sharing' : 'Share screen'}
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-              </button>
-
-              {/* End Call Button */}
-              <button
-                onClick={handleEndCall}
-                className="w-14 h-14 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors transform hover:scale-105"
-                title="End Call"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                </svg>
-              </button>
-
-              {/* Fullscreen Toggle */}
-              {!isFullscreen && (
-                <button
-                  onClick={toggleFullscreen}
-                  className="w-14 h-14 rounded-full bg-white bg-opacity-20 text-white hover:bg-opacity-30 flex items-center justify-center transition-all duration-200"
-                  title="Enter fullscreen"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                  </svg>
-                </button>
-              )}
-
+              <span className="text-white capitalize text-sm">{quality}</span>
             </div>
-
-            {/* Secondary Controls */}
-            <div className="flex justify-center space-x-3 mt-4">
-              
-              {/* Chat Button */}
-              <button
-                className="p-3 rounded-full bg-white bg-opacity-20 text-white hover:bg-opacity-30 transition-all duration-200"
-                title="Open chat"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-              </button>
-
-              {/* Add Person (for group calls) */}
-              {chat?.chatType === 'group' && (
-                <button
-                  className="p-3 rounded-full bg-white bg-opacity-20 text-white hover:bg-opacity-30 transition-all duration-200"
-                  title="Add person"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                  </svg>
-                </button>
-              )}
-
-              {/* Settings */}
-              <button
-                className="p-3 rounded-full bg-white bg-opacity-20 text-white hover:bg-opacity-30 transition-all duration-200"
-                title="Call settings"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                </svg>
-              </button>
-
-            </div>
-          </div>
-
-          {/* Exit Fullscreen Button */}
-          {isFullscreen && (
-            <button
-              onClick={toggleFullscreen}
-              className="absolute top-4 left-4 p-3 rounded-full bg-black bg-opacity-50 text-white hover:bg-opacity-70 transition-all duration-200"
-              title="Exit fullscreen"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9V4.5M9 9H4.5M9 9L3.5 3.5M15 9h4.5M15 9V4.5M15 9l5.5-5.5M9 15H4.5M9 15v4.5M9 15l-5.5 5.5M15 15h4.5M15 15v4.5m0-4.5l5.5 5.5" />
-              </svg>
-            </button>
           )}
         </div>
+        
+        {/* Local video preview */}
+        <div className="absolute bottom-24 right-4 w-32 h-24 bg-gray-800 rounded-lg overflow-hidden border-2 border-white">
+          <video
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className="w-full h-full object-cover"
+          />
+        </div>
+      </div>
+
+      {/* Error message */}
+      {error && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded-lg">
+          {error}
+        </div>
+      )}
+
+      {/* Call controls */}
+      <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex items-center space-x-6">
+        <button
+          onClick={toggleMute}
+          className={`p-3 rounded-full ${
+            isMuted ? 'bg-red-500 text-white' : 'bg-gray-700 text-white'
+          }`}
+          aria-label={isMuted ? "Unmute" : "Mute"}
+        >
+          {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+        </button>
+
+        <button
+          onClick={toggleVideo}
+          className={`p-3 rounded-full ${
+            isVideoOff ? 'bg-red-500 text-white' : 'bg-gray-700 text-white'
+          }`}
+          aria-label={isVideoOff ? "Turn video on" : "Turn video off"}
+        >
+          {isVideoOff ? <VideoOff className="w-6 h-6" /> : <Video className="w-6 h-6" />}
+        </button>
+
+        <button
+          onClick={toggleScreenShare}
+          className={`p-3 rounded-full ${
+            isScreenSharing ? 'bg-blue-500 text-white' : 'bg-gray-700 text-white'
+          }`}
+          aria-label={isScreenSharing ? "Stop screen share" : "Start screen share"}
+        >
+          <Monitor className="w-6 h-6" />
+        </button>
+
+        <button
+          onClick={() => endCall()}
+          className="p-4 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+          aria-label="End call"
+        >
+          <PhoneOff className="w-6 h-6" />
+        </button>
+      </div>
+
+      {/* Call status message */}
+      <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2 text-center">
+        <p className="text-gray-300 text-sm">
+          {callStatus === 'connecting' && 'Establishing connection...'}
+          {callStatus === 'ringing' && 'Calling...'}
+          {callStatus === 'connected' && 'Call in progress'}
+          {callStatus === 'ended' && 'Call has ended'}
+        </p>
       </div>
       
-      
-      {/* Debug Toggle (only in development) */}
-      {process.env.NODE_ENV === 'development' && (
-        <button
-          onClick={() => setShowDebug(!showDebug)}
-          className="fixed bottom-4 left-4 bg-gray-800 text-white p-2 rounded-full z-50 text-sm"
-          title="Toggle WebRTC Debug"
-        >
-          🐛
-        </button>
+      {/* Enhanced: Call Stats */}
+      {callStatus === 'connected' && callStats && Object.keys(callStats).length > 0 && (
+        <div className="absolute bottom-32 left-4 flex space-x-4 text-xs text-gray-300">
+          {callStats.packetLoss !== undefined && (
+            <span title="Packet Loss">PL: {callStats.packetLoss.toFixed(1)}%</span>
+          )}
+          {callStats.jitter !== undefined && (
+            <span title="Jitter">J: {callStats.jitter.toFixed(1)}ms</span>
+          )}
+          {callStats.rtt !== undefined && (
+            <span title="Round Trip Time">RTT: {callStats.rtt.toFixed(1)}ms</span>
+          )}
+        </div>
       )}
     </div>
   );
-}
+};
+
+export default VideoCallModal;

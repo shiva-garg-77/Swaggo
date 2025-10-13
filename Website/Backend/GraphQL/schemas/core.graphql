@@ -1,0 +1,858 @@
+# Core GraphQL schema definitions
+
+# Scalar types
+scalar Date
+scalar DateTime
+scalar JSON
+scalar URL
+
+# Interface for timestamped entities
+interface Timestamped {
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Interface for entities with ID
+interface Node {
+  id: ID!
+}
+
+# Pagination information
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+# Standard response wrapper
+type Response {
+  success: Boolean!
+  message: String
+  errors: [Error!]
+}
+
+# Standard error object
+type Error {
+  code: String!
+  message: String!
+  field: String
+}
+
+# Authentication payload
+type AuthPayload {
+  token: String!
+  user: User!
+}
+
+# User type
+type User implements Node & Timestamped {
+  id: ID!
+  username: String!
+  email: String!
+  profilePicture: URL
+  profile: Profile
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Profile type
+type Profile implements Node & Timestamped {
+  id: ID!
+  profileid: String!
+  profilePic: URL
+  isPrivate: Boolean
+  isVerified: Boolean
+  username: String!
+  name: String
+  bio: String
+  followers: [Profile!]
+  following: [Profile!]
+  followersCount: Int
+  followingCount: Int
+  postsCount: Int
+  closeFriends: [CloseFriend!]
+  closeFriendsOf: [CloseFriend!]
+  posts: [Post!]
+  drafts: [Draft!]
+  likedPosts: [Post!]
+  savedPosts: [Post!]
+  memories: [Memory!]
+  blockedAccounts: [BlockedAccount!]
+  restrictedAccounts: [RestrictedAccount!]
+  mentions: [Mention!]
+  settings: UserSettings
+  stories: [Story!]
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# User settings
+type UserSettings implements Node & Timestamped {
+  id: ID!
+  profileid: String!
+  allowMentions: Boolean!
+  mentionNotifications: Boolean!
+  tagNotifications: Boolean!
+  showTaggedPosts: Boolean!
+  isPrivate: Boolean!
+  allowMessages: String!
+  showActivity: Boolean!
+  twoFactor: Boolean!
+  notificationsEnabled: Boolean!
+  darkMode: Boolean!
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Post type
+type Post implements Node & Timestamped {
+  id: ID!
+  postid: String!
+  profile: Profile!
+  postUrl: URL!
+  like: [Like!]
+  comments: [Comment!]
+  mentions: [Mention!]
+  likeCount: Int!
+  commentCount: Int!
+  isLikedByUser: Boolean!
+  isSavedByUser: Boolean!
+  title: String
+  description: String
+  postType: String!
+  location: String
+  taggedPeople: [String!]
+  tags: [String!]
+  allowComments: Boolean
+  hideLikeCount: Boolean
+  autoPlay: Boolean
+  isCloseFriendOnly: Boolean
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Comment type
+type Comment implements Node & Timestamped {
+  id: ID!
+  commentid: String!
+  postid: String!
+  profile: Profile!
+  userto: Profile
+  commenttoid: String
+  comment: String!
+  replies: [Comment!]
+  likeCount: Int!
+  isLikedByUser: Boolean!
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Like type
+type Like implements Node & Timestamped {
+  id: ID!
+  profileid: String!
+  profile: Profile!
+  postid: String!
+  commentid: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Draft type
+type Draft implements Node & Timestamped {
+  id: ID!
+  draftid: String!
+  profileid: String!
+  profile: Profile!
+  postUrl: URL
+  postType: String
+  title: String
+  caption: String
+  location: String
+  taggedPeople: [String!]
+  tags: [String!]
+  allowComments: Boolean
+  hideLikeCount: Boolean
+  autoPlay: Boolean
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Memory type
+type Memory implements Node & Timestamped {
+  id: ID!
+  memoryid: String!
+  profileid: String!
+  profile: Profile!
+  title: String!
+  coverImage: URL
+  postUrl: URL
+  stories: [Story!]
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Blocked account type
+type BlockedAccount implements Node & Timestamped {
+  id: ID!
+  blockid: String!
+  profileid: String!
+  blockedprofileid: String!
+  profile: Profile!
+  blockedProfile: Profile!
+  reason: String
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Restricted account type
+type RestrictedAccount implements Node & Timestamped {
+  id: ID!
+  restrictid: String!
+  profileid: String!
+  restrictedprofileid: String!
+  profile: Profile!
+  restrictedProfile: Profile!
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Close friend type
+type CloseFriend implements Node & Timestamped {
+  id: ID!
+  closefriendid: String!
+  profileid: String!
+  closeFriend: Profile!
+  profile: Profile!
+  status: String!
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Mention type
+type Mention implements Node & Timestamped {
+  id: ID!
+  mentionid: String!
+  mentionedprofileid: String!
+  mentionerprofileid: String!
+  mentionedProfile: Profile!
+  mentionerProfile: Profile!
+  contexttype: String!
+  contextid: String!
+  isnotified: Boolean!
+  isread: Boolean!
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Story type
+type Story implements Node & Timestamped {
+  id: ID!
+  storyid: String!
+  profileid: String!
+  profile: Profile!
+  mediaUrl: URL!
+  mediaType: String!
+  caption: String
+  viewers: [StoryViewer!]
+  viewersCount: Int!
+  isViewedByUser: Boolean!
+  isActive: Boolean!
+  savedToHighlights: Boolean!
+  expiresAt: DateTime
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Story viewer type
+type StoryViewer implements Node & Timestamped {
+  id: ID!
+  profileid: String!
+  profile: Profile!
+  viewedAt: DateTime
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Highlight story type
+type HighlightStory implements Node & Timestamped {
+  id: ID!
+  storyid: String!
+  mediaUrl: URL!
+  mediaType: String!
+  caption: String
+  originalStoryDate: DateTime!
+  addedToHighlightAt: DateTime!
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Highlight type
+type Highlight implements Node & Timestamped {
+  id: ID!
+  highlightid: String!
+  profileid: String!
+  profile: Profile!
+  title: String!
+  coverImage: URL
+  stories: [HighlightStory!]!
+  isActive: Boolean!
+  viewCount: Int!
+  category: String
+  storyCount: Int!
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Chat type
+type Chat implements Node & Timestamped {
+  id: ID!
+  chatid: String!
+  participants: [Profile!]!
+  chatType: String!
+  chatName: String
+  chatAvatar: URL
+  lastMessage: Message
+  lastMessageAt: DateTime
+  isActive: Boolean!
+  mutedBy: [Profile!]
+  adminIds: [Profile!]
+  createdBy: Profile!
+  messages: [Message!]
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Message type
+type Message implements Node & Timestamped {
+  id: ID!
+  messageid: String!
+  chatid: String!
+  chat: Chat!
+  senderid: String!
+  sender: Profile!
+  messageType: String!
+  content: String
+  attachments: [MessageAttachment!]
+  replyTo: Message
+  mentions: [Profile!]
+  reactions: [MessageReaction!]
+  readBy: [MessageReadStatus!]
+  isEdited: Boolean
+  editHistory: [MessageEditHistory!]
+  isDeleted: Boolean
+  deletedBy: Profile
+  deletedAt: DateTime
+  messageStatus: String
+  createdAt: DateTime
+  updatedAt: DateTime
+  linkPreviews: [LinkPreview!]
+}
+
+# Message attachment type
+type MessageAttachment {
+  type: String!
+  url: URL!
+  filename: String
+  size: Int
+  mimetype: String
+}
+
+# Message reaction type
+type MessageReaction {
+  profileid: String!
+  profile: Profile!
+  emoji: String!
+  createdAt: DateTime
+}
+
+# Message read status type
+type MessageReadStatus {
+  profileid: String!
+  profile: Profile!
+  readAt: DateTime
+}
+
+# Message edit history type
+type MessageEditHistory {
+  content: String!
+  editedAt: DateTime
+}
+
+# Link preview type
+type LinkPreview {
+  url: URL!
+  title: String
+  description: String
+  image: URL
+  siteName: String
+}
+
+# Call log type
+type CallLog implements Node & Timestamped {
+  id: ID!
+  callId: String!
+  chatid: String!
+  callerId: String!
+  caller: Profile!
+  receiverId: String
+  receiver: Profile
+  participants: [Profile!]!
+  callType: String!
+  status: String!
+  duration: Int!
+  startedAt: DateTime
+  answeredAt: DateTime
+  endedAt: DateTime
+  endedBy: String
+  endReason: String
+  quality: CallQuality
+  techDetails: CallTechDetails
+  isRecorded: Boolean!
+  recordingUrl: URL
+  hadScreenShare: Boolean!
+  notificationStatus: CallNotificationStatus
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Call quality type
+type CallQuality {
+  overall: String
+  audio: String
+  video: String
+  connection: String
+}
+
+# Call tech details type
+type CallTechDetails {
+  iceConnectionState: String
+  connectionState: String
+  signalingState: String
+  bandwidth: Bandwidth
+  codec: Codec
+  resolution: Resolution
+  frameRate: Int
+  jitter: Int
+  packetLoss: Int
+  latency: Int
+}
+
+# Bandwidth type
+type Bandwidth {
+  upload: Int
+  download: Int
+}
+
+# Codec type
+type Codec {
+  audio: String
+  video: String
+}
+
+# Resolution type
+type Resolution {
+  width: Int
+  height: Int
+}
+
+# Call notification status type
+type CallNotificationStatus {
+  sent: Boolean!
+  delivered: Boolean!
+  read: Boolean!
+  sentAt: DateTime
+  deliveredAt: DateTime
+  readAt: DateTime
+}
+
+# Scheduled message type
+type ScheduledMessage implements Node & Timestamped {
+  id: ID!
+  scheduledMessageId: String!
+  chatid: String!
+  chat: Chat!
+  senderid: String!
+  sender: Profile!
+  messageType: String!
+  content: String
+  attachments: [MessageAttachment!]
+  scheduledFor: DateTime!
+  status: String!
+  retryCount: Int!
+  maxRetries: Int!
+  failureReason: String
+  stickerData: StickerData
+  gifData: GifData
+  voiceData: VoiceData
+  fileData: FileData
+  linkPreviews: [LinkPreview!]
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+# Sticker data type
+type StickerData {
+  id: String
+  name: String
+  preview: URL
+  url: URL
+  category: String
+}
+
+# GIF data type
+type GifData {
+  id: String
+  title: String
+  url: URL
+  thumbnail: URL
+  category: String
+  dimensions: GifDimensions
+}
+
+# GIF dimensions type
+type GifDimensions {
+  width: Int
+  height: Int
+}
+
+# Voice data type
+type VoiceData {
+  duration: Int
+  size: Int
+  mimeType: String
+  fileId: String
+  url: URL
+}
+
+# File data type
+type FileData {
+  fileId: String
+  name: String
+  size: Int
+  mimeType: String
+  url: URL
+}
+
+# Query type
+type Query {
+  # Health check
+  health: Response
+  
+  # User queries
+  users: [User!]
+  user(id: ID!): User
+  userByUsername(username: String!): User
+  
+  # Profile queries
+  profiles: [Profile!]
+  profile(id: ID!): Profile
+  profileByUsername(username: String!): Profile
+  
+  # Post queries
+  posts: [Post!]
+  post(id: ID!): Post
+  
+  # Draft queries
+  drafts(profileid: String!): [Draft!]
+  draft(id: ID!): Draft
+  
+  # Memory queries
+  memories(profileid: String!): [Memory!]
+  memory(id: ID!): Memory
+  
+  # Comment queries
+  comments(postid: String!): [Comment!]
+  comment(id: ID!): Comment
+  
+  # Like queries
+  likes(postid: String!): [Like!]
+  like(id: ID!): Like
+  
+  # Chat queries
+  chats(profileid: String!): [Chat!]
+  chat(id: ID!): Chat
+  chatByParticipants(participants: [String!]!): Chat
+  
+  # Message queries
+  messages(chatid: String!, limit: Int, cursor: String): MessageConnection
+  message(id: ID!): Message
+  
+  # Story queries
+  stories(profileid: String): [Story!]
+  story(id: ID!): Story
+  
+  # Highlight queries
+  highlights(profileid: String!): [Highlight!]
+  highlight(id: ID!): Highlight
+  
+  # Call log queries
+  callHistory(profileid: String!): [CallLog!]
+  callLog(id: ID!): CallLog
+  
+  # Scheduled message queries
+  scheduledMessages(chatId: String): [ScheduledMessage!]
+  scheduledMessage(scheduledMessageId: String!): ScheduledMessage
+}
+
+# Mutation type
+type Mutation {
+  # Authentication mutations
+  login(email: String!, password: String!): AuthPayload
+  signup(username: String!, email: String!, password: String!): AuthPayload
+  logout: Response
+  
+  # User mutations
+  createUser(input: UserInput!): User
+  updateUser(id: ID!, input: UserInput!): User
+  deleteUser(id: ID!): Response
+  
+  # Profile mutations
+  createProfile(input: ProfileInput!): Profile
+  updateProfile(id: ID!, input: ProfileInput!): Profile
+  deleteProfile(id: ID!): Response
+  
+  # Post mutations
+  createPost(input: PostInput!): Post
+  updatePost(id: ID!, input: PostInput!): Post
+  deletePost(id: ID!): Response
+  
+  # Comment mutations
+  createComment(input: CommentInput!): Comment
+  updateComment(id: ID!, input: CommentInput!): Comment
+  deleteComment(id: ID!): Response
+  
+  # Like mutations
+  toggleLike(input: LikeInput!): Like
+  
+  # Draft mutations
+  createDraft(input: DraftInput!): Draft
+  updateDraft(id: ID!, input: DraftInput!): Draft
+  deleteDraft(id: ID!): Response
+  publishDraft(id: ID!): Post
+  
+  # Memory mutations
+  createMemory(input: MemoryInput!): Memory
+  updateMemory(id: ID!, input: MemoryInput!): Memory
+  deleteMemory(id: ID!): Response
+  
+  # Chat mutations
+  createChat(input: ChatInput!): Chat
+  updateChat(id: ID!, input: ChatInput!): Chat
+  deleteChat(id: ID!): Response
+  
+  # Message mutations
+  sendMessage(input: MessageInput!): Message
+  editMessage(id: ID!, content: String!): Message
+  deleteMessage(id: ID!): Response
+  
+  # Story mutations
+  createStory(input: StoryInput!): Story
+  deleteStory(id: ID!): Response
+  
+  # Highlight mutations
+  createHighlight(input: HighlightInput!): Highlight
+  updateHighlight(id: ID!, input: HighlightInput!): Highlight
+  deleteHighlight(id: ID!): Response
+  
+  # Scheduled message mutations
+  createScheduledMessage(input: ScheduledMessageInput!): ScheduledMessage
+  cancelScheduledMessage(scheduledMessageId: String!): ScheduledMessage
+}
+
+# Subscription type
+type Subscription {
+  # Message subscriptions
+  messageAdded(chatid: String!): Message
+  messageUpdated(chatid: String!): Message
+  messageDeleted(chatid: String!): Message
+  
+  # Chat subscriptions
+  chatUpdated(chatid: String!): Chat
+  chatDeleted(chatid: String!): Chat
+  
+  # User subscriptions
+  userUpdated(id: ID!): User
+  
+  # Post subscriptions
+  postAdded: Post
+  postUpdated(id: ID!): Post
+  postDeleted(id: ID!): Post
+}
+
+# Input types for mutations
+
+input UserInput {
+  username: String!
+  email: String!
+  password: String!
+  profilePicture: URL
+}
+
+input ProfileInput {
+  profileid: String!
+  profilePic: URL
+  isPrivate: Boolean
+  isVerified: Boolean
+  username: String!
+  name: String
+  bio: String
+}
+
+input PostInput {
+  profileid: String!
+  postUrl: URL!
+  title: String
+  description: String
+  postType: String!
+  location: String
+  taggedPeople: [String!]
+  tags: [String!]
+  allowComments: Boolean
+  hideLikeCount: Boolean
+  autoPlay: Boolean
+  isCloseFriendOnly: Boolean
+}
+
+input CommentInput {
+  postid: String!
+  profileid: String!
+  usertoid: String
+  commenttoid: String
+  comment: String!
+}
+
+input LikeInput {
+  profileid: String!
+  postid: String!
+  commentid: String
+}
+
+input DraftInput {
+  profileid: String!
+  postUrl: URL
+  postType: String
+  title: String
+  caption: String
+  location: String
+  taggedPeople: [String!]
+  tags: [String!]
+  allowComments: Boolean
+  hideLikeCount: Boolean
+  autoPlay: Boolean
+}
+
+input MemoryInput {
+  profileid: String!
+  title: String!
+  coverImage: URL
+  postUrl: URL
+}
+
+input ChatInput {
+  participants: [String!]!
+  chatType: String!
+  chatName: String
+  chatAvatar: URL
+}
+
+input MessageInput {
+  chatid: String!
+  messageType: String!
+  content: String
+  attachments: [MessageAttachmentInput!]
+  replyTo: String
+  mentions: [String!]
+}
+
+input MessageAttachmentInput {
+  type: String!
+  url: URL!
+  filename: String
+  size: Int
+  mimetype: String
+}
+
+input StoryInput {
+  profileid: String!
+  mediaUrl: URL!
+  mediaType: String!
+  caption: String
+}
+
+input HighlightInput {
+  profileid: String!
+  title: String!
+  coverImage: URL
+  category: String
+}
+
+input ScheduledMessageInput {
+  chatid: String!
+  messageType: String
+  content: String
+  attachments: [MessageAttachmentInput!]
+  scheduledFor: DateTime!
+  stickerData: StickerDataInput
+  gifData: GifDataInput
+  voiceData: VoiceDataInput
+  fileData: FileDataInput
+  linkPreviews: [LinkPreviewInput!]
+}
+
+input StickerDataInput {
+  id: String
+  name: String
+  preview: URL
+  url: URL
+  category: String
+}
+
+input GifDataInput {
+  id: String
+  title: String
+  url: URL
+  thumbnail: URL
+  category: String
+  dimensions: GifDimensionsInput
+}
+
+input GifDimensionsInput {
+  width: Int
+  height: Int
+}
+
+input VoiceDataInput {
+  duration: Int
+  size: Int
+  mimeType: String
+  fileId: String
+  url: URL
+}
+
+input FileDataInput {
+  fileId: String
+  name: String
+  size: Int
+  mimeType: String
+  url: URL
+}
+
+input LinkPreviewInput {
+  url: URL!
+  title: String
+  description: String
+  image: URL
+  siteName: String
+}
+
+# Connection types for pagination
+
+type MessageConnection {
+  messages: [Message!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+

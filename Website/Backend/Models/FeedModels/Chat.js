@@ -23,6 +23,15 @@ const ChatSchema = new mongoose.Schema({
             canEditChat: { type: Boolean, default: false },
             canDeleteMessages: { type: Boolean, default: false },
             canPinMessages: { type: Boolean, default: false }
+        },
+        // 🔧 FIX: Per-participant unread count (Issue #16)
+        unreadCount: {
+            type: Number,
+            default: 0
+        },
+        lastReadAt: {
+            type: Date,
+            default: null
         }
     }],
     chatType: { 
@@ -75,7 +84,12 @@ const ChatSchema = new mongoose.Schema({
     },
     archivedBy: [{
         type: String
-    }]
+    }],
+    // Add unreadCount field for Issue #16
+    unreadCount: {
+        type: Number,
+        default: 0
+    }
 }, {
     timestamps: true
 });
@@ -86,7 +100,23 @@ ChatSchema.index({ lastMessageAt: -1 });
 ChatSchema.index({ chatType: 1 });
 ChatSchema.index({ isActive: 1 });
 ChatSchema.index({ isArchived: 1 });
+// Add index for better query performance on participants
+ChatSchema.index({ 'participants.profileid': 1, isActive: 1 });
 // chatid index is automatically created due to unique: true
+
+// 🔧 NEW: Additional indexes for critical queries
+ChatSchema.index({ createdBy: 1, createdAt: -1 }); // For user-created chats
+ChatSchema.index({ 'participants.profileid': 1, lastMessageAt: -1 }); // For participant chat lists
+ChatSchema.index({ chatType: 1, isActive: 1 }); // For chat type filtering
+ChatSchema.index({ 'adminIds': 1 }); // For admin queries
+ChatSchema.index({ 'mutedBy': 1 }); // For muted chat queries
+ChatSchema.index({ unreadCount: -1 }); // For unread count sorting
+ChatSchema.index({ 'participants.profileid': 1, 'participants.unreadCount': -1 }); // For participant unread counts
+
+// 🔧 OPTIMIZATION #76: Add indexes on foreign keys
+ChatSchema.index({ 'participants.profileid': 1, 'chatType': 1, 'isActive': 1 }); // Optimized for participant queries
+ChatSchema.index({ 'createdBy': 1, 'isActive': 1 }); // For user-created active chats
+ChatSchema.index({ 'lastMessageAt': -1, 'isActive': 1 }); // For active chat sorting
 
 // Instance Methods for Authorization
 ChatSchema.methods.getParticipant = function(profileId) {

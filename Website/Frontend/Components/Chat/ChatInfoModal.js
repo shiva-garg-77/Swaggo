@@ -1,15 +1,29 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTheme } from '../Helper/ThemeProvider';
 
-export default function ChatInfoModal({ isOpen, onClose, chat, user }) {
+export default function ChatInfoModal({ isOpen, onClose, chat, user, onChatUpdate, onChatDelete }) {
   const { theme } = useTheme();
   const [activeTab, setActiveTab] = useState('details');
   const [notifications, setNotifications] = useState(true);
   const [muteUntil, setMuteUntil] = useState(null);
   const [chatTheme, setChatTheme] = useState('default');
   const [nickname, setNickname] = useState('');
+  const [isArchived, setIsArchived] = useState(false);
+  const [isPinned, setIsPinned] = useState(false);
+  const [encryptionEnabled, setEncryptionEnabled] = useState(false);
+  const [vanishMode, setVanishMode] = useState(false);
+
+  // Initialize state from chat props
+  useEffect(() => {
+    if (chat) {
+      setNickname(chat.nickname || '');
+      setIsArchived(chat.isArchived || false);
+      setIsPinned(chat.isPinned || false);
+      setEncryptionEnabled(chat.encryptionEnabled || false);
+    }
+  }, [chat]);
 
   if (!isOpen || !chat) return null;
 
@@ -21,6 +35,62 @@ export default function ChatInfoModal({ isOpen, onClose, chat, user }) {
     const until = duration === 'forever' ? null : new Date(Date.now() + duration * 60 * 1000);
     setMuteUntil(until);
     setNotifications(!until || until > new Date());
+  };
+
+  const handleArchiveChat = () => {
+    setIsArchived(!isArchived);
+    // In a real implementation, this would call an API
+    console.log(`${isArchived ? 'Unarchiving' : 'Archiving'} chat:`, chat.chatid);
+  };
+
+  const handlePinChat = () => {
+    setIsPinned(!isPinned);
+    // In a real implementation, this would call an API
+    console.log(`${isPinned ? 'Unpinning' : 'Pinning'} chat:`, chat.chatid);
+  };
+
+  const handleEncryptionToggle = () => {
+    setEncryptionEnabled(!encryptionEnabled);
+    // In a real implementation, this would call an API
+    console.log(`${encryptionEnabled ? 'Disabling' : 'Enabling'} encryption for chat:`, chat.chatid);
+  };
+
+  const handleVanishModeToggle = () => {
+    setVanishMode(!vanishMode);
+    // In a real implementation, this would call an API
+    console.log(`${vanishMode ? 'Disabling' : 'Enabling'} vanish mode for chat:`, chat.chatid);
+  };
+
+  const handleSaveNickname = () => {
+    // In a real implementation, this would call an API
+    console.log('Saving nickname:', nickname);
+    if (onChatUpdate) {
+      onChatUpdate({ ...chat, nickname });
+    }
+  };
+
+  const handleDeleteChat = () => {
+    if (window.confirm('Are you sure you want to delete this conversation? This cannot be undone.')) {
+      console.log('Deleting chat:', chat.chatid);
+      if (onChatDelete) {
+        onChatDelete(chat.chatid);
+      }
+      onClose();
+    }
+  };
+
+  const handleBlockUser = () => {
+    if (window.confirm(`Are you sure you want to block ${displayName}?`)) {
+      console.log('Blocking user:', otherParticipant?.profileid);
+      // In a real implementation, this would call an API
+    }
+  };
+
+  const handleReportUser = () => {
+    if (window.confirm(`Are you sure you want to report ${displayName}?`)) {
+      console.log('Reporting user:', otherParticipant?.profileid);
+      // In a real implementation, this would call an API
+    }
   };
 
   const tabs = [
@@ -155,6 +225,12 @@ export default function ChatInfoModal({ isOpen, onClose, chat, user }) {
                       {otherParticipant?.email || 'Not provided'}
                     </p>
                   </div>
+                  <div>
+                    <h4 className="font-semibold mb-2">Last Seen</h4>
+                    <p className="text-gray-600 dark:text-gray-400">
+                      {otherParticipant?.lastSeen ? new Date(otherParticipant.lastSeen).toLocaleString() : 'Unknown'}
+                    </p>
+                  </div>
                 </div>
               )}
             </div>
@@ -189,12 +265,62 @@ export default function ChatInfoModal({ isOpen, onClose, chat, user }) {
                   ))}
                 </div>
               </div>
+              <div>
+                <h4 className="font-semibold mb-3">Shared Links</h4>
+                <div className="space-y-2">
+                  {/* Mock links */}
+                  {['https://example.com', 'https://github.com', 'https://stackoverflow.com'].map((link, index) => (
+                    <div key={index} className="flex items-center space-x-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <svg className="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                      </svg>
+                      <div className="flex-1">
+                        <p className="font-medium text-blue-600 dark:text-blue-400 truncate">{link}</p>
+                        <p className="text-sm text-gray-500">Shared yesterday</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
           {/* Settings Tab */}
           {activeTab === 'settings' && (
             <div className="space-y-6">
+              {/* Quick Actions */}
+              <div>
+                <h4 className="font-semibold mb-3">Quick Actions</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={handlePinChat}
+                    className={`p-3 rounded-lg border transition-colors flex flex-col items-center ${
+                      isPinned
+                        ? 'border-red-500 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                    }`}
+                  >
+                    <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                    </svg>
+                    <span className="text-sm">{isPinned ? 'Pinned' : 'Pin Chat'}</span>
+                  </button>
+                  <button
+                    onClick={handleArchiveChat}
+                    className={`p-3 rounded-lg border transition-colors flex flex-col items-center ${
+                      isArchived
+                        ? 'border-gray-500 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                    }`}
+                  >
+                    <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                    </svg>
+                    <span className="text-sm">{isArchived ? 'Archived' : 'Archive'}</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Notifications */}
               <div>
                 <h4 className="font-semibold mb-3">Notifications</h4>
@@ -236,6 +362,49 @@ export default function ChatInfoModal({ isOpen, onClose, chat, user }) {
                 </div>
               </div>
 
+              {/* Security & Privacy */}
+              <div>
+                <h4 className="font-semibold mb-3">Security & Privacy</h4>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="block">End-to-End Encryption</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">Messages are encrypted</span>
+                    </div>
+                    <button
+                      onClick={handleEncryptionToggle}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        encryptionEnabled ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          encryptionEnabled ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="block">Vanish Mode</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">Messages disappear after reading</span>
+                    </div>
+                    <button
+                      onClick={handleVanishModeToggle}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        vanishMode ? 'bg-purple-600' : 'bg-gray-200 dark:bg-gray-700'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          vanishMode ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               {/* Chat Theme */}
               <div>
                 <h4 className="font-semibold mb-3">Chat Theme</h4>
@@ -260,36 +429,57 @@ export default function ChatInfoModal({ isOpen, onClose, chat, user }) {
               {/* Nickname */}
               <div>
                 <h4 className="font-semibold mb-3">Nickname</h4>
-                <input
-                  type="text"
-                  value={nickname}
-                  onChange={(e) => setNickname(e.target.value)}
-                  placeholder="Set a nickname for this chat"
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-transparent focus:outline-none focus:ring-2 focus:ring-red-500"
-                />
+                <div className="flex space-x-2">
+                  <input
+                    type="text"
+                    value={nickname}
+                    onChange={(e) => setNickname(e.target.value)}
+                    placeholder="Set a nickname for this chat"
+                    className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-transparent focus:outline-none focus:ring-2 focus:ring-red-500"
+                  />
+                  <button
+                    onClick={handleSaveNickname}
+                    className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                  >
+                    Save
+                  </button>
+                </div>
               </div>
 
               {/* Privacy Settings */}
               <div>
                 <h4 className="font-semibold mb-3">Privacy</h4>
                 <div className="space-y-3">
-                  <button className="w-full text-left p-3 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-                    <div className="flex items-center justify-between">
-                      <span>Block user</span>
-                      <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                  </button>
-                  <button className="w-full text-left p-3 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-                    <div className="flex items-center justify-between">
-                      <span>Report user</span>
-                      <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                      </svg>
-                    </div>
-                  </button>
-                  <button className="w-full text-left p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30">
+                  {!isGroup && (
+                    <button 
+                      onClick={handleBlockUser}
+                      className="w-full text-left p-3 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span>Block user</span>
+                        <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </div>
+                    </button>
+                  )}
+                  {!isGroup && (
+                    <button 
+                      onClick={handleReportUser}
+                      className="w-full text-left p-3 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span>Report user</span>
+                        <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                        </svg>
+                      </div>
+                    </button>
+                  )}
+                  <button 
+                    onClick={handleDeleteChat}
+                    className="w-full text-left p-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30"
+                  >
                     <div className="flex items-center justify-between">
                       <span>Delete chat</span>
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

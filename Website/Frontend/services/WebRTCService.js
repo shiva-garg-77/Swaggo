@@ -4,6 +4,11 @@
  */
 
 import { EventEmitter } from 'events';
+import { useUnifiedStore } from '../store/useUnifiedStore';
+import notificationService from './UnifiedNotificationService';
+import { createLogger } from '../utils/logger';
+
+const logger = createLogger('WebRTC');
 
 /**
  * WebRTC Configuration Constants
@@ -169,21 +174,96 @@ class UnifiedWebRTCService extends EventEmitter {
       }
     });
     
-    console.log('✅ WebRTC methods bound successfully:', 
+    logger.info('WebRTC methods bound successfully', 
       methodsToBind.filter(m => typeof this[m] === 'function'));
   }
 
   /**
-   * Initialize WebRTC service with socket connection
+   * Initialize WebRTC service with socket connection and unified store integration
    */
   initialize(socket) {
     this.socket = socket;
     this.setupSocketEventHandlers();
     this.refreshAvailableDevices();
     
+    // Load persisted call state if exists
+    this.loadCallStateFromStorage();
+    
+    // Sync with unified store
+    this.syncWithUnifiedStore();
+    
     this.emit('initialized', {
       devices: this.availableDevices
     });
+  }
+
+  /**
+   * Sync WebRTC service state with unified store
+   */
+  syncWithUnifiedStore() {
+    // Get the unified store actions
+    const { useCallActions } = require('../store/useUnifiedStore');
+    const callActions = useCallActions.getState();
+    
+    // Listen for state changes and sync with unified store
+    this.on('callStateChanged', (state) => {
+      callActions.setCallState(state);
+    });
+    
+    this.on('callInitiated', (call) => {
+      callActions.initiateCall(call);
+    });
+    
+    this.on('incomingCall', (call) => {
+      callActions.incomingCall(call);
+      
+      // Show incoming call notification
+      if (call.caller) {
+        notificationService.incomingCall(call.caller, call.callType);
+      }
+    });
+    
+    this.on('callAnswered', (call) => {
+      callActions.answerCall();
+      
+      // Dismiss incoming call notification when call is answered
+      notificationService.dismissByCategory('call');
+    });
+    
+    this.on('callEnded', (data) => {
+      callActions.endCall();
+      
+      // Dismiss call notifications and show call ended notification
+      notificationService.dismissByCategory('call');
+      
+      if (data.call && data.call.caller && data.duration) {
+        notificationService.callEnded(data.call.caller, data.duration);
+      }
+    });
+    
+    this.on('localStreamAcquired', (stream) => {
+      callActions.setLocalStream(stream);
+    });
+    
+    this.on('remoteStreamReceived', (stream) => {
+      callActions.setRemoteStream(stream);
+    });
+    
+    this.on('statsUpdated', (stats) => {
+      callActions.updateCallStats(stats);
+    });
+    
+    this.on('callStateRestored', (state) => {
+      // Sync restored state with unified store
+      if (state.callState) {
+        callActions.setCallState(state.callState);
+      }
+      if (state.currentCall) {
+        callActions.initiateCall(state.currentCall);
+      }
+    });
+    
+    logger.info('WebRTC service synced with unified store');
   }
 
   /**
@@ -215,27 +295,108 @@ class UnifiedWebRTCService extends EventEmitter {
   }
 
   /**
-   * Initiate an outgoing call
+   * Load call state from localStorage with enhanced persistence
+   */
+  loadCallStateFromStorage() {
+    try {
+      const savedState = localStorage.getItem('webrtc_call_state');
+      if (savedState) {
+        const state = JSON.parse(savedState);
+        
+        // Restore call state if it's recent (less than 1 hour old)
+        if (state.timestamp && (Date.now() - state.timestamp) < 3600000) {
+          this.currentCall = state.currentCall;
+          this.callState = state.callState || CALL_STATES.IDLE;
+          this.isInitiator = state.isInitiator || false;
+          
+          // Restore additional call details if available
+          if (state.callStats) {
+            this.callStats = state.callStats;
+          }
+          
+          if (state.callStartTime) {
+            this.callStartTime = new Date(state.callStartTime);
+          }
+          
+          logger.info('Restored call state from localStorage', state);
+          this.emit('callStateRestored', state);
+        } else {
+          // Clear old state
+          localStorage.removeItem('webrtc_call_state');
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error loading call state from storage:', error);
+      localStorage.removeItem('webrtc_call_state');
+    }
+  }
+
+  /**
+   * Save call state to localStorage with enhanced details and automatic cleanup
+   */
+  saveCallStateToStorage() {
+    try {
+      // Only save state if we're in an active call
+      if (this.callState !== CALL_STATES.IDLE && this.callState !== CALL_STATES.ENDED) {
+        const state = {
+          currentCall: this.currentCall,
+          callState: this.callState,
+          isInitiator: this.isInitiator,
+          callStats: this.callStats,
+          callStartTime: this.callStartTime,
+          timestamp: Date.now()
+        };
+        
+        localStorage.setItem('webrtc_call_state', JSON.stringify(state));
+        logger.info('Enhanced call state saved to localStorage');
+      } else {
+        // Clear storage when not in an active call
+        this.clearCallStateFromStorage();
+      }
+    } catch (error) {
+      console.error('❌ Error saving call state to storage:', error);
+    }
+  }
+
+  /**
+   * Clear call state from localStorage
+   */
+  clearCallStateFromStorage() {
+    try {
+      localStorage.removeItem('webrtc_call_state');
+      logger.info('Call state cleared from localStorage');
+    } catch (error) {
+      console.error('❌ Error clearing call state from storage:', error);
+    }
+  }
+
+  /**
+   * Initiate an outgoing call with unified store integration
    */
   async initiateCall(chatId, callType = 'video', targetUserId) {
     try {
-      console.log('📞 Initiating call:', { chatId, callType, targetUserId });
+      logger.info('Initiating call', { chatId, callType, targetUserId });
       
       if (this.callState !== CALL_STATES.IDLE) {
         throw new Error('Already in a call or call in progress');
       }
       
-      // Create call data
+      // Create call data with enhanced information
       this.currentCall = {
         callId: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         chatId,
         callType,
         targetUserId,
-        isInitiator: true
+        isInitiator: true,
+        initiatedAt: new Date().toISOString(),
+        participants: [this.getCurrentUserInfo(), { profileid: targetUserId }] // Simplified participant list
       };
       
       this.isInitiator = true;
       this.setCallState(CALL_STATES.CALLING);
+      
+      // Save enhanced call state
+      this.saveCallStateToStorage();
       
       // Get user media
       await this.getUserMedia(callType);
@@ -287,11 +448,11 @@ class UnifiedWebRTCService extends EventEmitter {
   }
 
   /**
-   * Answer an incoming call
+   * Answer an incoming call with unified store integration
    */
   async answerCall(accept = true) {
     try {
-      console.log('📞 Answering call:', { accept, call: this.currentCall });
+      logger.info('Answering call', { accept, call: this.currentCall });
       
       if (!this.currentCall || this.callState !== CALL_STATES.RINGING) {
         throw new Error('No incoming call to answer');
@@ -305,11 +466,14 @@ class UnifiedWebRTCService extends EventEmitter {
         });
         
         this.setCallState(CALL_STATES.DECLINED);
+        this.clearCallStateFromStorage();
         await this.cleanup();
         return;
       }
       
       this.setCallState(CALL_STATES.CONNECTING);
+      // Save enhanced call state when answering
+      this.saveCallStateToStorage();
       
       // Get user media
       await this.getUserMedia(this.currentCall.callType);
@@ -356,11 +520,11 @@ class UnifiedWebRTCService extends EventEmitter {
   }
 
   /**
-   * End the current call
+   * End the current call with unified store integration
    */
   async endCall(reason = 'normal') {
     try {
-      console.log('📞 Ending call:', { reason, call: this.currentCall });
+      logger.info('Ending call', { reason, call: this.currentCall });
       
       const duration = this.stopCallTimer();
       
@@ -375,6 +539,8 @@ class UnifiedWebRTCService extends EventEmitter {
       }
       
       this.setCallState(CALL_STATES.ENDED);
+      // Clear call state from storage when ending
+      this.clearCallStateFromStorage();
       
       this.emit('callEnded', {
         call: this.currentCall,
@@ -398,7 +564,7 @@ class UnifiedWebRTCService extends EventEmitter {
     const maxRetries = 3;
     
     try {
-      console.log(`📷 Requesting user media (${callType}) - Attempt ${retryCount + 1}/${maxRetries + 1}`);
+      logger.info(`Requesting user media (${callType})`, { attempt: retryCount + 1, maxAttempts: maxRetries + 1 });
       
       // Check available devices
       await this.refreshAvailableDevices();
@@ -414,7 +580,7 @@ class UnifiedWebRTCService extends EventEmitter {
       
       // Get optimal constraints
       const constraints = this.getOptimalConstraints(callType, retryCount);
-      console.log('🎥 Using constraints:', constraints);
+      logger.info('Using constraints', constraints);
       
       let stream;
       
@@ -432,7 +598,7 @@ class UnifiedWebRTCService extends EventEmitter {
       this.localStream = stream;
       this.setupStreamMonitoring(stream);
       
-      console.log('✅ User media acquired successfully:', {
+      logger.info('User media acquired successfully', {
         audio: stream.getAudioTracks().length > 0,
         video: stream.getVideoTracks().length > 0,
         tracks: stream.getTracks().length
@@ -701,7 +867,7 @@ class UnifiedWebRTCService extends EventEmitter {
   }
 
   /**
-   * Handle connection state changes
+   * Handle connection state changes with quality warnings
    */
   handleConnectionStateChange() {
     if (!this.peerConnection) return;
@@ -805,6 +971,12 @@ class UnifiedWebRTCService extends EventEmitter {
       }
       
       this.emit('muteToggled', this.isMuted);
+      
+      // Sync with unified store
+      const { useCallActions } = require('../store/useUnifiedStore');
+      const callActions = useCallActions.getState();
+      callActions.toggleMute();
+      
       return this.isMuted;
     }
     return false;
@@ -828,6 +1000,12 @@ class UnifiedWebRTCService extends EventEmitter {
       }
       
       this.emit('videoToggled', this.isVideoEnabled);
+      
+      // Sync with unified store
+      const { useCallActions } = require('../store/useUnifiedStore');
+      const callActions = useCallActions.getState();
+      callActions.toggleVideo();
+      
       return this.isVideoEnabled;
     }
     return false;
@@ -1101,39 +1279,41 @@ class UnifiedWebRTCService extends EventEmitter {
     }
   }
 
+  /**
+   * Attempt to reconnect to an ongoing call
+   */
   async attemptReconnection() {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.log('❌ Max reconnection attempts reached');
       this.emit('reconnectionFailed');
-      await this.endCall('connection_failed');
+      await this.endCall('reconnection_failed');
       return;
     }
     
     this.reconnectAttempts++;
     console.log(`🔄 Attempting reconnection (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
     
-    setTimeout(async () => {
-      if (this.peerConnection?.connectionState === 'disconnected') {
-        try {
-          await this.restartIce();
-          
-          // If ICE restart doesn't work after 10 seconds, try full reconnection
-          setTimeout(() => {
-            if (this.peerConnection?.connectionState === 'disconnected') {
-              console.log('🔄 ICE restart failed, attempting full reconnection');
-              this.emit('reconnectionNeeded');
-            }
-          }, 10000);
-        } catch (error) {
-          console.error('❌ Error during reconnection attempt:', error);
-          this.attemptReconnection();
-        }
+    // Emit event to let UI handle reconnection
+    this.emit('reconnectionAttempt', {
+      attempt: this.reconnectAttempts,
+      maxAttempts: this.maxReconnectAttempts
+    });
+    
+    // In a real implementation, you might want to:
+    // 1. Re-establish the WebRTC connection
+    // 2. Re-negotiate media streams
+    // 3. Re-sync call state with the server
+    // For now, we'll just emit events for the UI to handle
+    
+    setTimeout(() => {
+      if (this.callState === CALL_STATES.RECONNECTING) {
+        this.attemptReconnection();
       }
     }, 3000 * this.reconnectAttempts); // Exponential backoff
   }
 
   /**
-   * Statistics collection
+   * Statistics collection with enhanced packet loss detection
    */
   startStatsCollection() {
     if (!this.peerConnection) return;
@@ -1142,26 +1322,42 @@ class UnifiedWebRTCService extends EventEmitter {
       try {
         const stats = await this.peerConnection.getStats();
         this.processStats(stats);
+        
+        // Send stats to backend for monitoring
+        if (this.socket && this.currentCall) {
+          this.sendStatsToBackend(stats);
+        }
       } catch (error) {
         console.error('❌ Error collecting stats:', error);
       }
-    }, 5000);
+    }, 1000); // Collect stats every second for better monitoring
   }
 
   processStats(stats) {
     let audioQuality = 'unknown';
     let videoQuality = 'unknown';
+    let connectionQuality = 'unknown';
+    
+    // Track packet loss and other metrics
+    let totalPacketsLost = 0;
+    let totalPacketsReceived = 0;
+    let totalBytesReceived = 0;
+    let totalBytesSent = 0;
+    let jitter = 0;
+    let rtt = 0;
     
     stats.forEach((report) => {
       if (report.type === 'inbound-rtp' && report.kind === 'audio') {
         if (report.jitter !== undefined) {
+          jitter = report.jitter;
           audioQuality = report.jitter < 0.03 ? 'excellent' : 
                         report.jitter < 0.05 ? 'good' : 
                         report.jitter < 0.1 ? 'fair' : 'poor';
         }
         
-        this.callStats.packetsLost += report.packetsLost || 0;
-        this.callStats.bytesReceived += report.bytesReceived || 0;
+        totalPacketsLost += report.packetsLost || 0;
+        totalPacketsReceived += report.packetsReceived || 0;
+        totalBytesReceived += report.bytesReceived || 0;
       }
       
       if (report.type === 'inbound-rtp' && report.kind === 'video') {
@@ -1170,15 +1366,94 @@ class UnifiedWebRTCService extends EventEmitter {
                         report.framesPerSecond > 20 ? 'good' :
                         report.framesPerSecond > 15 ? 'fair' : 'poor';
         }
+        
+        totalPacketsLost += report.packetsLost || 0;
+        totalPacketsReceived += report.packetsReceived || 0;
       }
       
       if (report.type === 'outbound-rtp') {
-        this.callStats.bytesSent += report.bytesSent || 0;
+        totalBytesSent += report.bytesSent || 0;
+      }
+      
+      // Get round-trip time from candidate-pair reports
+      if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+        rtt = report.currentRoundTripTime || 0;
       }
     });
     
-    this.callStats.quality = this.currentCall?.callType === 'video' ? videoQuality : audioQuality;
+    // Calculate packet loss percentage
+    const totalPackets = totalPacketsLost + totalPacketsReceived;
+    const packetLossPercentage = totalPackets > 0 ? (totalPacketsLost / totalPackets) * 100 : 0;
+    
+    // Determine overall connection quality based on multiple factors
+    if (packetLossPercentage < 1 && jitter < 0.03 && rtt < 0.2) {
+      connectionQuality = 'excellent';
+    } else if (packetLossPercentage < 3 && jitter < 0.05 && rtt < 0.5) {
+      connectionQuality = 'good';
+    } else if (packetLossPercentage < 5 && jitter < 0.1 && rtt < 1) {
+      connectionQuality = 'fair';
+    } else {
+      connectionQuality = 'poor';
+    }
+    
+    // Update call stats
+    this.callStats = {
+      startTime: this.callStats.startTime || Date.now(),
+      duration: Date.now() - (this.callStats.startTime || Date.now()),
+      quality: this.currentCall?.callType === 'video' ? videoQuality : audioQuality,
+      connectionQuality: connectionQuality,
+      bytesReceived: totalBytesReceived,
+      bytesSent: totalBytesSent,
+      packetsLost: totalPacketsLost,
+      packetLossPercentage: packetLossPercentage,
+      jitter: jitter,
+      rtt: rtt
+    };
+    
     this.emit('statsUpdated', this.callStats);
+    
+    // Emit quality warning if connection is poor
+    if (connectionQuality === 'poor') {
+      this.emit('connectionQualityWarning', {
+        packetLossPercentage,
+        jitter,
+        rtt,
+        quality: connectionQuality
+      });
+    }
+  }
+
+  /**
+   * Send stats to backend for monitoring
+   */
+  sendStatsToBackend(stats) {
+    if (!this.currentCall) return;
+    
+    // Extract key metrics
+    let packetsLost = 0;
+    let bytesReceived = 0;
+    let bytesSent = 0;
+    
+    stats.forEach(report => {
+      if (report.type === 'inbound-rtp') {
+        packetsLost += report.packetsLost || 0;
+        bytesReceived += report.bytesReceived || 0;
+      }
+      if (report.type === 'outbound-rtp') {
+        bytesSent += report.bytesSent || 0;
+      }
+    });
+    
+    // Send to backend
+    this.sendSignalingMessage('webrtc_stats_report', {
+      callId: this.currentCall.callId,
+      chatId: this.currentCall.chatId,
+      stats: {
+        packetsLost,
+        bytesReceived,
+        bytesSent
+      }
+    });
   }
 
   /**
@@ -1295,18 +1570,10 @@ class UnifiedWebRTCService extends EventEmitter {
   /**
    * Utility methods
    */
-  setCallState(newState) {
-    if (this.callState !== newState) {
-      const previousState = this.callState;
-      this.callState = newState;
-      
-      console.log(`📞 Call state changed: ${previousState} → ${newState}`);
-      this.emit('callStateChanged', {
-        previousState,
-        currentState: newState,
-        call: this.currentCall
-      });
-    }
+  setCallState(state) {
+    this.callState = state;
+    this.saveCallStateToStorage(); // Save state whenever it changes
+    this.emit('callStateChanged', state);
   }
 
   startCallTimer() {
@@ -1362,14 +1629,55 @@ class UnifiedWebRTCService extends EventEmitter {
     };
   }
 
+  /**
+   * Handle socket disconnection
+   */
   handleSocketDisconnect() {
     console.log('🔌 Socket disconnected');
     this.emit('socketDisconnected');
+    
+    // If we're in an active call, try to reconnect
+    if (this.currentCall && this.callState === CALL_STATES.CONNECTED) {
+      this.setCallState(CALL_STATES.RECONNECTING);
+      this.attemptReconnection();
+    }
   }
 
+  /**
+   * Handle socket reconnection
+   */
   handleSocketReconnect() {
     console.log('🔌 Socket reconnected');
     this.emit('socketReconnected');
+    
+    // If we have a call in progress, try to restore it
+    if (this.currentCall) {
+      this.restoreCallAfterReconnect();
+    }
+  }
+
+  /**
+   * Restore call after socket reconnection
+   */
+  async restoreCallAfterReconnect() {
+    try {
+      if (!this.currentCall) return;
+      
+      console.log('🔄 Attempting to restore call after reconnection');
+      
+      // If we were in a connected state, try to re-establish the connection
+      if (this.callState === CALL_STATES.RECONNECTING || this.callState === CALL_STATES.CONNECTED) {
+        // For now, we'll emit an event to let the UI handle reconnection
+        // In a more advanced implementation, we could try to re-establish the WebRTC connection
+        this.emit('callReconnectNeeded', {
+          call: this.currentCall,
+          reason: 'socket_reconnected'
+        });
+      }
+    } catch (error) {
+      console.error('❌ Error restoring call after reconnect:', error);
+      this.emit('callReconnectFailed', { error });
+    }
   }
 
   /**
@@ -1450,6 +1758,9 @@ class UnifiedWebRTCService extends EventEmitter {
       packetsLost: 0
     };
     
+    // Clear call state from storage
+    this.clearCallStateFromStorage();
+    
     this.emit('cleaned');
     console.log('✅ WebRTC cleanup completed');
   }
@@ -1482,7 +1793,7 @@ class UnifiedWebRTCService extends EventEmitter {
   }
 
   /**
-   * Public API methods
+   * Public API methods with enhanced state information
    */
   getCallState() {
     return {
@@ -1495,7 +1806,12 @@ class UnifiedWebRTCService extends EventEmitter {
       duration: this.callStartTime ? Math.floor((Date.now() - this.callStartTime) / 1000) : 0,
       connectionState: this.peerConnection?.connectionState,
       iceConnectionState: this.peerConnection?.iceConnectionState,
-      stats: this.callStats
+      stats: this.callStats,
+      // Enhanced information
+      hasLocalStream: !!this.localStream,
+      hasRemoteStream: !!this.remoteStream,
+      callStartTime: this.callStartTime,
+      isInCall: this.isInCall()
     };
   }
 

@@ -1,285 +1,185 @@
 'use client';
 
-import React, { useState, useMemo, memo, useCallback, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Search, X, Zap, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Search, X, Loader2 } from 'lucide-react';
 
-// GIF Categories and sample data (extracted from existing component)
-const GIF_CATEGORIES = ['Trending', 'Reaction', 'Love', 'Happy', 'Funny', 'Dance', 'Celebration', 'Good Morning', 'Good Night'];
-
-const SAMPLE_GIFS = [
-  { id: 1, url: 'https://media.giphy.com/media/3oriO0OEd9QIDdllqo/giphy.gif', title: 'Dance', category: 'Dance' },
-  { id: 2, url: 'https://media.giphy.com/media/l1J9wXoC8W4JFmREY/giphy.gif', title: 'Celebration', category: 'Celebration' },
-  { id: 3, url: 'https://media.giphy.com/media/26BRuo6sLetdllPAQ/giphy.gif', title: 'Happy', category: 'Happy' },
-  { id: 4, url: 'https://media.giphy.com/media/3o7TKF1fSIs1R19B8k/giphy.gif', title: 'Love', category: 'Love' },
-  { id: 5, url: 'https://media.giphy.com/media/l4q8cJzGdR9J8w3hS/giphy.gif', title: 'Funny', category: 'Funny' },
-  { id: 6, url: 'https://media.giphy.com/media/3o6Zt481isNVuQI1l6/giphy.gif', title: 'Reaction', category: 'Reaction' },
+// Mock GIF data - in a real implementation, this would come from an API
+const MOCK_GIF_CATEGORIES = [
+  { id: 'trending', name: 'Trending' },
+  { id: 'funny', name: 'Funny' },
+  { id: 'reaction', name: 'Reaction' },
+  { id: 'happy', name: 'Happy' },
+  { id: 'sad', name: 'Sad' },
+  { id: 'angry', name: 'Angry' },
+  { id: 'love', name: 'Love' },
+  { id: 'celebration', name: 'Celebration' }
 ];
 
-// Custom debounce hook for search performance
-const useDebounce = (value, delay) => {
-  const [debouncedValue, setDebouncedValue] = useState(value);
+const MOCK_GIFS = [
+  { id: '1', url: 'https://media.giphy.com/media/3o7TKsQ8UQ4l4LhGz6/giphy.gif', title: 'Happy Dance', category: 'trending' },
+  { id: '2', url: 'https://media.giphy.com/media/l0HlNaQ6gWfllcjDO/giphy.gif', title: 'Thumbs Up', category: 'reaction' },
+  { id: '3', url: 'https://media.giphy.com/media/3o7TKSjRrfIPjeiVyM/giphy.gif', title: 'Laughing', category: 'funny' },
+  { id: '4', url: 'https://media.giphy.com/media/l0HlHFRb9WJbXjC2c/giphy.gif', title: 'Excited', category: 'happy' },
+  { id: '5', url: 'https://media.giphy.com/media/3o7TKSjRrfIPjeiVyM/giphy.gif', title: 'Dancing', category: 'trending' },
+  { id: '6', url: 'https://media.giphy.com/media/l0HlNaQ6gWfllcjDO/giphy.gif', title: 'Celebration', category: 'celebration' },
+  { id: '7', url: 'https://media.giphy.com/media/3o7TKsQ8UQ4l4LhGz6/giphy.gif', title: 'Love', category: 'love' },
+  { id: '8', url: 'https://media.giphy.com/media/l0HlHFRb9WJbXjC2c/giphy.gif', title: 'Angry', category: 'angry' },
+  { id: '9', url: 'https://media.giphy.com/media/3o7TKSjRrfIPjeiVyM/giphy.gif', title: 'Sad', category: 'sad' },
+  { id: '10', url: 'https://media.giphy.com/media/l0HlNaQ6gWfllcjDO/giphy.gif', title: 'Surprised', category: 'reaction' },
+  { id: '11', url: 'https://media.giphy.com/media/3o7TKsQ8UQ4l4LhGz6/giphy.gif', title: 'Confused', category: 'reaction' },
+  { id: '12', url: 'https://media.giphy.com/media/l0HlHFRb9WJbXjC2c/giphy.gif', title: 'Thinking', category: 'reaction' }
+];
 
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
-};
-
-/**
- * PERFORMANCE OPTIMIZATION: Extracted and improved GifPanel component
- * Benefits:
- * - Extracted from 3208-line monolithic component
- * - Added debounced search for better performance  
- * - Memoized GIF filtering and rendering
- * - Lazy loading of GIF images
- * - Better error handling for failed GIF loads
- * - Improved search functionality
- */
-const GifPanel = memo(({ 
-  isOpen, 
-  onClose, 
-  onGifSelect, 
-  theme = 'default',
-  initialCategory = 'Trending'
-}) => {
-  const [selectedCategory, setSelectedCategory] = useState(initialCategory);
+export default function GifPanel({ isOpen, onClose, onGifSelect }) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [loadingGifs, setLoadingGifs] = useState(new Set());
-  const [failedGifs, setFailedGifs] = useState(new Set());
-  const [isSearching, setIsSearching] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState('trending');
+  const [gifs, setGifs] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  // Debounced search query for better performance
-  const debouncedSearchQuery = useDebounce(searchQuery, 300);
-
-  // Memoized filtered GIFs for performance
+  // Filter GIFs based on search and category
   const filteredGifs = useMemo(() => {
-    let gifs = SAMPLE_GIFS;
-
-    // Filter by category if no search query
-    if (!debouncedSearchQuery && selectedCategory !== 'Trending') {
-      gifs = gifs.filter(gif => gif.category === selectedCategory);
+    let filtered = MOCK_GIFS;
+    
+    if (selectedCategory !== 'all') {
+      filtered = filtered.filter(gif => gif.category === selectedCategory);
     }
-
-    // Filter by search query if provided
-    if (debouncedSearchQuery) {
-      const query = debouncedSearchQuery.toLowerCase();
-      gifs = gifs.filter(gif => 
-        gif.title.toLowerCase().includes(query) ||
+    
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(gif => 
+        gif.title.toLowerCase().includes(query) || 
         gif.category.toLowerCase().includes(query)
       );
     }
+    
+    return filtered;
+  }, [selectedCategory, searchQuery]);
 
-    return gifs;
-  }, [debouncedSearchQuery, selectedCategory]);
+  // Simulate loading GIFs
+  const loadGifs = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Simulate API delay
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setGifs(MOCK_GIFS);
+    } catch (err) {
+      setError('Failed to load GIFs');
+      console.error('Error loading GIFs:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-  // Handle search query changes with loading state
   useEffect(() => {
-    if (searchQuery !== debouncedSearchQuery) {
-      setIsSearching(true);
-    } else {
-      setIsSearching(false);
+    if (isOpen) {
+      loadGifs();
     }
-  }, [searchQuery, debouncedSearchQuery]);
+  }, [isOpen, loadGifs]);
 
-  // Handle GIF loading states
-  const handleGifLoad = useCallback((gifId) => {
-    setLoadingGifs(prev => {
-      const newSet = new Set(prev);
-      newSet.delete(gifId);
-      return newSet;
-    });
-  }, []);
+  const handleGifClick = (gif) => {
+    onGifSelect && onGifSelect(gif);
+    onClose && onClose();
+  };
 
-  const handleGifError = useCallback((gifId) => {
-    console.warn(`Failed to load GIF: ${gifId}`);
-    setLoadingGifs(prev => {
-      const newSet = new Set(prev);
-      newSet.delete(gifId);
-      return newSet;
-    });
-    setFailedGifs(prev => new Set(prev.add(gifId)));
-  }, []);
-
-  const handleGifClick = useCallback((gif) => {
-    if (failedGifs.has(gif.id)) {
-      console.warn('Cannot send failed GIF');
-      return;
-    }
-    onGifSelect(gif);
-    onClose();
-  }, [onGifSelect, onClose, failedGifs]);
-
-  const handleCategoryChange = useCallback((category) => {
-    setSelectedCategory(category);
-    setSearchQuery(''); // Clear search when changing categories
-  }, []);
-
-  const handleSearchChange = useCallback((e) => {
+  const handleSearch = (e) => {
     setSearchQuery(e.target.value);
-  }, []);
+  };
+
+  const handleCategorySelect = (category) => {
+    setSelectedCategory(category);
+  };
 
   if (!isOpen) return null;
 
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0, height: 0 }}
-        animate={{ opacity: 1, height: 'auto' }}
-        exit={{ opacity: 0, height: 0 }}
-        transition={{ duration: 0.2 }}
-        className={`mt-3 p-4 rounded-lg border ${
-          theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
-        }`}
-      >
-        {/* Header with Search */}
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex-1 mr-3 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <input
-              type="text"
-              placeholder="Search GIFs..."
-              value={searchQuery}
-              onChange={handleSearchChange}
-              className={`w-full pl-10 pr-4 py-2 rounded-lg border ${
-                theme === 'dark'
-                  ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400'
-                  : 'bg-gray-100 border-gray-300 text-gray-900 placeholder-gray-500'
-              } focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-colors`}
-            />
-            {isSearching && (
-              <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
-              </div>
-            )}
-          </div>
+    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-4 w-full max-w-md">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">GIFs</h3>
+        <button
+          onClick={onClose}
+          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          aria-label="Close GIF panel"
+        >
+          <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+        </button>
+      </div>
+
+      {/* Search */}
+      <div className="relative mb-4">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <input
+          type="text"
+          placeholder="Search GIFs..."
+          value={searchQuery}
+          onChange={handleSearch}
+          className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-white"
+        />
+      </div>
+
+      {/* Categories */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        <button
+          onClick={() => handleCategorySelect('all')}
+          className={`px-3 py-1 text-sm rounded-full transition-colors ${
+            selectedCategory === 'all'
+              ? 'bg-blue-500 text-white'
+              : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+          }`}
+        >
+          All
+        </button>
+        {MOCK_GIF_CATEGORIES.map((category) => (
           <button
-            onClick={onClose}
-            className={`p-1 rounded transition-colors ${
-              theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
+            key={category.id}
+            onClick={() => handleCategorySelect(category.id)}
+            className={`px-3 py-1 text-sm rounded-full transition-colors ${
+              selectedCategory === category.id
+                ? 'bg-blue-500 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
             }`}
-            aria-label="Close GIF panel"
           >
-            <X className="w-4 h-4" />
+            {category.name}
           </button>
-        </div>
+        ))}
+      </div>
 
-        {/* Category Buttons */}
-        {!searchQuery && (
-          <div className="flex space-x-2 mb-3 overflow-x-auto pb-1">
-            {GIF_CATEGORIES.map(category => (
-              <button
-                key={category}
-                onClick={() => handleCategoryChange(category)}
-                className={`px-3 py-1 text-sm rounded-full transition-all duration-200 whitespace-nowrap flex-shrink-0 ${
-                  selectedCategory === category
-                    ? 'bg-red-500 text-white shadow-sm'
-                    : theme === 'dark'
-                    ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
-              >
-                {category}
-              </button>
-            ))}
-          </div>
-        )}
-        
-        {/* GIF Grid */}
-        <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto">
-          {filteredGifs.length > 0 ? (
-            filteredGifs.map(gif => (
-              <motion.button
-                key={gif.id}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => handleGifClick(gif)}
-                className={`aspect-square rounded-lg overflow-hidden transition-all duration-200 relative ${
-                  failedGifs.has(gif.id) 
-                    ? 'cursor-not-allowed opacity-50' 
-                    : 'hover:shadow-lg cursor-pointer'
-                }`}
-                disabled={failedGifs.has(gif.id)}
-                title={gif.title}
-              >
-                {/* Loading spinner */}
-                {loadingGifs.has(gif.id) && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gray-200 dark:bg-gray-700">
-                    <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-                  </div>
-                )}
-                
-                {/* Error state */}
-                {failedGifs.has(gif.id) && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-red-100 dark:bg-red-900">
-                    <div className="text-center">
-                      <X className="w-6 h-6 text-red-500 mx-auto mb-1" />
-                      <span className="text-xs text-red-600 dark:text-red-400">Failed</span>
-                    </div>
-                  </div>
-                )}
-                
-                {/* GIF Image */}
-                <img
-                  src={gif.url}
-                  alt={gif.title}
-                  className="w-full h-full object-cover"
-                  onLoad={() => handleGifLoad(gif.id)}
-                  onError={() => handleGifError(gif.id)}
-                  onLoadStart={() => setLoadingGifs(prev => new Set(prev.add(gif.id)))}
-                  loading="lazy"
-                />
-                
-                {/* Hover overlay with title */}
-                <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-xs p-1 opacity-0 hover:opacity-100 transition-opacity duration-200">
-                  {gif.title}
-                </div>
-              </motion.button>
-            ))
-          ) : (
-            <div className="col-span-3 flex items-center justify-center py-8 text-gray-500 dark:text-gray-400">
-              <div className="text-center">
-                <Zap className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                <p className="text-sm mb-2">
-                  {searchQuery ? 'No GIFs found' : 'No GIFs in this category'}
-                </p>
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    className="text-xs text-red-500 hover:underline"
-                  >
-                    Clear search
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
+      {/* GIFs Grid */}
+      {error ? (
+        <div className="text-center py-8 text-red-500 dark:text-red-400">
+          {error}
         </div>
+      ) : isLoading ? (
+        <div className="flex justify-center py-8">
+          <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 gap-2 max-h-64 overflow-y-auto">
+          {filteredGifs.map((gif) => (
+            <button
+              key={gif.id}
+              onClick={() => handleGifClick(gif)}
+              className="aspect-square rounded-lg overflow-hidden hover:ring-2 hover:ring-blue-500 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              aria-label={`Select ${gif.title} GIF`}
+            >
+              <img
+                src={gif.url}
+                alt={gif.title}
+                className="w-full h-full object-cover"
+                loading="lazy"
+              />
+            </button>
+          ))}
+        </div>
+      )}
 
-        {/* Footer info */}
-        <div className={`mt-2 pt-2 border-t ${
-          theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
-        } flex justify-between text-xs ${
-          theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
-        }`}>
-          <span>
-            {searchQuery ? `Search: "${searchQuery}"` : selectedCategory} 
-          </span>
-          <span>{filteredGifs.length} GIFs</span>
-        </div>
-      </motion.div>
-    </AnimatePresence>
+      {/* Footer */}
+      <div className="mt-4 text-center text-xs text-gray-500 dark:text-gray-400">
+        Powered by GIPHY
+      </div>
+    </div>
   );
-});
-
-GifPanel.displayName = 'GifPanel';
-
-export default GifPanel;
-export { GIF_CATEGORIES, SAMPLE_GIFS };
+}

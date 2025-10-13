@@ -43,6 +43,17 @@ class IndexedDBStorage {
           messagesStore.createIndex('chatId', 'chatId', { unique: false });
           messagesStore.createIndex('timestamp', 'timestamp', { unique: false });
           messagesStore.createIndex('priority', 'priority', { unique: false });
+          messagesStore.createIndex('status', 'status', { unique: false });
+          messagesStore.createIndex('syncStrategy', 'syncStrategy', { unique: false });
+        } else {
+          // Update existing store schema if needed
+          const messagesStore = transaction.objectStore('offline_messages');
+          if (!messagesStore.indexNames.contains('status')) {
+            messagesStore.createIndex('status', 'status', { unique: false });
+          }
+          if (!messagesStore.indexNames.contains('syncStrategy')) {
+            messagesStore.createIndex('syncStrategy', 'syncStrategy', { unique: false });
+          }
         }
 
         // Create message queue store
@@ -54,6 +65,17 @@ class IndexedDBStorage {
           queueStore.createIndex('tempId', 'tempId', { unique: false });
           queueStore.createIndex('queuedAt', 'queuedAt', { unique: false });
           queueStore.createIndex('attempts', 'attempts', { unique: false });
+          queueStore.createIndex('priority', 'priority', { unique: false });
+          queueStore.createIndex('status', 'status', { unique: false });
+        } else {
+          // Update existing store schema if needed
+          const queueStore = transaction.objectStore('message_queue');
+          if (!queueStore.indexNames.contains('priority')) {
+            queueStore.createIndex('priority', 'priority', { unique: false });
+          }
+          if (!queueStore.indexNames.contains('status')) {
+            queueStore.createIndex('status', 'status', { unique: false });
+          }
         }
 
         // Create status updates queue store
@@ -64,6 +86,13 @@ class IndexedDBStorage {
           });
           statusStore.createIndex('messageId', 'messageId', { unique: false });
           statusStore.createIndex('queuedAt', 'queuedAt', { unique: false });
+          statusStore.createIndex('status', 'status', { unique: false });
+        } else {
+          // Update existing store schema if needed
+          const statusStore = transaction.objectStore('status_updates_queue');
+          if (!statusStore.indexNames.contains('status')) {
+            statusStore.createIndex('status', 'status', { unique: false });
+          }
         }
 
         // Create cache store for message data
@@ -73,6 +102,34 @@ class IndexedDBStorage {
           });
           cacheStore.createIndex('chatId', 'chatId', { unique: false });
           cacheStore.createIndex('cachedAt', 'cachedAt', { unique: false });
+          cacheStore.createIndex('expiresAt', 'expiresAt', { unique: false });
+        } else {
+          // Update existing store schema if needed
+          const cacheStore = transaction.objectStore('message_cache');
+          if (!cacheStore.indexNames.contains('expiresAt')) {
+            cacheStore.createIndex('expiresAt', 'expiresAt', { unique: false });
+          }
+        }
+
+        // Create offline user data store
+        if (!db.objectStoreNames.contains('offline_user_data')) {
+          const userStore = db.createObjectStore('offline_user_data', { 
+            keyPath: 'key' 
+          });
+          userStore.createIndex('category', 'category', { unique: false });
+          userStore.createIndex('cachedAt', 'cachedAt', { unique: false });
+          userStore.createIndex('expiresAt', 'expiresAt', { unique: false });
+        }
+
+        // Create sync conflicts store
+        if (!db.objectStoreNames.contains('sync_conflicts')) {
+          const conflictStore = db.createObjectStore('sync_conflicts', { 
+            keyPath: 'id',
+            autoIncrement: true
+          });
+          conflictStore.createIndex('timestamp', 'timestamp', { unique: false });
+          conflictStore.createIndex('resolved', 'resolved', { unique: false });
+          conflictStore.createIndex('dataType', 'dataType', { unique: false });
         }
 
         console.log('📋 IndexedDB schema upgraded');
@@ -81,7 +138,7 @@ class IndexedDBStorage {
   }
 
   /**
-   * Store offline message
+   * Store offline message with enhanced metadata
    */
   async storeOfflineMessage(message) {
     await this.init();
@@ -94,7 +151,9 @@ class IndexedDBStorage {
       queuedAt: Date.now(),
       attempts: 0,
       priority: message.priority || 1, // Higher number = higher priority
-      maxAttempts: 3
+      maxAttempts: message.maxAttempts || 3,
+      syncStrategy: message.syncStrategy || 'immediate',
+      conflictResolution: message.conflictResolution || 'latest_timestamp'
     };
 
     return new Promise((resolve, reject) => {
@@ -202,6 +261,37 @@ class IndexedDBStorage {
   }
 
   /**
+   * Update offline message status
+   */
+  async updateMessageStatus(tempId, status, metadata = {}) {
+    await this.init();
+    
+    const transaction = this.db.transaction(['offline_messages'], 'readwrite');
+    const store = transaction.objectStore('offline_messages');
+    
+    return new Promise((resolve, reject) => {
+      const getRequest = store.get(tempId);
+      
+      getRequest.onsuccess = () => {
+        const message = getRequest.result;
+        if (message) {
+          message.status = status;
+          message.updatedAt = Date.now();
+          Object.assign(message, metadata);
+          
+          const putRequest = store.put(message);
+          putRequest.onsuccess = () => resolve(true);
+          putRequest.onerror = () => reject(putRequest.error);
+        } else {
+          resolve(false);
+        }
+      };
+      
+      getRequest.onerror = () => reject(getRequest.error);
+    });
+  }
+
+  /**
    * Remove messages that exceeded max attempts
    */
   async cleanupFailedMessages() {
@@ -235,6 +325,42 @@ class IndexedDBStorage {
       };
       
       request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get offline messages by status
+   */
+  async getMessagesByStatus(status, limit = 100) {
+    await this.init();
+    
+    const transaction = this.db.transaction(['offline_messages'], 'readonly');
+    const store = transaction.objectStore('offline_messages');
+    const index = store.index('status');
+    
+    return new Promise((resolve, reject) => {
+      const request = index.getAll(status);
+      
+      request.onsuccess = () => {
+        const messages = request.result;
+        
+        // Sort by priority (desc) then timestamp (asc)
+        messages.sort((a, b) => {
+          if (a.priority !== b.priority) {
+            return b.priority - a.priority;
+          }
+          return a.timestamp - b.timestamp;
+        });
+        
+        const limitedMessages = limit > 0 ? messages.slice(0, limit) : messages;
+        console.log(`📤 Retrieved ${limitedMessages.length} offline messages with status ${status}`);
+        resolve(limitedMessages);
+      };
+      
+      request.onerror = () => {
+        console.error('Failed to get offline messages by status:', request.error);
+        reject(request.error);
+      };
     });
   }
 
@@ -431,6 +557,209 @@ class IndexedDBStorage {
       };
       
       request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Store user data for offline access
+   */
+  async storeUserData(key, data, category = 'general', ttl = 24 * 60 * 60 * 1000) {
+    await this.init();
+    
+    const transaction = this.db.transaction(['offline_user_data'], 'readwrite');
+    const store = transaction.objectStore('offline_user_data');
+    
+    const userData = {
+      key,
+      data,
+      category,
+      cachedAt: Date.now(),
+      expiresAt: Date.now() + ttl
+    };
+
+    return new Promise((resolve, reject) => {
+      const request = store.put(userData);
+      
+      request.onsuccess = () => {
+        console.log('💾 User data stored:', key);
+        resolve(true);
+      };
+      
+      request.onerror = () => {
+        console.error('Failed to store user data:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Get user data
+   */
+  async getUserData(key) {
+    await this.init();
+    
+    const transaction = this.db.transaction(['offline_user_data'], 'readonly');
+    const store = transaction.objectStore('offline_user_data');
+    
+    return new Promise((resolve, reject) => {
+      const request = store.get(key);
+      
+      request.onsuccess = () => {
+        const userData = request.result;
+        
+        if (!userData) {
+          resolve(null);
+          return;
+        }
+        
+        // Check if expired
+        if (Date.now() > userData.expiresAt) {
+          // Remove expired data
+          this.removeUserData(key);
+          resolve(null);
+          return;
+        }
+        
+        resolve(userData.data);
+      };
+      
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Remove user data
+   */
+  async removeUserData(key) {
+    await this.init();
+    
+    const transaction = this.db.transaction(['offline_user_data'], 'readwrite');
+    const store = transaction.objectStore('offline_user_data');
+    
+    return new Promise((resolve, reject) => {
+      const request = store.delete(key);
+      
+      request.onsuccess = () => resolve(true);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get user data by category
+   */
+  async getUserDataByCategory(category, limit = 100) {
+    await this.init();
+    
+    const transaction = this.db.transaction(['offline_user_data'], 'readonly');
+    const store = transaction.objectStore('offline_user_data');
+    const index = store.index('category');
+    
+    return new Promise((resolve, reject) => {
+      const request = index.getAll(category);
+      
+      request.onsuccess = () => {
+        const userData = request.result;
+        
+        // Filter out expired data
+        const validData = userData.filter(item => Date.now() <= item.expiresAt);
+        
+        // Remove expired data
+        const expiredData = userData.filter(item => Date.now() > item.expiresAt);
+        expiredData.forEach(item => this.removeUserData(item.key));
+        
+        const limitedData = limit > 0 ? validData.slice(0, limit) : validData;
+        resolve(limitedData.map(item => ({ key: item.key, data: item.data })));
+      };
+      
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Record sync conflict
+   */
+  async recordSyncConflict(localData, serverData, resolutionStrategy, resolvedData) {
+    await this.init();
+    
+    const transaction = this.db.transaction(['sync_conflicts'], 'readwrite');
+    const store = transaction.objectStore('sync_conflicts');
+    
+    const conflictRecord = {
+      localData,
+      serverData,
+      resolutionStrategy,
+      resolvedData,
+      timestamp: Date.now(),
+      resolved: !!resolvedData,
+      dataType: localData?.type || serverData?.type || 'unknown'
+    };
+
+    return new Promise((resolve, reject) => {
+      const request = store.add(conflictRecord);
+      
+      request.onsuccess = () => {
+        console.log('💾 Sync conflict recorded');
+        resolve(request.result);
+      };
+      
+      request.onerror = () => {
+        console.error('Failed to record sync conflict:', request.error);
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * Get unresolved sync conflicts
+   */
+  async getUnresolvedConflicts(limit = 50) {
+    await this.init();
+    
+    const transaction = this.db.transaction(['sync_conflicts'], 'readonly');
+    const store = transaction.objectStore('sync_conflicts');
+    const index = store.index('resolved');
+    
+    return new Promise((resolve, reject) => {
+      const request = index.getAll(false); // Get unresolved conflicts (resolved = false)
+      
+      request.onsuccess = () => {
+        const conflicts = request.result;
+        const limitedConflicts = limit > 0 ? conflicts.slice(0, limit) : conflicts;
+        resolve(limitedConflicts);
+      };
+      
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Mark conflict as resolved
+   */
+  async markConflictResolved(conflictId, resolvedData) {
+    await this.init();
+    
+    const transaction = this.db.transaction(['sync_conflicts'], 'readwrite');
+    const store = transaction.objectStore('sync_conflicts');
+    
+    return new Promise((resolve, reject) => {
+      const getRequest = store.get(conflictId);
+      
+      getRequest.onsuccess = () => {
+        const conflict = getRequest.result;
+        if (conflict) {
+          conflict.resolved = true;
+          conflict.resolvedAt = Date.now();
+          conflict.resolvedData = resolvedData;
+          
+          const putRequest = store.put(conflict);
+          putRequest.onsuccess = () => resolve(true);
+          putRequest.onerror = () => reject(putRequest.error);
+        } else {
+          resolve(false);
+        }
+      };
+      
+      getRequest.onerror = () => reject(getRequest.error);
     });
   }
 

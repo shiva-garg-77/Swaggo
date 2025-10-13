@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
-import { useQuery, useMutation } from '@apollo/client/react';
-import { useSecureAuth } from '../../context/FixedSecureAuthContext';
+import React, { useState, useRef, useCallback } from 'react';
+import { useQuery, useLazyQuery, useMutation } from '@apollo/client/react';
 import { SEARCH_USERS, CREATE_CHAT } from './queries';
+import { useTheme } from '../Helper/ThemeProvider';
+import { formatMessageTime, getValidImageUrl, handleImageError } from '../../utils/timeFormatter'; // Issue #18, #20: Import image utilities
+import { useFixedSecureAuth as useSecureAuth } from '../../context/FixedSecureAuthContext'; // Add missing import
 
 export default function ChatSidebar({ 
   chats, 
@@ -14,10 +16,16 @@ export default function ChatSidebar({
   isConnected 
 }) {
   const { user } = useSecureAuth();
+  
+  // Standardized user ID extraction
+  const getUserId = useCallback((userObj) => {
+    return userObj?.profileid || userObj?.id || userObj?.userId || userObj?._id;
+  }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [showUserSearch, setShowUserSearch] = useState(false);
   const [searchUsers, setSearchUsers] = useState([]);
   const [searchTimeout, setSearchTimeout] = useState(null);
+  const [isSearching, setIsSearching] = useState(false); // Issue #19: Add loading indicator state
   
   const searchInputRef = useRef(null);
 
@@ -55,7 +63,7 @@ export default function ChatSidebar({
     }
   });
 
-  // Handle search input changes with debouncing
+  // Handle search input changes with debouncing - Issue #19: Reduce debounce to 150ms
   const handleSearchChange = (e) => {
     const query = e.target.value;
     setSearchQuery(query);
@@ -66,62 +74,70 @@ export default function ChatSidebar({
     
     if (query.length >= 2) {
       setShowUserSearch(true);
+      setIsSearching(true); // Issue #19: Set loading state
       const timeout = setTimeout(() => {
         console.log('🔍 Triggering user search for:', query);
-        refetchUsers();
-      }, 300);
+        refetchUsers()
+          .finally(() => {
+            setIsSearching(false); // Issue #19: Reset loading state
+          });
+      }, 150); // Issue #19: Reduce debounce to 150ms
       setSearchTimeout(timeout);
     } else {
       setShowUserSearch(false);
       setSearchUsers([]);
+      setIsSearching(false); // Issue #19: Reset loading state
     }
   };
 
   // Handle user selection for new chat
   const handleUserSelect = async (selectedUser) => {
-    // Get consistent user ID (profileid or id)
-    const currentUserId = user?.profileid || user?.id;
-    const selectedUserId = selectedUser?.profileid || selectedUser?.id;
+    // Get consistent user ID (profileid or id) - standardized approach
+    const getUserId = (userObj) => {
+      return userObj?.profileid || userObj?.id || userObj?.userId || userObj?._id;
+    };
+    
+    const currentUserId = getUserId(user);
+    const selectedUserId = getUserId(selectedUser);
     
     console.log('🔍 Creating chat:', {
       currentUserId,
       selectedUserId,
+      currentUserName: user?.username,
       selectedUserName: selectedUser?.username,
-      userKeys: user ? Object.keys(user) : 'No user',
+      currentUserKeys: user ? Object.keys(user) : 'No user',
       selectedUserKeys: selectedUser ? Object.keys(selectedUser) : 'No selected user'
     });
     
     if (!currentUserId || !selectedUserId || selectedUserId === currentUserId) {
       console.warn('⚠️ Cannot create chat - invalid user IDs');
+      alert('Cannot create chat with this user. Please try again.');
       return;
     }
 
     try {
-      await createChat({
+      const result = await createChat({
         variables: {
           participants: [currentUserId, selectedUserId],
           chatType: 'direct'
         }
       });
+      
+      console.log('✅ Chat creation result:', result);
+      
+      // Clear search after successful creation
+      setSearchQuery('');
+      setShowUserSearch(false);
+      setSearchUsers([]);
+      
     } catch (error) {
-      console.error('Failed to create chat:', error);
-    }
-  };
-
-  // Format last message time
-  const formatMessageTime = (timestamp) => {
-    const now = new Date();
-    const messageTime = new Date(timestamp);
-    const diffInHours = (now - messageTime) / (1000 * 60 * 60);
-    
-    if (diffInHours < 1) {
-      const minutes = Math.floor((now - messageTime) / (1000 * 60));
-      return minutes < 1 ? 'now' : `${minutes}m`;
-    } else if (diffInHours < 24) {
-      return `${Math.floor(diffInHours)}h`;
-    } else {
-      const days = Math.floor(diffInHours / 24);
-      return `${days}d`;
+      console.error('❌ Failed to create chat:', error);
+      console.error('Error details:', {
+        message: error.message,
+        graphQLErrors: error.graphQLErrors,
+        networkError: error.networkError
+      });
+      alert('Failed to create chat: ' + error.message);
     }
   };
 
@@ -135,9 +151,9 @@ export default function ChatSidebar({
       };
     } else {
       // Direct chat - find the other participant
-      const currentUserId = user?.profileid || user?.id;
+      const currentUserId = getUserId(user);
       const otherParticipant = chat.participants.find(p => 
-        (p.profileid || p.id) !== currentUserId
+        getUserId(p) !== currentUserId
       );
       return {
         name: otherParticipant?.name || otherParticipant?.username || 'Unknown User',
@@ -159,10 +175,29 @@ export default function ChatSidebar({
       return '🎥 Video';
     } else if (message.messageType === 'file') {
       return '📎 File';
+    } else if (message.messageType === 'voice') {
+      return '🎤 Voice message';
     }
     
     return 'Message';
   };
+
+  // Format last message time - Issue #18: Use standardized formatter
+  // const formatMessageTime = (timestamp) => {
+  //   const now = new Date();
+  //   const messageTime = new Date(timestamp);
+  //   const diffInHours = (now - messageTime) / (1000 * 60 * 60);
+  //   
+  //   if (diffInHours < 1) {
+  //     const minutes = Math.floor((now - messageTime) / (1000 * 60));
+  //     return minutes < 1 ? 'now' : `${minutes}m`;
+  //   } else if (diffInHours < 24) {
+  //     return `${Math.floor(diffInHours)}h`;
+  //   } else {
+  //     const days = Math.floor(diffInHours / 24);
+  //     return `${days}d`;
+  //   }
+  // };
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900">
@@ -203,7 +238,12 @@ export default function ChatSidebar({
           {/* Search Results Dropdown - Force show for debugging */}
           {(showUserSearch || searchQuery.length >= 2) && (
             <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 max-h-64 overflow-y-auto">
-              {searchLoading ? (
+              {isSearching ? ( // Issue #19: Show loading indicator
+                <div className="p-4 text-center text-gray-500 dark:text-gray-400">
+                  <div className="animate-spin w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full mx-auto mb-2"></div>
+                  Searching users...
+                </div>
+              ) : searchLoading ? (
                 <div className="p-4 text-center text-gray-500 dark:text-gray-400">
                   <div className="animate-spin w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full mx-auto mb-2"></div>
                   Searching users...
@@ -218,12 +258,13 @@ export default function ChatSidebar({
                     key={searchUser.profileid || searchUser.id}
                     onClick={() => handleUserSelect(searchUser)}
                     className="w-full p-3 flex items-center space-x-3 hover:bg-gray-50 dark:hover:bg-gray-700 first:rounded-t-lg last:rounded-b-lg"
-                    disabled={(searchUser.profileid || searchUser.id) === (user?.profileid || user?.id)}
+                    disabled={getUserId(searchUser) === getUserId(user)}
                   >
                     <img
-                      src={searchUser.profilePic || '/default-avatar.png'}
+                      src={getValidImageUrl(searchUser.profilePic)} // Issue #20: Use validated image URL
                       alt={searchUser.username}
                       className="w-8 h-8 rounded-full object-cover"
+                      onError={(e) => handleImageError(e)} // Issue #20: Handle image loading errors
                     />
                     <div className="flex-1 text-left">
                       <div className="flex items-center space-x-1">
@@ -268,7 +309,7 @@ export default function ChatSidebar({
           <div className="p-8 text-center">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
               <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9 8s9 3.582 9 8z" />
               </svg>
             </div>
             <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No conversations</h3>
@@ -277,6 +318,12 @@ export default function ChatSidebar({
         ) : (
           <div className="divide-y divide-gray-200 dark:divide-gray-700">
             {(chats || []).map((chat) => {
+              // Skip chats without a valid chatid
+              if (!chat || !chat.chatid) {
+                console.warn('Skipping chat without valid chatid:', chat);
+                return null;
+              }
+              
               const { name, avatar, isOnline } = getChatDisplayInfo(chat);
               const isSelected = selectedChat?.chatid === chat.chatid;
               const lastMessage = chat.lastMessage;
@@ -292,9 +339,10 @@ export default function ChatSidebar({
                   {/* Avatar */}
                   <div className="relative flex-shrink-0">
                     <img
-                      src={avatar || '/default-avatar.png'}
+                      src={getValidImageUrl(avatar)} // Issue #20: Use validated image URL
                       alt={name}
                       className="w-12 h-12 rounded-full object-cover"
+                      onError={(e) => handleImageError(e)} // Issue #20: Handle image loading errors
                     />
                     {isOnline && (
                       <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 border-2 border-white dark:border-gray-900 rounded-full"></div>

@@ -53,7 +53,26 @@ class WebRTCValidator {
           'stun:stun.stunprotocol.org:3478',
           'stun:openrelay.metered.ca:80'
         ]
+      },
+      // TURN servers for NAT traversal
+      {
+        urls: [
+          'turn:openrelay.metered.ca:80',
+          'turn:openrelay.metered.ca:443'
+        ],
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
       }
+    ];
+    
+    // Connection failure reasons
+    this.allowedFailureReasons = [
+      'ice_failed',
+      'connection_lost',
+      'timeout',
+      'incompatible_capabilities',
+      'network_error',
+      'server_error'
     ];
   }
 
@@ -114,6 +133,12 @@ class WebRTCValidator {
       if (offerData.from && !this.isValidUserId(offerData.from)) {
         validation.valid = false;
         validation.errors.push('Invalid user ID format');
+      }
+
+      // Validate call ID
+      if (offerData.callId && !this.isValidCallId(offerData.callId)) {
+        validation.valid = false;
+        validation.errors.push('Invalid call ID format');
       }
 
       // Sanitize the SDP content
@@ -194,6 +219,12 @@ class WebRTCValidator {
       if (answerData.from && !this.isValidUserId(answerData.from)) {
         validation.valid = false;
         validation.errors.push('Invalid user ID format');
+      }
+
+      // Validate call ID
+      if (answerData.callId && !this.isValidCallId(offerData.callId)) {
+        validation.valid = false;
+        validation.errors.push('Invalid call ID format');
       }
 
       // Sanitize the SDP content
@@ -281,6 +312,12 @@ class WebRTCValidator {
         validation.errors.push('Invalid user ID format');
       }
 
+      // Validate call ID
+      if (candidateData.callId && !this.isValidCallId(candidateData.callId)) {
+        validation.valid = false;
+        validation.errors.push('Invalid call ID format');
+      }
+
       // Sanitize candidate data
       validation.sanitized = {
         ...candidateData,
@@ -289,6 +326,133 @@ class WebRTCValidator {
           candidate: candidateValidation.sanitized || candidate.candidate
         }
       };
+
+      return validation;
+
+    } catch (error) {
+      return {
+        valid: false,
+        errors: [`Validation error: ${error.message}`],
+        warnings: [],
+        sanitized: null
+      };
+    }
+  }
+
+  /**
+   * Validate WebRTC connection failure data
+   */
+  validateConnectionFailure(failureData) {
+    try {
+      const validation = {
+        valid: true,
+        errors: [],
+        warnings: [],
+        sanitized: null
+      };
+
+      // Basic structure validation
+      if (!failureData || typeof failureData !== 'object') {
+        validation.valid = false;
+        validation.errors.push('Invalid failure data structure');
+        return validation;
+      }
+
+      // Validate required fields
+      if (!failureData.chatid || !this.isValidChatId(failureData.chatid)) {
+        validation.valid = false;
+        validation.errors.push('Invalid or missing chat ID');
+      }
+
+      if (!failureData.callId || !this.isValidCallId(failureData.callId)) {
+        validation.valid = false;
+        validation.errors.push('Invalid or missing call ID');
+      }
+
+      // Validate reason if provided
+      if (failureData.reason && !this.allowedFailureReasons.includes(failureData.reason)) {
+        validation.warnings.push('Unknown failure reason');
+      }
+
+      // Validate user IDs
+      if (failureData.from && !this.isValidUserId(failureData.from)) {
+        validation.valid = false;
+        validation.errors.push('Invalid user ID format');
+      }
+
+      // Sanitize error message if present
+      validation.sanitized = {
+        ...failureData,
+        error: failureData.error ? this.sanitizeErrorMessage(failureData.error) : null
+      };
+
+      return validation;
+
+    } catch (error) {
+      return {
+        valid: false,
+        errors: [`Validation error: ${error.message}`],
+        warnings: [],
+        sanitized: null
+      };
+    }
+  }
+
+  /**
+   * Validate WebRTC stats report
+   */
+  validateStatsReport(statsData) {
+    try {
+      const validation = {
+        valid: true,
+        errors: [],
+        warnings: [],
+        sanitized: null
+      };
+
+      // Basic structure validation
+      if (!statsData || typeof statsData !== 'object') {
+        validation.valid = false;
+        validation.errors.push('Invalid stats data structure');
+        return validation;
+      }
+
+      // Validate required fields
+      if (!statsData.chatid || !this.isValidChatId(statsData.chatid)) {
+        validation.valid = false;
+        validation.errors.push('Invalid or missing chat ID');
+      }
+
+      if (!statsData.callId || !this.isValidCallId(statsData.callId)) {
+        validation.valid = false;
+        validation.errors.push('Invalid or missing call ID');
+      }
+
+      // Validate stats object
+      if (!statsData.stats || typeof statsData.stats !== 'object') {
+        validation.valid = false;
+        validation.errors.push('Invalid or missing stats object');
+      } else {
+        // Validate common stats fields
+        const stats = statsData.stats;
+        if (typeof stats.packetsLost !== 'number' || stats.packetsLost < 0) {
+          validation.warnings.push('Invalid packetsLost value');
+        }
+        if (typeof stats.bytesSent !== 'number' || stats.bytesSent < 0) {
+          validation.warnings.push('Invalid bytesSent value');
+        }
+        if (typeof stats.bytesReceived !== 'number' || stats.bytesReceived < 0) {
+          validation.warnings.push('Invalid bytesReceived value');
+        }
+      }
+
+      // Validate user IDs
+      if (statsData.from && !this.isValidUserId(statsData.from)) {
+        validation.valid = false;
+        validation.errors.push('Invalid user ID format');
+      }
+
+      validation.sanitized = statsData;
 
       return validation;
 
@@ -454,6 +618,25 @@ class WebRTCValidator {
   }
 
   /**
+   * Sanitize error messages
+   */
+  sanitizeErrorMessage(error) {
+    if (typeof error !== 'string') return '';
+    
+    // Remove potentially sensitive information
+    let sanitized = error.replace(/token[a-zA-Z0-9_-]*=[^&\s]*/gi, 'token=[REDACTED]');
+    sanitized = sanitized.replace(/password[a-zA-Z0-9_-]*=[^&\s]*/gi, 'password=[REDACTED]');
+    sanitized = sanitized.replace(/key[a-zA-Z0-9_-]*=[^&\s]*/gi, 'key=[REDACTED]');
+    
+    // Limit length
+    if (sanitized.length > 1000) {
+      sanitized = sanitized.substring(0, 1000) + '...';
+    }
+    
+    return sanitized;
+  }
+
+  /**
    * Validate chat ID format
    */
   isValidChatId(chatId) {
@@ -471,6 +654,16 @@ class WebRTCValidator {
     
     // User ID should be alphanumeric with possible dashes/underscores
     return /^[a-zA-Z0-9_-]+$/.test(userId) && userId.length >= 1 && userId.length <= 50;
+  }
+
+  /**
+   * Validate call ID format
+   */
+  isValidCallId(callId) {
+    if (typeof callId !== 'string') return false;
+    
+    // Call ID should be alphanumeric with possible dashes/underscores
+    return /^[a-zA-Z0-9_-]+$/.test(callId) && callId.length >= 1 && callId.length <= 100;
   }
 
   /**

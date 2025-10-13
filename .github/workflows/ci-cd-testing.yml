@@ -77,6 +77,68 @@ jobs:
             Website/Backend/complexity-report.html
           retention-days: 30
 
+  # Bundle Analysis
+  bundle-analysis:
+    name: Bundle Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: code-quality
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: Website/Frontend/package-lock.json
+      
+      - name: Install frontend dependencies
+        working-directory: Website/Frontend
+        run: npm ci --prefer-offline --no-audit
+      
+      - name: Run bundle analysis
+        working-directory: Website/Frontend
+        run: |
+          ANALYZE=true npm run build
+          npm run optimize
+      
+      - name: Generate bundle size report
+        working-directory: Website/Frontend
+        run: |
+          # Create a simple bundle size report
+          echo "## Bundle Size Analysis" > bundle-size-report.txt
+          echo "" >> bundle-size-report.txt
+          find .next/static -name "*.js" -exec du -h {} \; | sort -hr >> bundle-size-report.txt
+          echo "" >> bundle-size-report.txt
+          echo "Total JavaScript bundle size:" >> bundle-size-report.txt
+          find .next/static -name "*.js" -exec du -ch {} + | grep total$ >> bundle-size-report.txt
+          
+          # Check if total size exceeds 2MB
+          TOTAL_SIZE_KB=$(find .next/static -name "*.js" -exec du -ck {} + | grep total$ | awk '{print $1}')
+          TOTAL_SIZE_MB=$(echo "scale=2; $TOTAL_SIZE_KB/1024" | bc)
+          echo "Total bundle size: ${TOTAL_SIZE_MB}MB" >> bundle-size-report.txt
+          
+          if (( $(echo "$TOTAL_SIZE_MB > 2.0" | bc -l) )); then
+            echo "❌ Bundle size exceeds 2MB threshold" >> bundle-size-report.txt
+            exit 1
+          else
+            echo "✅ Bundle size is within limits" >> bundle-size-report.txt
+          fi
+      
+      - name: Upload bundle analysis reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bundle-analysis-reports
+          path: |
+            Website/Frontend/bundle-analysis.html
+            Website/Frontend/bundle-size-report.txt
+            Website/Frontend/.next/static
+          retention-days: 30
+
   # Unit Testing
   unit-tests:
     name: Unit Tests

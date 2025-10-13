@@ -104,7 +104,7 @@ class SessionManagementCore extends EventEmitter {
     // Configuration
     this.config = {
       maxSessionDuration: 28800000, // 8 hours
-      maxIdleTime: 1800000, // 30 minutes
+      maxIdleTime: 900000, // 15 minutes (reduced from 30 minutes)
       maxConcurrentSessions: 5,
       keyRotationInterval: 3600000, // 1 hour
       riskThreshold: 70,

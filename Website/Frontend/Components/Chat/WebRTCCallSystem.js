@@ -1,9 +1,11 @@
 'use client';
 
 import React, { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
-import { Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Monitor, MonitorOff } from 'lucide-react';
+import { Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Monitor, MonitorOff, Wifi, WifiOff, AlertTriangle } from 'lucide-react';
 import { useSocket } from '../Helper/PerfectSocketProvider';
 import { useSecureAuth } from '../../context/FixedSecureAuthContext';
+import UnifiedWebRTCService from '../../services/WebRTCService';
+import notificationService from '../../services/NotificationService';
 
 // Call context
 const CallContext = createContext();
@@ -46,6 +48,14 @@ export function CallProvider({ children }) {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [connectionQuality, setConnectionQuality] = useState('good');
+  const [detailedStats, setDetailedStats] = useState({
+    packetLoss: 0,
+    jitter: 0,
+    rtt: 0,
+    bandwidth: 0,
+    resolution: '',
+    frameRate: 0
+  });
 
   // Refs
   const peerConnectionRef = useRef(null);
@@ -53,6 +63,110 @@ export function CallProvider({ children }) {
   const remoteVideoRef = useRef(null);
   const callTimerRef = useRef(null);
   const statsIntervalRef = useRef(null);
+  const webRTCServiceRef = useRef(null);
+
+  // Initialize WebRTC service
+  useEffect(() => {
+    if (!webRTCServiceRef.current) {
+      webRTCServiceRef.current = new UnifiedWebRTCService();
+    }
+    
+    const webRTCService = webRTCServiceRef.current;
+    
+    // Initialize with socket
+    if (socket) {
+      webRTCService.initialize(socket);
+    }
+    
+    // Listen for call state changes
+    webRTCService.on('callStateChanged', (state) => {
+      setCallState(state);
+    });
+    
+    webRTCService.on('callInitiated', (call) => {
+      setCurrentCall(call);
+    });
+    
+    webRTCService.on('incomingCall', (call) => {
+      setCallState(CALL_STATES.RINGING);
+      setCurrentCall(call);
+    });
+    
+    webRTCService.on('callAnswered', (call) => {
+      setCallState(CALL_STATES.CONNECTED);
+      startCallTimer();
+    });
+    
+    webRTCService.on('callEnded', (data) => {
+      setCallState(CALL_STATES.ENDED);
+      setCallDuration(0);
+      setIsAudioMuted(false);
+      setIsVideoMuted(false);
+      setIsScreenSharing(false);
+      setCurrentCall(null);
+      
+      // Clear streams
+      setLocalStream(null);
+      setRemoteStream(null);
+      
+      // Clean up refs
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = null;
+      }
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = null;
+      }
+    });
+    
+    webRTCService.on('localStreamAcquired', (stream) => {
+      setLocalStream(stream);
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+      }
+    });
+    
+    webRTCService.on('remoteStreamReceived', (stream) => {
+      setRemoteStream(stream);
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = stream;
+      }
+    });
+    
+    webRTCService.on('statsUpdated', (stats) => {
+      setConnectionQuality(stats.connectionQuality || stats.quality || 'good');
+      setDetailedStats({
+        packetLoss: stats.packetLossPercentage || 0,
+        jitter: stats.jitter || 0,
+        rtt: stats.rtt || 0,
+        bandwidth: stats.bytesReceived || 0,
+        resolution: stats.resolution || '',
+        frameRate: stats.frameRate || 0
+      });
+    });
+    
+    webRTCService.on('callStateRestored', (state) => {
+      console.log('🔁 Call state restored:', state);
+      // Handle restored call state
+      if (state.currentCall) {
+        setCurrentCall(state.currentCall);
+        setCallState(state.callState || CALL_STATES.IDLE);
+      }
+    });
+    
+    webRTCService.on('callReconnectNeeded', (data) => {
+      console.log('🔄 Call reconnection needed:', data);
+      // Handle reconnection in UI
+      notificationService.warning(
+        'Call Reconnection',
+        'Attempting to reconnect to your call...'
+      );
+    });
+    
+    // Cleanup
+    return () => {
+      webRTCService.removeAllListeners();
+    };
+  }, [socket]);
 
   // Initialize WebRTC peer connection
   const createPeerConnection = useCallback(() => {
@@ -92,15 +206,7 @@ export function CallProvider({ children }) {
     return peerConnection;
   }, [socket, currentCall]);
 
-  // Start call timer
-  const startCallTimer = useCallback(() => {
-    const startTime = Date.now();
-    callTimerRef.current = setInterval(() => {
-      setCallDuration(Math.floor((Date.now() - startTime) / 1000));
-    }, 1000);
-  }, []);
-
-  // Start quality monitoring
+  // Start quality monitoring with enhanced packet loss detection
   const startQualityMonitoring = useCallback(() => {
     if (!peerConnectionRef.current) return;
 
@@ -110,31 +216,91 @@ export function CallProvider({ children }) {
         let bytesReceived = 0;
         let packetsLost = 0;
         let packetsReceived = 0;
+        let jitter = 0;
+        let rtt = 0;
+        let resolution = '';
+        let frameRate = 0;
 
         stats.forEach((report) => {
-          if (report.type === 'inbound-rtp' && report.mediaType === 'video') {
+          if (report.type === 'inbound-rtp') {
             bytesReceived += report.bytesReceived || 0;
             packetsLost += report.packetsLost || 0;
             packetsReceived += report.packetsReceived || 0;
+            
+            if (report.jitter !== undefined) {
+              jitter = report.jitter;
+            }
+            
+            // Get video resolution and frame rate
+            if (report.kind === 'video') {
+              if (report.frameWidth && report.frameHeight) {
+                resolution = `${report.frameWidth}x${report.frameHeight}`;
+              }
+              if (report.framesPerSecond) {
+                frameRate = report.framesPerSecond;
+              }
+            }
+          }
+          
+          // Get round-trip time from candidate-pair reports
+          if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+            rtt = report.currentRoundTripTime || 0;
           }
         });
 
         // Calculate connection quality
-        const lossRate = packetsReceived > 0 ? packetsLost / packetsReceived : 0;
+        const totalPackets = packetsLost + packetsReceived;
+        const lossRate = totalPackets > 0 ? packetsLost / totalPackets : 0;
+        const packetLossPercentage = lossRate * 100;
         
-        if (lossRate < 0.05 && bytesReceived > 1000) {
-          setConnectionQuality('excellent');
-        } else if (lossRate < 0.1 && bytesReceived > 500) {
-          setConnectionQuality('good');
-        } else if (lossRate < 0.2) {
-          setConnectionQuality('fair');
+        // Determine connection quality based on multiple factors
+        let quality = 'good';
+        if (packetLossPercentage < 1 && jitter < 0.03 && rtt < 0.2) {
+          quality = 'excellent';
+        } else if (packetLossPercentage < 3 && jitter < 0.05 && rtt < 0.5) {
+          quality = 'good';
+        } else if (packetLossPercentage < 5 && jitter < 0.1 && rtt < 1) {
+          quality = 'fair';
         } else {
-          setConnectionQuality('poor');
+          quality = 'poor';
+        }
+        
+        setConnectionQuality(quality);
+        setDetailedStats({
+          packetLoss: packetLossPercentage,
+          jitter: jitter,
+          rtt: rtt,
+          bandwidth: bytesReceived,
+          resolution: resolution,
+          frameRate: frameRate
+        });
+        
+        // Show warning if connection is poor
+        if (quality === 'poor') {
+          console.warn('⚠️ Poor connection quality detected:', {
+            packetLoss: packetLossPercentage.toFixed(2) + '%',
+            jitter: jitter.toFixed(3),
+            rtt: rtt.toFixed(3) + 's'
+          });
+          
+          // Show a visual warning to the user
+          const warningElement = document.getElementById('connection-warning');
+          if (warningElement) {
+            warningElement.textContent = `Poor connection: ${packetLossPercentage.toFixed(2)}% packet loss`;
+            warningElement.style.display = 'block';
+            
+            // Hide warning after 5 seconds
+            setTimeout(() => {
+              if (warningElement) {
+                warningElement.style.display = 'none';
+              }
+            }, 5000);
+          }
         }
       } catch (error) {
         console.error('Error getting call stats:', error);
       }
-    }, 2000);
+    }, 1000); // Check every second
   }, []);
 
   // Get user media
@@ -172,42 +338,48 @@ export function CallProvider({ children }) {
     try {
       setCallState(CALL_STATES.CALLING);
       
-      // Get user media
-      const stream = await getUserMedia(callType);
-      
-      // Create peer connection
-      peerConnectionRef.current = createPeerConnection();
-      
-      // Add local stream tracks to peer connection
-      stream.getTracks().forEach(track => {
-        peerConnectionRef.current.addTrack(track, stream);
-      });
-
-      // Create offer
-      const offer = await peerConnectionRef.current.createOffer();
-      await peerConnectionRef.current.setLocalDescription(offer);
-
-      // Store call data
-      const callData = {
-        id: Date.now().toString(),
-        chatId,
-        callType,
-        startTime: new Date(),
-        isOutgoing: true
-      };
-      
-      setCurrentCall(callData);
-
-      // Emit call initiation (backend expects different format)
-      if (socket) {
-        socket.emit('initiate_call', {
-          chatid: chatId,
-          callType,
-          receiverId: chatId, // For now, using chatId as receiverId - you may need to extract actual receiverId
-          callId: callData.id
+      // Use WebRTC service to initiate call
+      if (webRTCServiceRef.current) {
+        const call = await webRTCServiceRef.current.initiateCall(chatId, callType);
+        setCurrentCall(call);
+      } else {
+        // Fallback to direct implementation
+        // Get user media
+        const stream = await getUserMedia(callType);
+        
+        // Create peer connection
+        peerConnectionRef.current = createPeerConnection();
+        
+        // Add local stream tracks to peer connection
+        stream.getTracks().forEach(track => {
+          peerConnectionRef.current.addTrack(track, stream);
         });
-      }
 
+        // Create offer
+        const offer = await peerConnectionRef.current.createOffer();
+        await peerConnectionRef.current.setLocalDescription(offer);
+
+        // Store call data
+        const callData = {
+          id: Date.now().toString(),
+          chatId,
+          callType,
+          startTime: new Date(),
+          isOutgoing: true
+        };
+        
+        setCurrentCall(callData);
+
+        // Emit call initiation (backend expects different format)
+        if (socket) {
+          socket.emit('initiate_call', {
+            chatid: chatId,
+            callType,
+            receiverId: chatId, // For now, using chatId as receiverId - you may need to extract actual receiverId
+            callId: callData.id
+          });
+        }
+      }
     } catch (error) {
       console.error('Error starting call:', error);
       setCallState(CALL_STATES.FAILED);
@@ -219,39 +391,44 @@ export function CallProvider({ children }) {
     try {
       setCallState(CALL_STATES.CONNECTED);
       
-      // Get user media
-      const stream = await getUserMedia(callData.callType);
-      
-      // Create peer connection
-      peerConnectionRef.current = createPeerConnection();
-      
-      // Add local stream tracks
-      stream.getTracks().forEach(track => {
-        peerConnectionRef.current.addTrack(track, stream);
-      });
-
-      // Set remote description
-      await peerConnectionRef.current.setRemoteDescription(callData.offer);
-
-      // Create answer
-      const answer = await peerConnectionRef.current.createAnswer();
-      await peerConnectionRef.current.setLocalDescription(answer);
-
-      // Update call data
-      setCurrentCall({
-        ...callData,
-        isOutgoing: false,
-        acceptTime: new Date()
-      });
-
-      // Emit answer
-      if (socket) {
-        socket.emit('answer_call', {
-          callId: callData.id,
-          answer
+      // Use WebRTC service to answer call
+      if (webRTCServiceRef.current) {
+        await webRTCServiceRef.current.answerCall(true);
+      } else {
+        // Fallback to direct implementation
+        // Get user media
+        const stream = await getUserMedia(callData.callType);
+        
+        // Create peer connection
+        peerConnectionRef.current = createPeerConnection();
+        
+        // Add local stream tracks
+        stream.getTracks().forEach(track => {
+          peerConnectionRef.current.addTrack(track, stream);
         });
-      }
 
+        // Set remote description
+        await peerConnectionRef.current.setRemoteDescription(callData.offer);
+
+        // Create answer
+        const answer = await peerConnectionRef.current.createAnswer();
+        await peerConnectionRef.current.setLocalDescription(answer);
+
+        // Update call data
+        setCurrentCall({
+          ...callData,
+          isOutgoing: false,
+          acceptTime: new Date()
+        });
+
+        // Emit answer
+        if (socket) {
+          socket.emit('answer_call', {
+            callId: callData.id,
+            answer
+          });
+        }
+      }
     } catch (error) {
       console.error('Error answering call:', error);
       declineCall(callData.id);
@@ -262,8 +439,13 @@ export function CallProvider({ children }) {
   const declineCall = useCallback((callId) => {
     setCallState(CALL_STATES.DECLINED);
     
-    if (socket) {
-      socket.emit('decline_call', { callId });
+    // Use WebRTC service to decline call
+    if (webRTCServiceRef.current) {
+      webRTCServiceRef.current.answerCall(false);
+    } else {
+      if (socket) {
+        socket.emit('decline_call', { callId });
+      }
     }
     
     setTimeout(() => {
@@ -309,12 +491,25 @@ export function CallProvider({ children }) {
       });
     }
 
+    // Use WebRTC service to end call
+    if (webRTCServiceRef.current) {
+      webRTCServiceRef.current.endCall('user_ended');
+    }
+
     // Reset state
     setCallState(CALL_STATES.ENDED);
     setCallDuration(0);
     setIsAudioMuted(false);
     setIsVideoMuted(false);
     setIsScreenSharing(false);
+    setDetailedStats({
+      packetLoss: 0,
+      jitter: 0,
+      rtt: 0,
+      bandwidth: 0,
+      resolution: '',
+      frameRate: 0
+    });
 
     setTimeout(() => {
       setCallState(CALL_STATES.IDLE);
@@ -474,6 +669,10 @@ export function CallProvider({ children }) {
     const handleCallFailed = (data) => {
       console.log('📞 Call failed:', data);
       setCallState(CALL_STATES.FAILED);
+      
+      // Show error notification
+      notificationService.error('Call Failed', data.message || 'The call could not be established. Please try again.');
+      
       setTimeout(() => {
         setCallState(CALL_STATES.IDLE);
         setCurrentCall(null);
@@ -483,6 +682,10 @@ export function CallProvider({ children }) {
     const handleCallTimeout = (data) => {
       console.log('📞 Call timeout:', data);
       setCallState(CALL_STATES.FAILED);
+      
+      // Show timeout notification
+      notificationService.warning('Call Timeout', 'The call timed out. The recipient may be offline or busy.');
+      
       setTimeout(() => {
         setCallState(CALL_STATES.IDLE);
         setCurrentCall(null);
@@ -511,6 +714,9 @@ export function CallProvider({ children }) {
     socket.on('call_error', (data) => {
       console.error('❌ Call error:', data);
       setCallState(CALL_STATES.FAILED);
+      
+      // Show error notification
+      notificationService.error('Call Error', data.error || 'An error occurred during the call.');
     });
     socket.on('webrtc_ice_candidate', handleIceCandidate);
     socket.on('webrtc_offer', async (data) => {
@@ -548,6 +754,28 @@ export function CallProvider({ children }) {
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   }, []);
+  
+  // Get quality indicator color
+  const getQualityColor = useCallback((quality) => {
+    switch (quality) {
+      case 'excellent': return 'text-green-400';
+      case 'good': return 'text-green-300';
+      case 'fair': return 'text-yellow-400';
+      case 'poor': return 'text-red-400';
+      default: return 'text-gray-400';
+    }
+  }, []);
+  
+  // Get quality icon
+  const getQualityIcon = useCallback((quality) => {
+    switch (quality) {
+      case 'excellent': return '●';
+      case 'good': return '●';
+      case 'fair': return '●';
+      case 'poor': return '●';
+      default: return '●';
+    }
+  }, []);
 
   const value = {
     // State
@@ -560,6 +788,7 @@ export function CallProvider({ children }) {
     isScreenSharing,
     callDuration,
     connectionQuality,
+    detailedStats,
     
     // Actions
     startCall,
@@ -575,7 +804,9 @@ export function CallProvider({ children }) {
     remoteVideoRef,
     
     // Utils
-    formatDuration
+    formatDuration,
+    getQualityColor,
+    getQualityIcon
   };
 
   return (
@@ -585,14 +816,85 @@ export function CallProvider({ children }) {
   );
 }
 
-// Custom hook to use call functionality
-export function useCall() {
+// Custom hook for WebRTC call state management with unified store integration
+export const useCall = () => {
   const context = useContext(CallContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error('useCall must be used within a CallProvider');
   }
   return context;
-}
+};
+
+// Enhanced Quality Indicator Component
+const QualityIndicator = ({ quality, detailedStats }) => {
+  const getQualityIcon = (quality) => {
+    switch (quality) {
+      case 'excellent':
+        return <Wifi className="w-4 h-4 text-green-500" />;
+      case 'good':
+        return <Wifi className="w-4 h-4 text-green-400" />;
+      case 'fair':
+        return <Wifi className="w-4 h-4 text-yellow-500" />;
+      case 'poor':
+        return <WifiOff className="w-4 h-4 text-red-500" />;
+      default:
+        return <Wifi className="w-4 h-4 text-gray-500" />;
+    }
+  };
+
+  const getQualityLabel = (quality) => {
+    switch (quality) {
+      case 'excellent': return 'Excellent';
+      case 'good': return 'Good';
+      case 'fair': return 'Fair';
+      case 'poor': return 'Poor';
+      default: return 'Unknown';
+    }
+  };
+
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <div className="flex items-center">
+        {getQualityIcon(quality)}
+        <span className="ml-1 font-medium">{getQualityLabel(quality)}</span>
+      </div>
+      
+      {/* Detailed stats tooltip */}
+      <div className="group relative">
+        <AlertTriangle className="w-3 h-3 text-gray-400 cursor-help" />
+        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover:block w-64 bg-gray-800 text-white text-xs rounded-lg p-3 z-10">
+          <div className="space-y-1">
+            <div className="flex justify-between">
+              <span>Packet Loss:</span>
+              <span>{detailedStats.packetLoss.toFixed(2)}%</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Jitter:</span>
+              <span>{detailedStats.jitter.toFixed(3)}s</span>
+            </div>
+            <div className="flex justify-between">
+              <span>RTT:</span>
+              <span>{(detailedStats.rtt * 1000).toFixed(0)}ms</span>
+            </div>
+            {detailedStats.resolution && (
+              <div className="flex justify-between">
+                <span>Resolution:</span>
+                <span>{detailedStats.resolution}</span>
+              </div>
+            )}
+            {detailedStats.frameRate > 0 && (
+              <div className="flex justify-between">
+                <span>Frame Rate:</span>
+                <span>{detailedStats.frameRate} fps</span>
+              </div>
+            )}
+          </div>
+          <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-800"></div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // Call UI Component
 export function CallInterface() {
@@ -606,6 +908,7 @@ export function CallInterface() {
     isScreenSharing,
     callDuration,
     connectionQuality,
+    detailedStats,
     answerCall,
     declineCall,
     endCall,
@@ -614,7 +917,9 @@ export function CallInterface() {
     toggleScreenShare,
     localVideoRef,
     remoteVideoRef,
-    formatDuration
+    formatDuration,
+    getQualityColor,
+    getQualityIcon
   } = useCall();
 
   if (callState === CALL_STATES.IDLE) return null;
@@ -639,10 +944,24 @@ export function CallInterface() {
           )}
           
           {callState === CALL_STATES.CONNECTED && (
-            <p className="text-sm text-gray-400">
-              {formatDuration(callDuration)} • {connectionQuality}
-            </p>
+            <div className="flex items-center justify-center gap-4 mt-2">
+              <p className="text-sm text-gray-400 flex items-center justify-center gap-2">
+                <span className={getQualityColor(connectionQuality)}>
+                  {getQualityIcon(connectionQuality)}
+                </span>
+                {formatDuration(callDuration)}
+              </p>
+              <QualityIndicator quality={connectionQuality} detailedStats={detailedStats} />
+            </div>
           )}
+          
+          {/* Connection quality warning */}
+          <div 
+            id="connection-warning"
+            className="mt-2 text-sm text-red-400 bg-red-900/50 rounded-lg p-2 hidden"
+          >
+            {/* Warning message will be populated by JavaScript */}
+          </div>
         </div>
 
         {/* Video containers */}
@@ -749,6 +1068,17 @@ export function CallInterface() {
             </>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+export default function WebRTCCallSystem({ chat, user, socket, onCallEnd }) {
+  return (
+    <div className="relative">
+      <CallInterface />
+      <div className="absolute inset-0">
+        {/* Your main content goes here */}
       </div>
     </div>
   );

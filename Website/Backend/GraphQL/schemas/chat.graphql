@@ -1,0 +1,141 @@
+# Chat-related GraphQL schema definitions
+
+extend type Query {
+  # Chat queries
+  getUserChats(profileid: String!, limit: Int, offset: Int): [Chat!]
+  searchChats(profileid: String!, query: String!): [Chat!]
+  getChatParticipants(chatid: String!): [Profile!]
+  getChatAdmins(chatid: String!): [Profile!]
+  
+  # Message queries
+  getMessagesByChatWithPagination(chatid: String!, limit: Int, cursor: String): MessageConnection
+  searchMessagesInChat(chatid: String!, query: String!): [Message!]
+  getUnreadMessageCount(profileid: String!): Int
+  getChatUnreadCount(chatid: String!, profileid: String!): Int
+  
+  # Call log queries
+  getCallHistoryByUser(profileid: String!, limit: Int, offset: Int): [CallLog!]
+  getCallHistoryByChat(chatid: String!, limit: Int, offset: Int): [CallLog!]
+  
+  # Scheduled message queries
+  getScheduledMessagesByChat(chatId: String!, limit: Int, offset: Int): [ScheduledMessage!]
+  getScheduledMessagesByUser(profileid: String!, limit: Int, offset: Int): [ScheduledMessage!]
+}
+
+extend type Mutation {
+  # Chat mutations
+  createGroupChat(input: CreateGroupChatInput!): Chat
+  updateChatSettings(chatid: String!, input: UpdateChatSettingsInput!): Chat
+  deleteChatWithMessages(chatid: String!): Response
+  addParticipantToChat(chatid: String!, profileid: String!): Chat
+  removeParticipantFromChat(chatid: String!, profileid: String!): Chat
+  makeAdmin(chatid: String!, profileid: String!): Chat
+  removeAdmin(chatid: String!, profileid: String!): Chat
+  muteChat(chatid: String!, profileid: String!): Chat
+  unmuteChat(chatid: String!, profileid: String!): Chat
+  
+  # Message mutations
+  sendMessageWithAttachments(input: SendMessageInput!): Message
+  editMessageWithHistory(messageid: String!, content: String!): Message
+  deleteMessageForEveryone(messageid: String!): Response
+  deleteMessageForMe(messageid: String!, profileid: String!): Response
+  reactToMessage(messageid: String!, emoji: String!): Message
+  removeReaction(messageid: String!, emoji: String!): Message
+  markMessageAsRead(messageid: String!, profileid: String!): Message
+  markChatAsRead(chatid: String!, profileid: String!): [Message!]
+  
+  # Call log mutations
+  updateCallLog(callId: String!, input: UpdateCallLogInput!): CallLog
+  deleteCallLog(callId: String!): Response
+  
+  # Scheduled message mutations
+  createScheduledMessageWithMedia(input: CreateScheduledMessageInput!): ScheduledMessage
+  updateScheduledMessage(scheduledMessageId: String!, input: UpdateScheduledMessageInput!): ScheduledMessage
+  cancelScheduledMessageWithNotification(scheduledMessageId: String!): ScheduledMessage
+}
+
+# Subscription extensions
+
+extend type Subscription {
+  # Enhanced chat subscriptions
+  typingIndicator(chatid: String!): TypingIndicator
+  userPresence(profileid: String!): UserPresence
+  chatTyping(chatid: String!): [Profile!]
+}
+
+# New types for subscriptions
+
+type TypingIndicator {
+  chatid: String!
+  profileid: String!
+  profile: Profile!
+  isTyping: Boolean!
+  timestamp: DateTime
+}
+
+type UserPresence {
+  profileid: String!
+  profile: Profile!
+  isOnline: Boolean!
+  lastSeen: DateTime
+  timestamp: DateTime
+}
+
+# Input types for chat mutations
+
+input CreateGroupChatInput {
+  creatorProfileId: String!
+  participantIds: [String!]!
+  chatName: String
+  chatAvatar: URL
+}
+
+input UpdateChatSettingsInput {
+  chatName: String
+  chatAvatar: URL
+  isPrivate: Boolean
+}
+
+input SendMessageInput {
+  chatid: String!
+  senderid: String!
+  messageType: String!
+  content: String
+  attachments: [MessageAttachmentInput!]
+  replyTo: String
+  mentions: [String!]
+  scheduledFor: DateTime
+}
+
+input UpdateCallLogInput {
+  status: String
+  endedAt: DateTime
+  endedBy: String
+  endReason: String
+}
+
+input CreateScheduledMessageInput {
+  chatid: String!
+  senderid: String!
+  messageType: String
+  content: String
+  attachments: [MessageAttachmentInput!]
+  scheduledFor: DateTime!
+  stickerData: StickerDataInput
+  gifData: GifDataInput
+  voiceData: VoiceDataInput
+  fileData: FileDataInput
+  linkPreviews: [LinkPreviewInput!]
+}
+
+input UpdateScheduledMessageInput {
+  messageType: String
+  content: String
+  attachments: [MessageAttachmentInput!]
+  scheduledFor: DateTime
+  stickerData: StickerDataInput
+  gifData: GifDataInput
+  voiceData: VoiceDataInput
+  fileData: FileDataInput
+  linkPreviews: [LinkPreviewInput!]
+}

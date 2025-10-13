@@ -6,6 +6,7 @@ import { useMutation, useQuery } from '@apollo/client/react';
 import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { gql } from '@apollo/client';
 import InstagramCommentSection from './InstagramCommentSection';
+import { LazyImage } from '../../../utils/performanceOptimizations';
 
 // Define mutations inline to avoid import issues
 const TOGGLE_POST_LIKE = gql`
@@ -431,7 +432,7 @@ export default function PostModal({ post, isOpen, onClose, theme: propTheme, sho
                 }}
               />
             ) : (
-              <img
+              <LazyImage
                 src={postImages[currentImageIndex] || post.postUrl || post.image}
                 alt={post.title || 'Post content'}
                 className="max-w-full max-h-full object-contain"

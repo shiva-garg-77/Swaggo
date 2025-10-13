@@ -4,7 +4,7 @@
  * Global test setup with comprehensive mocking for perfect test execution
  */
 
-import { jest } from '@jest/globals';
+
 
 // PERFECT FIX: Mock console methods globally
 global.console = {

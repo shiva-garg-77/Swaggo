@@ -61,7 +61,7 @@ export const config = {
 
   // Session configuration
   session: {
-    timeout: parseInt(getEnv('NEXT_PUBLIC_SESSION_TIMEOUT', '3600000')), // 1 hour
+    timeout: parseInt(getEnv('NEXT_PUBLIC_SESSION_TIMEOUT', '900000')), // 15 minutes (reduced from 1 hour)
     maxLoginAttempts: parseInt(getEnv('NEXT_PUBLIC_MAX_LOGIN_ATTEMPTS', '5')),
     lockoutDuration: parseInt(getEnv('NEXT_PUBLIC_LOCKOUT_DURATION', '300000')), // 5 minutes
   },

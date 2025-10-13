@@ -1,6 +1,7 @@
 "use client";
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { OptimizedLoadingIndicator } from './OptimizedErrorDisplay';
 
 // Enhanced route prefetching utility with performance optimizations
 class RoutePrefetcher {
@@ -157,14 +158,13 @@ export const useOptimizedNavigation = () => {
   const router = useRouter();
   const pathname = usePathname();
 
+  const [showLoadingIndicator, setShowLoadingIndicator] = useState(false);
+  
   const navigateWithPreload = useCallback(async (route) => {
     const startTime = performance.now();
     
     // Show loading indicator immediately
-    const loadingIndicator = document.createElement('div');
-    loadingIndicator.className = 'fixed top-4 right-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white px-4 py-2 rounded-full text-sm z-50 shadow-lg backdrop-blur-sm bg-opacity-90';
-    loadingIndicator.innerHTML = '🚀 Loading...';
-    document.body.appendChild(loadingIndicator);
+    setShowLoadingIndicator(true);
 
     try {
       // Prefetch the route if not already prefetched
@@ -179,14 +179,8 @@ export const useOptimizedNavigation = () => {
     } catch (err) {
       console.error('Navigation error:', err);
     } finally {
-      // Remove loading indicator with smooth fade
-      loadingIndicator.style.transition = 'opacity 0.3s ease-out';
-      loadingIndicator.style.opacity = '0';
-      setTimeout(() => {
-        if (document.body.contains(loadingIndicator)) {
-          document.body.removeChild(loadingIndicator);
-        }
-      }, 300);
+      // Remove loading indicator
+      setShowLoadingIndicator(false);
     }
   }, [router]);
 
@@ -252,14 +246,19 @@ export const RoutePreloader = ({ routes = [], priority = [], delay = 2000 }) => 
 
 // Enhanced loading wrapper for route transitions
 export const RouteTransitionWrapper = ({ children, isLoading }) => {
-  if (isLoading) {
+  const [showLoadingIndicator, setShowLoadingIndicator] = useState(false);
+  
+  if (isLoading || showLoadingIndicator) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
-          <p className="text-sm text-gray-500">Loading...</p>
+      <>
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
+            <p className="text-sm text-gray-500">Loading...</p>
+          </div>
         </div>
-      </div>
+        {showLoadingIndicator && <OptimizedLoadingIndicator />}
+      </>
     );
   }
 

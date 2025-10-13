@@ -122,7 +122,8 @@ export class HealthCheck {
             const uploadsDir = path.join(process.cwd(), 'uploads');
             
             // Check if uploads directory exists
-            if (!fs.existsSync(uploadsDir)) {
+            const exists = await fs.promises.access(uploadsDir, fs.constants.F_OK).then(() => true).catch(() => false);
+            if (!exists) {
                 return {
                     status: 'error',
                     message: 'Uploads directory does not exist'
@@ -132,8 +133,8 @@ export class HealthCheck {
             // Check if we can write to uploads directory
             const testFile = path.join(uploadsDir, '.health-check');
             try {
-                fs.writeFileSync(testFile, 'health-check');
-                fs.unlinkSync(testFile);
+                await fs.promises.writeFile(testFile, 'health-check');
+                await fs.promises.unlink(testFile);
             } catch (writeError) {
                 return {
                     status: 'error',
@@ -143,7 +144,7 @@ export class HealthCheck {
             }
 
             // Get disk space information
-            const stats = fs.statSync(uploadsDir);
+            const stats = await fs.promises.stat(uploadsDir);
             
             return {
                 status: 'healthy',

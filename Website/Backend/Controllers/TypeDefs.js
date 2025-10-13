@@ -208,6 +208,28 @@ type Message {
     messageStatus:String
     createdAt:String
     updatedAt:String
+    linkPreviews:[LinkPreview!]
+}
+
+type LinkPreview {
+    url: String!
+    title: String
+    description: String
+    image: String
+    siteName: String
+}
+
+type PageInfo {
+    hasNextPage:Boolean!
+    hasPreviousPage:Boolean!
+    startCursor:String
+    endCursor:String
+}
+
+type MessageConnection {
+    messages:[Message!]!
+    pageInfo:PageInfo!
+    totalCount:Int!
 }
 
 type Chat {
@@ -226,6 +248,77 @@ type Chat {
     createdAt:String
     updatedAt:String
 }
+
+type CallLog {
+    callId: String!
+    chatid: String!
+    callerId: String!
+    caller: Profiles!
+    receiverId: String
+    receiver: Profiles
+    participants: [Profiles!]!
+    callType: String!
+    status: String!
+    duration: Int!
+    startedAt: String
+    answeredAt: String
+    endedAt: String
+    endedBy: String
+    endReason: String
+    quality: CallQuality
+    techDetails: CallTechDetails
+    isRecorded: Boolean!
+    recordingUrl: String
+    hadScreenShare: Boolean!
+    notificationStatus: CallNotificationStatus
+    createdAt: String
+    updatedAt: String
+}
+
+type CallQuality {
+    overall: String
+    audio: String
+    video: String
+    connection: String
+}
+
+type CallTechDetails {
+    iceConnectionState: String
+    connectionState: String
+    signalingState: String
+    bandwidth: Bandwidth
+    codec: Codec
+    resolution: Resolution
+    frameRate: Int
+    jitter: Int
+    packetLoss: Int
+    latency: Int
+}
+
+type Bandwidth {
+    upload: Int
+    download: Int
+}
+
+type Codec {
+    audio: String
+    video: String
+}
+
+type Resolution {
+    width: Int
+    height: Int
+}
+
+type CallNotificationStatus {
+    sent: Boolean!
+    delivered: Boolean!
+    read: Boolean!
+    sentAt: String
+    deliveredAt: String
+    readAt: String
+}
+
 type UserSettings {
     profileid:String!
     allowMentions:Boolean!
@@ -342,7 +435,7 @@ type Query{
     getChatByParticipants(participants:[String!]!):Chat
     
     # Message Queries
-    getMessagesByChat(chatid:String!,limit:Int,offset:Int):[Message!]
+    getMessagesByChat(chatid:String!,limit:Int,cursor:String):MessageConnection
     getMessageById(messageid:String!):Message
     searchMessages(chatid:String!,query:String!):[Message!]
     
@@ -350,6 +443,12 @@ type Query{
     getUnreadMessageCount(profileid:String!):Int
     getChatUnreadCount(chatid:String!,profileid:String!):Int
     
+    # Call History Queries
+    getCallHistory(profileid:String!):[CallLog!]
+    getCallHistoryByChat(chatid:String!):[CallLog!]
+
+    getScheduledMessages(chatId: String): [ScheduledMessage!]
+    getScheduledMessage(scheduledMessageId: String!): ScheduledMessage
 }
 
 type PostStats {
@@ -554,6 +653,70 @@ type Mutation {
         storyid:String!
     ):Highlight
     
+    createScheduledMessage(input: ScheduledMessageInput!): ScheduledMessage
+    cancelScheduledMessage(scheduledMessageId: String!): ScheduledMessage
+
+}
+
+type ScheduledMessage {
+    scheduledMessageId: String!
+    chatid: String!
+    chat: Chat!
+    senderid: String!
+    sender: Profiles!
+    messageType: String!
+    content: String
+    attachments: [MessageAttachment!]
+    scheduledFor: String!
+    status: String!
+    retryCount: Int!
+    maxRetries: Int!
+    failureReason: String
+    stickerData: StickerData
+    gifData: GifData
+    voiceData: VoiceData
+    fileData: FileData
+    linkPreviews: [LinkPreview!]
+    createdAt: String
+    updatedAt: String
+}
+
+type StickerData {
+    id: String
+    name: String
+    preview: String
+    url: String
+    category: String
+}
+
+type GifData {
+    id: String
+    title: String
+    url: String
+    thumbnail: String
+    category: String
+    dimensions: GifDimensions
+}
+
+type GifDimensions {
+    width: Int
+    height: Int
+}
+
+type VoiceData {
+    duration: Int
+    size: Int
+    mimeType: String
+    fileId: String
+    url: String
+}
+
+type FileData {
+    fileId: String
+    name: String
+    size: Int
+    mimeType: String
+    url: String
 }
 
 input MessageAttachmentInput {
@@ -564,7 +727,79 @@ input MessageAttachmentInput {
     mimetype:String
 }
 
+input ScheduledMessageInput {
+    chatid: String!
+    messageType: String
+    content: String
+    attachments: [MessageAttachmentInput!]
+    scheduledFor: String!
+    stickerData: StickerDataInput
+    gifData: GifDataInput
+    voiceData: VoiceDataInput
+    fileData: FileDataInput
+    linkPreviews: [LinkPreviewInput!]
+}
+
+input StickerDataInput {
+    id: String
+    name: String
+    preview: String
+    url: String
+    category: String
+}
+
+input GifDataInput {
+    id: String
+    title: String
+    url: String
+    thumbnail: String
+    category: String
+    dimensions: GifDimensionsInput
+}
+
+input GifDimensionsInput {
+    width: Int
+    height: Int
+}
+
+input VoiceDataInput {
+    duration: Int
+    size: Int
+    mimeType: String
+    fileId: String
+    url: String
+}
+
+input FileDataInput {
+    fileId: String
+    name: String
+    size: Int
+    mimeType: String
+    url: String
+}
+
+input LinkPreviewInput {
+    url: String!
+    title: String
+    description: String
+    image: String
+    siteName: String
+}
 
 `;
 
 export default TypeDef
+
+
+
+
+
+
+
+
+
+
+
+
+
+

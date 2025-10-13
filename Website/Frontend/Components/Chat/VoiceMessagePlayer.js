@@ -17,8 +17,22 @@ export default function VoiceMessagePlayer({ voiceData, isOwn, timestamp }) {
 
   // Initialize audio when component mounts
   useEffect(() => {
-    if (voiceData?.url) {
-      const audio = new Audio(voiceData.url);
+    if (voiceData) {
+      // Create audio element from file URL or base64 data
+      let audioUrl;
+      
+      if (voiceData.url) {
+        // Use file URL if available (new optimized format)
+        audioUrl = voiceData.url;
+      } else if (voiceData.base64) {
+        // Fallback to base64 for backward compatibility
+        const mimeType = voiceData.mimeType || 'audio/webm';
+        audioUrl = `data:${mimeType};base64,${voiceData.base64}`;
+      } else {
+        return;
+      }
+      
+      const audio = new Audio(audioUrl);
       audio.preload = 'metadata';
       audioRef.current = audio;
       
@@ -55,7 +69,7 @@ export default function VoiceMessagePlayer({ voiceData, isOwn, timestamp }) {
         }
       };
     }
-  }, [voiceData?.url, volume]);
+  }, [voiceData, volume]);
 
   // Draw waveform
   useEffect(() => {
@@ -150,14 +164,23 @@ export default function VoiceMessagePlayer({ voiceData, isOwn, timestamp }) {
   };
 
   const handleDownload = () => {
-    if (voiceData?.url) {
-      const link = document.createElement('a');
-      link.href = voiceData.url;
-      link.download = `voice_message_${timestamp || Date.now()}.mp3`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+    let audioUrl;
+    
+    if (voiceData.url) {
+      audioUrl = voiceData.url;
+    } else if (voiceData.base64) {
+      const mimeType = voiceData.mimeType || 'audio/webm';
+      audioUrl = `data:${mimeType};base64,${voiceData.base64}`;
+    } else {
+      return;
     }
+    
+    const link = document.createElement('a');
+    link.href = audioUrl;
+    link.download = `voice_message_${timestamp || Date.now()}.${voiceData.mimeType?.split('/')[1] || 'webm'}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const formatTime = (seconds) => {
@@ -177,101 +200,62 @@ export default function VoiceMessagePlayer({ voiceData, isOwn, timestamp }) {
         disabled={isLoading}
         className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${
           isOwn 
-            ? 'bg-white/20 hover:bg-white/30 active:bg-white/40' 
-            : 'bg-blue-100 hover:bg-blue-200 active:bg-blue-300 dark:bg-blue-900 dark:hover:bg-blue-800'
-        } ${isLoading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+            ? 'bg-white/20 hover:bg-white/30 text-white' 
+            : 'bg-blue-500 hover:bg-blue-600 text-white'
+        } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
         aria-label={isPlaying ? 'Pause voice message' : 'Play voice message'}
       >
         {isLoading ? (
-          <div className={`w-5 h-5 border-2 border-current border-r-transparent rounded-full animate-spin ${
-            isOwn ? 'text-white' : 'text-blue-600 dark:text-blue-400'
-          }`} />
+          <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
         ) : isPlaying ? (
-          <Pause className={`w-5 h-5 ${
-            isOwn ? 'text-white' : 'text-blue-600 dark:text-blue-400'
-          }`} />
+          <Pause size={16} />
         ) : (
-          <Play className={`w-5 h-5 ml-0.5 ${
-            isOwn ? 'text-white' : 'text-blue-600 dark:text-blue-400'
-          }`} />
+          <Play size={16} className="ml-0.5" />
         )}
       </button>
 
-      {/* Waveform */}
-      <div className="flex-1 relative">
+      {/* Progress/Waveform */}
+      <div className="flex-1 flex items-center gap-3">
         <canvas
           ref={canvasRef}
-          width={200}
-          height={40}
-          className="w-full h-10 cursor-pointer rounded"
+          width={120}
+          height={30}
           onClick={handleProgressClick}
-          role="progressbar"
-          aria-valuenow={currentTime}
-          aria-valuemin={0}
-          aria-valuemax={duration}
-          aria-label="Voice message progress"
+          className="cursor-pointer"
+          aria-label="Voice message waveform"
         />
         
-        {/* Duration */}
-        <div className={`text-xs mt-1 flex justify-between ${
-          isOwn ? 'text-white/70' : 'text-gray-500 dark:text-gray-400'
-        }`}>
-          <span className="tabular-nums">
-            {formatTime(currentTime)}
-          </span>
-          <span className="tabular-nums">
-            {formatTime(duration || voiceData?.duration || 0)}
-          </span>
+        {/* Time */}
+        <div className="text-xs font-mono min-w-[36px]">
+          {formatTime(currentTime)} / {formatTime(duration)}
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="flex items-center gap-1">
-        {/* Volume/Mute Button */}
-        <button
-          onClick={toggleMute}
-          className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${
-            isOwn 
-              ? 'hover:bg-white/20 active:bg-white/30' 
-              : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-gray-700'
-          }`}
-          aria-label={isMuted ? 'Unmute' : 'Mute'}
-        >
-          {isMuted ? (
-            <VolumeX className={`w-4 h-4 ${
-              isOwn ? 'text-white/70' : 'text-gray-600 dark:text-gray-400'
-            }`} />
-          ) : (
-            <Volume2 className={`w-4 h-4 ${
-              isOwn ? 'text-white/70' : 'text-gray-600 dark:text-gray-400'
-            }`} />
-          )}
-        </button>
+      {/* Volume Control */}
+      <button
+        onClick={toggleMute}
+        className={`p-1.5 rounded-full transition-colors ${
+          isOwn 
+            ? 'hover:bg-white/20 text-white' 
+            : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300'
+        }`}
+        aria-label={isMuted ? 'Unmute' : 'Mute'}
+      >
+        {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+      </button>
 
-        {/* Download Button */}
-        <button
-          onClick={handleDownload}
-          className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${
-            isOwn 
-              ? 'hover:bg-white/20 active:bg-white/30' 
-              : 'hover:bg-gray-100 active:bg-gray-200 dark:hover:bg-gray-700'
-          }`}
-          aria-label="Download voice message"
-        >
-          <Download className={`w-4 h-4 ${
-            isOwn ? 'text-white/70' : 'text-gray-600 dark:text-gray-400'
-          }`} />
-        </button>
-      </div>
-
-      {/* Transcription (if available) */}
-      {voiceData?.transcription && (
-        <div className={`absolute -bottom-8 left-0 right-0 text-xs italic opacity-75 ${
-          isOwn ? 'text-white/60' : 'text-gray-500 dark:text-gray-400'
-        }`}>
-          "{voiceData.transcription}"
-        </div>
-      )}
+      {/* Download Button */}
+      <button
+        onClick={handleDownload}
+        className={`p-1.5 rounded-full transition-colors ${
+          isOwn 
+            ? 'hover:bg-white/20 text-white' 
+            : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300'
+        }`}
+        aria-label="Download voice message"
+      >
+        <Download size={16} />
+      </button>
     </div>
   );
 }

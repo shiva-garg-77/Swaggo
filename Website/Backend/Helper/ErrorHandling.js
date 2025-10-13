@@ -1,135 +1,35 @@
 import { GraphQLError } from 'graphql';
+import UnifiedErrorHandling from './UnifiedErrorHandling.js';
 
 /**
  * Centralized error handling for GraphQL resolvers
+ * Uses the unified error handling system
  */
 
-export class AppError extends Error {
-    constructor(message, code = 'INTERNAL_ERROR', statusCode = 500, isOperational = true) {
-        super(message);
-        this.name = this.constructor.name;
-        this.code = code;
-        this.statusCode = statusCode;
-        this.isOperational = isOperational;
-        Error.captureStackTrace(this, this.constructor);
-    }
-}
+// Export all error classes from unified system
+export const {
+    AppError,
+    AuthenticationError,
+    AuthorizationError,
+    ValidationError,
+    NotFoundError,
+    ConflictError,
+    RateLimitError
+} = UnifiedErrorHandling;
 
-export class AuthenticationError extends AppError {
-    constructor(message = 'Authentication required') {
-        super(message, 'UNAUTHENTICATED', 401);
-    }
-}
+// Export error codes and status codes
+export const { ERROR_CODES, HTTP_STATUS_CODES } = UnifiedErrorHandling;
 
-export class AuthorizationError extends AppError {
-    constructor(message = 'Insufficient permissions') {
-        super(message, 'FORBIDDEN', 403);
-    }
-}
-
-export class ValidationError extends AppError {
-    constructor(message = 'Invalid input') {
-        super(message, 'BAD_USER_INPUT', 400);
-    }
-}
-
-export class NotFoundError extends AppError {
-    constructor(message = 'Resource not found') {
-        super(message, 'NOT_FOUND', 404);
-    }
-}
-
-export class ConflictError extends AppError {
-    constructor(message = 'Resource conflict') {
-        super(message, 'CONFLICT', 409);
-    }
-}
-
-export class RateLimitError extends AppError {
-    constructor(message = 'Rate limit exceeded') {
-        super(message, 'RATE_LIMITED', 429);
-    }
-}
-
+// Use unified error handler for GraphQL
 export const handleGraphQLError = (error) => {
-    // Log error for monitoring
-    console.error('GraphQL Error:', {
-        message: error.message,
-        code: error.code,
-        stack: error.stack,
-        timestamp: new Date().toISOString()
-    });
-
-    // Return appropriate GraphQL error
-    if (error instanceof AppError) {
-        return new GraphQLError(error.message, {
-            extensions: {
-                code: error.code,
-                statusCode: error.statusCode
-            }
-        });
-    }
-
-    // Handle mongoose/database errors
-    if (error.name === 'ValidationError') {
-        const messages = Object.values(error.errors).map(e => e.message);
-        return new GraphQLError(`Validation failed: ${messages.join(', ')}`, {
-            extensions: { code: 'BAD_USER_INPUT' }
-        });
-    }
-
-    if (error.name === 'CastError') {
-        return new GraphQLError('Invalid ID format', {
-            extensions: { code: 'BAD_USER_INPUT' }
-        });
-    }
-
-    if (error.code === 11000) {
-        return new GraphQLError('Duplicate value not allowed', {
-            extensions: { code: 'CONFLICT' }
-        });
-    }
-
-    // Handle JWT errors
-    if (error.name === 'JsonWebTokenError') {
-        return new GraphQLError('Invalid token', {
-            extensions: { code: 'UNAUTHENTICATED' }
-        });
-    }
-
-    if (error.name === 'TokenExpiredError') {
-        return new GraphQLError('Token expired', {
-            extensions: { code: 'UNAUTHENTICATED' }
-        });
-    }
-
-    // Generic error for production
-    if (process.env.NODE_ENV === 'production') {
-        return new GraphQLError('Internal server error', {
-            extensions: { code: 'INTERNAL_ERROR' }
-        });
-    }
-
-    // Development: expose full error
-    return new GraphQLError(error.message, {
-        extensions: { 
-            code: 'INTERNAL_ERROR',
-            originalError: error.stack
-        }
-    });
+    return UnifiedErrorHandling.handleUnifiedError(error, 'graphql');
 };
 
 /**
- * Async error wrapper for resolvers
+ * Async error wrapper for resolvers using unified error handling
  */
 export const asyncHandler = (fn) => {
-    return async (...args) => {
-        try {
-            return await fn(...args);
-        } catch (error) {
-            throw handleGraphQLError(error);
-        }
-    };
+    return UnifiedErrorHandling.asyncHandler(fn, 'graphql');
 };
 
 /**
@@ -183,7 +83,7 @@ export const dbOperation = async (operation, errorMessage = 'Database operation 
         if (error.code === 11000) {
             throw new ConflictError('Duplicate entry not allowed');
         }
-        console.error('Database operation error:', error);
+        UnifiedErrorHandling.logError(error, 'database_operation', { errorMessage });
         throw new AppError(errorMessage);
     }
 };

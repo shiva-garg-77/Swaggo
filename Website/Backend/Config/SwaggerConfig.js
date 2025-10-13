@@ -12,6 +12,11 @@
 
 import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+// 🔧 PERFORMANCE FIX #32: Import Winston logger
+import appLogger from '../utils/logger.js';
 
 /**
  * Swagger configuration options
@@ -536,10 +541,11 @@ export function setupSwagger(app) {
     `);
   });
   
-  console.log('📚 Swagger documentation available at:');
-  console.log('   • Swagger UI: http://localhost:3001/api-docs');
-  console.log('   • ReDoc: http://localhost:3001/api-docs/redoc');
-  console.log('   • JSON Spec: http://localhost:3001/api-docs.json');
+  // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+  appLogger.info('📚 Swagger documentation available at:');
+  appLogger.info('   • Swagger UI: http://localhost:3001/api-docs');
+  appLogger.info('   • ReDoc: http://localhost:3001/api-docs/redoc');
+  appLogger.info('   • JSON Spec: http://localhost:3001/api-docs.json');
 }
 
 export { swaggerSpec, swaggerUiOptions };

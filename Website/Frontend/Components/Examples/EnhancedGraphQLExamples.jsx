@@ -28,6 +28,8 @@ import {
   SEND_MESSAGE 
 } from '../Chat/queries';
 
+import { LazyImage } from '../../utils/performanceOptimizations';
+
 /**
  * Enhanced Posts Component - Replaces your current HomeContent logic
  */
@@ -433,7 +435,7 @@ const PostCard = ({ post, onLike, likeLoading }) => (
       </div>
       
       {post.postUrl && (
-        <img 
+        <LazyImage 
           src={post.postUrl} 
           alt={post.title || 'Post'}
           className="w-full h-48 object-cover rounded-lg mb-3"
@@ -463,7 +465,7 @@ const PostCard = ({ post, onLike, likeLoading }) => (
 const ChatCard = ({ chat }) => (
   <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
     <div className="flex items-center space-x-3">
-      <img 
+      <LazyImage 
         src={chat.chatAvatar || '/default-chat.svg'} 
         alt={chat.chatName}
         className="w-12 h-12 rounded-full"

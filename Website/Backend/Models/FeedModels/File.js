@@ -74,6 +74,14 @@ const FileSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+    cloudProvider: {
+        type: String,
+        enum: ['local', 'google', 'dropbox', 'onedrive'],
+        default: 'local'
+    },
+    cloudFileId: {
+        type: String
+    },
     compressionApplied: {
         type: Boolean,
         default: false
@@ -90,7 +98,6 @@ const FileSchema = new mongoose.Schema({
 });
 
 // Indexes for performance
-FileSchema.index({ fileid: 1 }, { unique: true });
 FileSchema.index({ uploadedBy: 1, createdAt: -1 });
 FileSchema.index({ filename: 1 });
 FileSchema.index({ mimetype: 1 });
@@ -99,10 +106,13 @@ FileSchema.index({ isPublic: 1 });
 FileSchema.index({ expiresAt: 1 });
 FileSchema.index({ scanResult: 1 });
 FileSchema.index({ 'metadata.hash': 1 });
+FileSchema.index({ cloudProvider: 1 });
+FileSchema.index({ cloudFileId: 1 });
 
 // Compound indexes
 FileSchema.index({ uploadedBy: 1, isPublic: 1 });
 FileSchema.index({ uploadedBy: 1, fileType: 1 });
+FileSchema.index({ uploadedBy: 1, cloudProvider: 1 });
 
 // Update timestamp on save
 FileSchema.pre('save', function(next) {

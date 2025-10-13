@@ -9,37 +9,11 @@ export default {
   // Test environment configuration
   testEnvironment: './tests/PerfectTestEnvironment.js',
   
-  // Module settings for ES6 support
-  preset: 'ts-jest/presets/default-esm',
-  extensionsToTreatAsEsm: ['.js'],
-  
-  // Transform configuration
-  transform: {
-    '^.+\\.(js|jsx)$': ['babel-jest', {
-      presets: [
-        ['@babel/preset-env', {
-          targets: { node: 'current' },
-          modules: 'auto'
-        }]
-      ]
-    }]
-  },
-  
-  // Module resolution
-  moduleNameMapping: {
-    '^@/(.*)$': '<rootDir>/$1',
-    '^@config/(.*)$': '<rootDir>/Config/$1',
-    '^@models/(.*)$': '<rootDir>/Models/$1',
-    '^@controllers/(.*)$': '<rootDir>/Controllers/$1',
-    '^@middleware/(.*)$': '<rootDir>/Middleware/$1',
-    '^@services/(.*)$': '<rootDir>/Services/$1',
-    '^@utils/(.*)$': '<rootDir>/utils/$1'
-  },
-  
   // Test file patterns
   testMatch: [
     '<rootDir>/tests/**/*.test.js',
-    '<rootDir>/tests/**/*.spec.js'
+    '<rootDir>/tests/**/*.spec.js',
+    '<rootDir>/Controllers/__tests__/**/*.test.js'
   ],
   
   // Ignored patterns
@@ -60,14 +34,6 @@ export default {
   
   // Timeout settings for stable tests
   testTimeout: 10000,
-  
-  // Globals configuration
-  globals: {
-    'ts-jest': {
-      useESM: true,
-      isolatedModules: true
-    }
-  },
   
   // Clear mocks between tests
   clearMocks: true,

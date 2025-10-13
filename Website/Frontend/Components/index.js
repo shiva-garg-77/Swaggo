@@ -6,6 +6,9 @@ export { default as ChatSidebar } from './Chat/ChatSidebar';
 export { default as MessageArea } from './Chat/MessageArea';
 export { default as AdvancedMessageInput } from './Chat/AdvancedMessageInput';
 
+// Error Handling
+export { default as ErrorBoundary } from './Common/ErrorBoundary';
+
 // Profile Management  
 export { default as MacOSEditProfile } from './Settings/sections/MacOSEditProfile';
 

@@ -1,9 +1,12 @@
 import validator from 'validator';
 import DOMPurify from 'isomorphic-dompurify';
+import { ObjectId } from 'mongodb';
 
 /**
- * Input Validation and Sanitization Utilities
- * Prevents XSS, injection attacks, and data corruption
+ * Input validation utilities to prevent injection attacks
+ * 
+ * This utility provides functions to validate and sanitize user inputs
+ * before using them in database queries or other sensitive operations.
  */
 
 class InputValidator {
@@ -491,9 +494,124 @@ class InputValidator {
       } : null
     };
   }
+
+  /**
+   * Validates if a string is a valid MongoDB ObjectId
+   * @param {string} id - The ID to validate
+   * @returns {boolean} - True if valid, false otherwise
+   */
+  static isValidObjectId(id) {
+    if (!id || typeof id !== 'string') return false;
+    return ObjectId.isValid(id) && String(new ObjectId(id)) === id;
+  }
+
+  /**
+   * Validates if a string is a valid UUID
+   * @param {string} uuid - The UUID to validate
+   * @returns {boolean} - True if valid, false otherwise
+   */
+  static isValidUUID(uuid) {
+    if (!uuid || typeof uuid !== 'string') return false;
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(uuid);
+  }
+
+  /**
+   * Validates if a string is a safe profile ID (UUID format)
+   * @param {string} profileId - The profile ID to validate
+   * @returns {boolean} - True if valid, false otherwise
+   */
+  static isValidProfileId(profileId) {
+    return this.isValidUUID(profileId);
+  }
+
+  /**
+   * Validates if a string is a safe chat ID (UUID format)
+   * @param {string} chatId - The chat ID to validate
+   * @returns {boolean} - True if valid, false otherwise
+   */
+  static isValidChatId(chatId) {
+    return this.isValidUUID(chatId);
+  }
+
+  /**
+   * Validates if a string is a safe message ID (UUID format)
+   * @param {string} messageId - The message ID to validate
+   * @returns {boolean} - True if valid, false otherwise
+   */
+  static isValidMessageId(messageId) {
+    return this.isValidUUID(messageId);
+  }
+
+  /**
+   * Sanitizes a string by removing potentially dangerous characters
+   * @param {string} input - The input string to sanitize
+   * @returns {string} - The sanitized string
+   */
+  static sanitizeString(input) {
+    if (!input || typeof input !== 'string') return '';
+    
+    // Remove null bytes and other potentially dangerous characters
+    return input
+      .replace(/\0/g, '') // Remove null bytes
+      .replace(/\$/g, '') // Remove dollar signs (MongoDB operators)
+      .replace(/{/g, '')  // Remove opening braces
+      .replace(/}/g, '')  // Remove closing braces
+      .trim();
+  }
+
+  /**
+   * Validates an array of IDs
+   * @param {Array} ids - Array of IDs to validate
+   * @returns {Array} - Array of valid IDs
+   */
+  static validateIdArray(ids) {
+    if (!Array.isArray(ids)) return [];
+    
+    return ids
+      .filter(id => typeof id === 'string' && id.length > 0)
+      .map(id => this.sanitizeString(id))
+      .filter(id => this.isValidUUID(id));
+  }
+
+  /**
+   * Validates pagination parameters
+   * @param {number} limit - The limit parameter
+   * @param {number} offset - The offset parameter
+   * @param {number} maxLimit - Maximum allowed limit (default: 100)
+   * @returns {Object} - Validated limit and offset
+   */
+  static validatePagination(limit, offset, maxLimit = 100) {
+    const validatedLimit = Math.min(Math.max(parseInt(limit) || 20, 1), maxLimit);
+    const validatedOffset = Math.max(parseInt(offset) || 0, 0);
+    
+    return {
+      limit: validatedLimit,
+      offset: validatedOffset
+    };
+  }
+
+  /**
+   * Validates search query parameters
+   * @param {string} query - The search query
+   * @param {number} maxLength - Maximum allowed query length (default: 100)
+   * @returns {string} - Validated and sanitized query
+   */
+  static validateSearchQuery(query, maxLength = 100) {
+    if (!query || typeof query !== 'string') return '';
+    
+    // Trim and limit length
+    let sanitizedQuery = query.trim().substring(0, maxLength);
+    
+    // Remove potentially dangerous characters
+    sanitizedQuery = sanitizedQuery
+      .replace(/[\0\x00-\x1f\x7f]/g, '') // Remove control characters
+      .replace(/\$/g, '') // Remove MongoDB operators
+      .replace(/{/g, '')
+      .replace(/}/g, '');
+    
+    return sanitizedQuery;
+  }
 }
 
-// Create singleton instance
-const inputValidator = new InputValidator();
-
-export default inputValidator;
+export default InputValidator;

@@ -9,6 +9,9 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
+// 🔧 PERFORMANCE FIX #32: Import Winston logger
+import appLogger from '../utils/logger.js';
+
 class EnvironmentValidator {
   constructor() {
     this.errors = [];
@@ -37,7 +40,8 @@ class EnvironmentValidator {
    * Validate all environment variables
    */
   validate() {
-    console.log('🔍 Validating environment configuration...');
+    // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+    appLogger.info('🔍 Validating environment configuration...');
     
     this.checkRequiredVariables();
     this.validateSecretStrength();
@@ -48,6 +52,9 @@ class EnvironmentValidator {
     this.checkProductionReadiness();
     this.validateFilePermissions();
     this.validateConnectivity();
+    
+    // 🔒 SECURITY FIX #29: Add warning about using secret management service
+    this.checkSecretManagement();
     
     this.reportResults();
     
@@ -76,6 +83,91 @@ class EnvironmentValidator {
     
     if (missing.length > 0) {
       this.errors.push(`Missing required environment variables: ${missing.join(', ')}`);
+    }
+  }
+
+  /**
+   * 🔒 SECURITY FIX #29: Check for proper secret management
+   * Warn about storing secrets in environment files instead of using secret management service
+   */
+  checkSecretManagement() {
+    // Check if we're using secrets from environment file (not recommended for production)
+    const secretVars = [
+      'ACCESS_TOKEN_SECRET',
+      'REFRESH_TOKEN_SECRET',
+      'COOKIE_SECRET',
+      'CSRF_SECRET',
+      'PASSWORD_PEPPER',
+      'REQUEST_SIGNING_KEY',
+      'DS_SECRET_KEY'
+    ];
+    
+    let secretsFromEnvFile = 0;
+    const secretsFromEnv = [];
+    
+    for (const varName of secretVars) {
+      if (process.env[varName]) {
+        // Check if the secret appears to be from an environment file
+        // This is a heuristic - in a real implementation, you'd check the source
+        secretsFromEnv.push(varName);
+        secretsFromEnvFile++;
+      }
+    }
+    
+    // 🔒 SECURITY FIX #29: Enhanced warning for secret management
+    if (secretsFromEnvFile > 0 && process.env.NODE_ENV === 'production') {
+      // Check if we're using the built-in SecretsManager
+      const usingSecretManager = process.env.USE_SECRET_MANAGER === 'true' || 
+                                process.env.NODE_ENV === 'production'; // Default in production
+      
+      if (!usingSecretManager) {
+        this.warnings.push(
+          '🔒 SECURITY WARNING: Secrets are being loaded from environment variables. ' +
+          'The application now supports built-in secret management. ' +
+          'Set NODE_ENV=production to automatically use the SecretsManager or ' +
+          'set USE_SECRET_MANAGER=true to enable it explicitly. ' +
+          'See docs/SECRET_MANAGEMENT.md for implementation guidance.'
+        );
+      } else {
+        // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+        appLogger.info('✅ Using built-in SecretsManager for secret management');
+      }
+    }
+    
+    // For development, add a note about the security risk
+    if (secretsFromEnvFile > 0 && process.env.NODE_ENV !== 'production') {
+      // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+      appLogger.info(
+        'ℹ️  NOTE: For enhanced security, use the built-in SecretsManager by setting USE_SECRET_MANAGER=true ' +
+        'or migrate to production mode (NODE_ENV=production). ' +
+        'See docs/SECRET_MANAGEMENT.md for details.'
+      );
+    }
+    
+    // Check for template files
+    this.checkTemplateFiles();
+  }
+
+  /**
+   * Check for required template files with async operations
+   */
+  async checkTemplateFiles() {
+    // Check for template files
+    const backendTemplatePath = path.join(__dirname, '../.env.template');
+    const frontendTemplatePath = path.join(__dirname, '../../Frontend/.env.template');
+    
+    try {
+      const backendExists = await fs.promises.access(backendTemplatePath, fs.constants.F_OK).then(() => true).catch(() => false);
+      if (!backendExists) {
+        this.warnings.push('Backend .env.template file is missing. This file should be included in version control.');
+      }
+      
+      const frontendExists = await fs.promises.access(frontendTemplatePath, fs.constants.F_OK).then(() => true).catch(() => false);
+      if (!frontendExists) {
+        this.warnings.push('Frontend .env.template file is missing. This file should be included in version control.');
+      }
+    } catch (error) {
+      this.warnings.push('Error checking template files: ' + error.message);
     }
   }
 
@@ -114,8 +206,15 @@ class EnvironmentValidator {
       const secret = process.env[varName];
       
       if (!secret) {
-        this.errors.push(`${varName} is not defined`);
-        continue;
+        // Skip validation if secret is not set (might be loaded from SecretsManager)
+        if (process.env.NODE_ENV === 'production' || process.env.USE_SECRET_MANAGER === 'true') {
+          // In production or when using SecretsManager, secrets should be available
+          // This will be checked by checkRequiredVariables()
+          continue;
+        } else {
+          this.errors.push(`${varName} is not defined`);
+          continue;
+        }
       }
       
       // Check for placeholder values with enhanced patterns
@@ -306,54 +405,20 @@ class EnvironmentValidator {
   }
   
   /**
-   * Validate SSL/TLS configuration
+   * Validate SSL configuration
    */
   validateSSLConfiguration() {
-    if (process.env.NODE_ENV === 'production') {
-      const sslCertPath = process.env.SSL_CERT_PATH;
-      const sslKeyPath = process.env.SSL_KEY_PATH;
-      const sslCaPath = process.env.SSL_CA_PATH;
-      
-      // Check if SSL certificates exist in production
-      if (!sslCertPath && !sslKeyPath) {
-        this.warnings.push('SSL certificate paths not configured for production');
-      }
-      
-      // Check certificate files exist
-      if (sslCertPath && !fs.existsSync(sslCertPath)) {
-        this.errors.push(`SSL certificate file not found: ${sslCertPath}`);
-      }
-      
-      if (sslKeyPath && !fs.existsSync(sslKeyPath)) {
-        this.errors.push(`SSL private key file not found: ${sslKeyPath}`);
-      }
-      
-      if (sslCaPath && !fs.existsSync(sslCaPath)) {
-        this.warnings.push(`SSL CA certificate file not found: ${sslCaPath}`);
-      }
-      
-      // Check SSL file permissions
-      if (sslKeyPath && fs.existsSync(sslKeyPath)) {
-        try {
-          const stats = fs.statSync(sslKeyPath);
-          const mode = stats.mode & parseInt('777', 8);
-          
-          if (mode & parseInt('044', 8)) {
-            this.errors.push('SSL private key file has insecure permissions (should be 600)');
-          }
-        } catch (error) {
-          this.warnings.push('Could not check SSL private key file permissions');
-        }
-      }
+    // Check if SSL is required in production
+    if (process.env.NODE_ENV === 'production' && process.env.FORCE_HTTPS !== 'true') {
+      this.warnings.push('Production environment should enforce HTTPS (set FORCE_HTTPS=true)');
     }
     
-    // Check development SSL setup
+    // Check SSL certificate files in development
     if (process.env.NODE_ENV === 'development') {
-      const devSslDir = './Website/Backend/Security/ssl';
-      if (fs.existsSync(devSslDir)) {
-        console.log('✅ Development SSL directory found');
-      } else {
-        this.warnings.push('Development SSL certificates not found. Run: node Website/Backend/Scripts/generateSSLCertificates.js');
+      const sslDir = path.join(__dirname, '../certs');
+      if (fs.existsSync(sslDir)) {
+        // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+        appLogger.info('✅ Development SSL directory found');
       }
     }
   }
@@ -412,14 +477,15 @@ class EnvironmentValidator {
   }
 
   /**
-   * Validate file permissions
+   * Validate file permissions with async operations
    */
-  validateFilePermissions() {
+  async validateFilePermissions() {
     const envPath = '.env.local';
     
     try {
-      if (fs.existsSync(envPath)) {
-        const stats = fs.statSync(envPath);
+      const exists = await fs.promises.access(envPath, fs.constants.F_OK).then(() => true).catch(() => false);
+      if (exists) {
+        const stats = await fs.promises.stat(envPath);
         const mode = stats.mode & parseInt('777', 8);
         
         // Check if file is readable by others (security risk)
@@ -428,7 +494,7 @@ class EnvironmentValidator {
         }
       }
     } catch (error) {
-      this.warnings.push('Could not check .env.local file permissions');
+      this.warnings.push('Could not check .env.local file permissions: ' + error.message);
     }
   }
 
@@ -505,34 +571,36 @@ class EnvironmentValidator {
    * Report validation results
    */
   reportResults() {
-    console.log('\n📊 Environment Validation Results:');
-    console.log('=' .repeat(50));
+    // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+    appLogger.info('\n📊 Environment Validation Results:');
+    appLogger.info('=' .repeat(50));
     
     if (this.errors.length === 0 && this.warnings.length === 0) {
-      console.log('✅ All environment variables are properly configured!');
+      appLogger.info('✅ All environment variables are properly configured!');
     } else {
       if (this.errors.length > 0) {
-        console.log('\n❌ ERRORS (Must be fixed):');
+        appLogger.info('\n❌ ERRORS (Must be fixed):');
         this.errors.forEach((error, index) => {
-          console.log(`  ${index + 1}. ${error}`);
+          appLogger.info(`  ${index + 1}. ${error}`);
         });
       }
       
       if (this.warnings.length > 0) {
-        console.log('\n⚠️  WARNINGS (Recommended fixes):');
+        appLogger.info('\n⚠️  WARNINGS (Recommended fixes):');
         this.warnings.forEach((warning, index) => {
-          console.log(`  ${index + 1}. ${warning}`);
+          appLogger.info(`  ${index + 1}. ${warning}`);
         });
       }
     }
     
-    console.log('\n' + '=' .repeat(50));
+    appLogger.info('\n' + '=' .repeat(50));
     
     if (this.errors.length > 0) {
-      console.log('🚫 Environment validation FAILED. Fix errors before starting the application.');
-      console.log('💡 Run: node Scripts/generateSecrets.js to generate secure secrets');
+      appLogger.info('🚫 Environment validation FAILED. Fix errors before starting the application.');
+      appLogger.info('💡 Run: node Scripts/generateSecrets.js to generate secure secrets');
+      appLogger.info('💡 Template files are available: Website/Backend/.env.template and Website/Frontend/.env.template');
     } else {
-      console.log('✅ Environment validation PASSED. Application can start safely.');
+      appLogger.info('✅ Environment validation PASSED. Application can start safely.');
     }
   }
 

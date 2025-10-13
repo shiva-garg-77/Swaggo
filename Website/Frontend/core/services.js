@@ -13,6 +13,7 @@ import notificationService from '../services/UnifiedNotificationService.js';
 import fileUploadService from '../services/FileUploadService';
 import errorHandlingService from '../services/ErrorHandlingService';
 import cacheService from '../services/CacheService';
+import UnifiedSocketService from '../services/UnifiedSocketService.js'; // Import UnifiedSocketService
 
 // Import utilities
 import DataTransformer from '../utils/DataTransformer';
@@ -102,6 +103,19 @@ export function registerServices() {
     }
   });
 
+  // Register UnifiedSocketService with dependency injection
+  container.singleton('socket', UnifiedSocketService, {
+    priority: 50,
+    tags: ['application', 'networking'],
+    interfaces: ['ISocketService'],
+    dependencies: ['notification'], // Inject notification service to avoid circular dependency
+    factory: (notification) => new UnifiedSocketService(notification), // Factory function to inject dependencies
+    metadata: {
+      description: 'Unified Socket.IO service with proper dependency injection',
+      version: '3.2.0'
+    }
+  });
+
   // Utility Services (low priority)
   container.singleton('dataTransformer', DataTransformer, {
     priority: 50,
@@ -121,6 +135,7 @@ export function registerServices() {
   container.alias('transformer', 'dataTransformer');
   container.alias('uploads', 'fileUpload');
   container.alias('rtc', 'webrtc');
+  container.alias('socketService', 'socket'); // Alias for socket service
 
   console.log('✅ All services registered successfully');
 }

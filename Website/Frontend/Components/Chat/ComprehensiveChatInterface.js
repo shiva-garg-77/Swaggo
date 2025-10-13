@@ -2,12 +2,12 @@
 
 import React, { useState, useEffect, useRef, useCallback, Suspense, useMemo, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Send, Phone, Video, MoreVertical, Smile, Paperclip, Mic, MicOff, 
-  Image, FileText, Heart, Reply, Copy, Forward, Trash2, Download, 
-  Volume2, Pause, Play, Camera, Gift, Zap, MessageCircle, Share2, 
-  Eye, EyeOff, Shield, Settings, Search, Plus, Users, Bell, 
-  Palette, Type, Moon, Sun, Translate, Bot, Pin, Archive, 
+import {
+  Send, Phone, Video, MoreVertical, Smile, Paperclip, Mic, MicOff,
+  Image, FileText, Heart, Reply, Copy, Forward, Trash2, Download,
+  Volume2, Pause, Play, Camera, Gift, Zap, MessageCircle, Share2,
+  Eye, EyeOff, Shield, Settings, Search, Plus, Users, Bell,
+  Palette, Type, Moon, Sun, Translate, Bot, Pin, Archive,
   VolumeX, Flag, X, ChevronDown, ChevronUp, RotateCcw,
   Clock, Check, CheckCheck, Headphones, Monitor, Filter,
   Lock, Unlock, AlertTriangle, Star, Bookmark, Edit3,
@@ -18,13 +18,22 @@ import {
   BarChart3, Activity, Timer, UserCheck, ShieldCheck,
   UserX, Slash
 } from 'lucide-react';
+import cdnService from '../../services/CDNService';
+import { LazyImage } from '../../utils/performanceOptimizations';
 import { useTheme } from '../Helper/ThemeProvider';
-import { 
-  LazyEmojiPicker, 
-  LazyGifPanel, 
+import {
+  LazyEmojiPicker,
+  LazyGifPanel,
   LazyStickerPanel,
-  ChatPanelWrapper 
+  ChatPanelWrapper
 } from './LazyChatPanels';
+
+// Import CallHistory component
+import CallHistory from './CallHistory';
+import KeyboardShortcuts from './KeyboardShortcuts';
+import ConnectionStatus from './ConnectionStatus';
+import OfflineModeManager from './OfflineModeManager';
+import MessageBubble from './MessageBubble';
 
 // 🚀 Performance & Accessibility Enhancement Imports
 import { usePerformanceMonitoring } from '../Performance/AdvancedPerformanceOptimizer';
@@ -42,35 +51,34 @@ const CHAT_THEMES = [
   { id: 'dark', name: 'Dark', primary: '#1F2937', secondary: '#374151', preview: 'linear-gradient(135deg, #1F2937, #111827)' },
 ];
 
-const ComprehensiveChatInterface = ({ 
-  selectedChat, 
-  user, 
-  socket, 
-  isConnected, 
-  onStartCall, 
-  isCallActive, 
-  callType, 
-  onEndCall 
+const ComprehensiveChatInterface = ({
+  socket,
+  selectedChat,
+  user,
+  isCallActive,
+  isConnected,
+  onStartCall,
+  onEndCall
 }) => {
   const { theme } = useTheme();
-  
+
   // 🚀 Performance & Accessibility Hooks
   const { startRender: startTracking, endRender: endTracking, metrics } = usePerformanceMonitoring();
   const { announceToScreenReader, setFocusTarget, addKeyboardShortcut } = useAccessibility();
   const { updateMetric: recordMetric } = useDashboardPerformanceMonitoring();
-  
+
   // Create simple timer functions for performance tracking
   const startTimer = useCallback((name) => {
     if (process.env.NODE_ENV !== 'development') return null;
     return { name, start: performance.now() };
   }, []);
-  
+
   const endTimer = useCallback((name, timer) => {
     if (process.env.NODE_ENV !== 'development' || !timer) return;
     const duration = performance.now() - timer.start;
     recordMetric(`${name}_duration`, duration);
   }, [recordMetric]);
-  
+
   // Core Chat States
   const [messages, setMessages] = useState([]);
 
@@ -105,6 +113,7 @@ const ComprehensiveChatInterface = ({
   const [showMediaModal, setShowMediaModal] = useState(false);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
   const [showSearchPanel, setShowSearchPanel] = useState(false);
+  const [showCallHistoryPanel, setShowCallHistoryPanel] = useState(false);
 
   // Customization States
   const [selectedTheme, setSelectedTheme] = useState('default');
@@ -158,9 +167,10 @@ const ComprehensiveChatInterface = ({
   // Notes/Status States
   const [userNote, setUserNote] = useState('');
   const [noteExpiry, setNoteExpiry] = useState(24);
-  
+
   // Additional Settings States
   const [showThemesModal, setShowThemesModal] = useState(false);
+  const [showThemePanel, setShowThemePanel] = useState(false);
   const [showPinnedMessagesModal, setShowPinnedMessagesModal] = useState(false);
   const [archivedChats, setArchivedChats] = useState([]);
   const [blockedUsers, setBlockedUsers] = useState([]);
@@ -176,13 +186,13 @@ const ComprehensiveChatInterface = ({
   const recordingTimer = useRef(null);
   const renderTimerRef = useRef(null);
   const lastInteractionRef = useRef(Date.now());
-  
+
   // 🚀 Performance optimization - Memoized values
   const chatParticipants = useMemo(() => {
     if (!selectedChat?.participants) return [];
     return selectedChat.participants.filter(p => p.profileid !== user?.profileid);
   }, [selectedChat?.participants, user?.profileid]);
-  
+
   const messagesByDate = useMemo(() => {
     return messages.reduce((acc, message) => {
       const dateKey = new Date(message.timestamp).toDateString();
@@ -191,10 +201,10 @@ const ComprehensiveChatInterface = ({
       return acc;
     }, {});
   }, [messages]);
-  
+
   const unreadCount = useMemo(() => {
-    return messages.filter(msg => 
-      msg.senderId !== (user?.profileid || "me") && 
+    return messages.filter(msg =>
+      msg.senderId !== (user?.profileid || "me") &&
       msg.status !== 'read'
     ).length;
   }, [messages, user?.profileid]);
@@ -207,7 +217,7 @@ const ComprehensiveChatInterface = ({
       recordMetric('ComprehensiveChatInterface_messageCount', messages.length);
       recordMetric('ComprehensiveChatInterface_isConnected', isConnected ? 1 : 0);
     }
-    
+
     return () => {
       if (process.env.NODE_ENV === 'development') {
         endTracking('ComprehensiveChatInterface');
@@ -217,7 +227,7 @@ const ComprehensiveChatInterface = ({
       }
     };
   }, [selectedChat, messages.length, isConnected, recordMetric, startTimer, endTimer, startTracking, endTracking]);
-  
+
   // Scroll to bottom with performance tracking
   const scrollToBottom = useCallback(() => {
     if (process.env.NODE_ENV === 'development') {
@@ -232,7 +242,7 @@ const ComprehensiveChatInterface = ({
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
-  
+
   // ♿ Accessibility: Keyboard shortcuts and screen reader support
   useEffect(() => {
     // Add keyboard shortcuts
@@ -273,20 +283,20 @@ const ComprehensiveChatInterface = ({
         description: 'Edit last message (Ctrl+Up)'
       }
     ];
-    
+
     shortcuts.forEach(shortcut => addKeyboardShortcut(shortcut));
-    
+
     return () => {
       // Cleanup is handled by the accessibility provider
     };
   }, [addKeyboardShortcut, announceToScreenReader, inputText, selectedMedia.length, messages, user?.profileid]);
-  
+
   // ♿ Announce new messages to screen readers
   useEffect(() => {
     if (messages.length > 0) {
       const lastMessage = messages[messages.length - 1];
-      if (lastMessage.senderId !== (user?.profileid || "me") && 
-          lastMessage.timestamp > lastInteractionRef.current) {
+      if (lastMessage.senderId !== (user?.profileid || "me") &&
+        lastMessage.timestamp > lastInteractionRef.current) {
         announceToScreenReader(
           `New message from ${lastMessage.senderName}: ${lastMessage.content || lastMessage.type}`,
           'polite'
@@ -322,7 +332,7 @@ const ComprehensiveChatInterface = ({
           // Check if message already exists to prevent duplicates
           const exists = prev.find(msg => msg.id === data.message.messageid);
           if (exists) return prev;
-          
+
           const newMessage = {
             id: data.message.messageid,
             content: data.message.content,
@@ -370,13 +380,13 @@ const ComprehensiveChatInterface = ({
         if (msg.id === data.messageid) {
           const existingReactions = msg.reactions || [];
           const updatedReactions = [...existingReactions];
-          
+
           // Find if this user already reacted with this emoji
           const existingIndex = updatedReactions.findIndex(
-            r => r.emoji === data.reaction.emoji && 
-                r.users && r.users.includes(data.reaction.profileid)
+            r => r.emoji === data.reaction.emoji &&
+              r.users && r.users.includes(data.reaction.profileid)
           );
-          
+
           if (existingIndex > -1) {
             // Update existing reaction
             updatedReactions[existingIndex] = {
@@ -400,7 +410,7 @@ const ComprehensiveChatInterface = ({
               });
             }
           }
-          
+
           return { ...msg, reactions: updatedReactions };
         }
         return msg;
@@ -440,7 +450,7 @@ const ComprehensiveChatInterface = ({
     // Error handling
     socket.on('error', (error) => {
       console.error('Socket error:', error);
-      
+
       // Handle specific reaction errors
       if (typeof error === 'string' && error.includes('Message not found')) {
         console.warn('⚠️ Reaction failed: Message may have been deleted');
@@ -487,7 +497,7 @@ const ComprehensiveChatInterface = ({
       setRecordingTime(0);
       setVoiceWaveform([]);
     }
-    
+
     return () => {
       if (recordingTimer.current) {
         clearInterval(recordingTimer.current);
@@ -495,31 +505,38 @@ const ComprehensiveChatInterface = ({
     };
   }, [isRecording]);
 
-  // Typing Indicator
+  // Typing Indicator with debouncing
   useEffect(() => {
     if (!socket || !selectedChat) return;
-    
-    let typingTimer;
-    if (inputText.trim() && !isTyping) {
-      setIsTyping(true);
+
+    // Use debounced typing from PerfectSocketProvider
+    if (inputText.trim()) {
+      // Start typing with debounce
       socket.emit('typing_start', selectedChat.chatid);
-    }
-    
-    if (isTyping) {
-      clearTimeout(typingTimer);
-      typingTimer = setTimeout(() => {
-        setIsTyping(false);
-        socket.emit('typing_stop', selectedChat.chatid);
-      }, 2000);
+    } else {
+      // Stop typing when input is empty
+      socket.emit('typing_stop', selectedChat.chatid);
     }
 
-    return () => {
+    // Clear existing timeout
+    let typingTimer;
+    if (typingTimer) {
       clearTimeout(typingTimer);
-      if (isTyping && socket) {
+    }
+
+    // Set new timeout to stop typing after inactivity
+    typingTimer = setTimeout(() => {
+      if (inputText.trim()) {
         socket.emit('typing_stop', selectedChat.chatid);
       }
+    }, 3000);
+
+    return () => {
+      if (typingTimer) {
+        clearTimeout(typingTimer);
+      }
     };
-  }, [inputText, isTyping, socket, selectedChat]);
+  }, [inputText, socket, selectedChat]);
 
   // AI Suggestions
   useEffect(() => {
@@ -545,25 +562,25 @@ const ComprehensiveChatInterface = ({
     console.log('Socket connected:', socket?.connected);
     console.log('Selected chat:', selectedChat?.chatid);
     console.log('User:', user?.username);
-    
+
     if (!socket) {
       console.error('❌ Cannot start call: Socket not available');
       alert('Chat connection not available. Please refresh the page.');
       return;
     }
-    
+
     if (!socket.connected) {
       console.error('❌ Cannot start call: Socket not connected');
       alert('Not connected to chat server. Please wait for connection.');
       return;
     }
-    
+
     if (!selectedChat) {
       console.error('❌ Cannot start call: No chat selected');
       alert('No chat selected for call.');
       return;
     }
-    
+
     if (!user) {
       console.error('❌ Cannot start call: No user data');
       alert('User data not available.');
@@ -575,17 +592,17 @@ const ComprehensiveChatInterface = ({
       p => p.profileid !== user?.profileid
     ) || [];
     const receiverId = otherParticipants.length > 0 ? otherParticipants[0].profileid : null;
-    
+
     if (!receiverId) {
       console.error('❌ Cannot start call: No recipient found');
       alert('No recipient found in this chat.');
       return;
     }
-    
+
     const callId = `call_${Date.now()}_${Math.random()}`;
     console.log(`Starting ${callType} call in chat:`, selectedChat.chatid);
     console.log('Calling user:', receiverId);
-    
+
     // Emit call initiation to other participants
     socket.emit('initiate_call', {
       callId,
@@ -598,7 +615,7 @@ const ComprehensiveChatInterface = ({
         profilePic: user.profilePic
       }
     });
-    
+
     // Start the call locally
     if (onStartCall) {
       onStartCall(callType);
@@ -607,9 +624,9 @@ const ComprehensiveChatInterface = ({
 
   const handleAnswerCall = useCallback((accept) => {
     if (!socket || !incomingCall) return;
-    
+
     console.log(`${accept ? 'Accepting' : 'Declining'} call:`, incomingCall.callId);
-    
+
     socket.emit('answer_call', {
       callId: incomingCall.callId,
       chatid: incomingCall.chatid,
@@ -620,23 +637,23 @@ const ComprehensiveChatInterface = ({
         profilePic: user?.profilePic
       }
     });
-    
+
     if (accept && onStartCall) {
       onStartCall(incomingCall.callType);
     }
-    
+
     setIncomingCall(null);
   }, [socket, incomingCall, user, onStartCall]);
 
   const handleEndCall = useCallback(() => {
     if (!socket || !selectedChat) return;
-    
+
     console.log('Ending call');
-    
+
     socket.emit('end_call', {
       chatid: selectedChat.chatid
     });
-    
+
     if (onEndCall) {
       onEndCall();
     }
@@ -646,35 +663,35 @@ const ComprehensiveChatInterface = ({
   const handleSendMessage = useCallback(() => {
     const sendTimer = process.env.NODE_ENV === 'development' ? startTimer('message_send') : null;
     lastInteractionRef.current = Date.now();
-    
+
     // Track user interaction
     if (process.env.NODE_ENV === 'development') {
       recordMetric('send_message_attempts', 1);
     }
-    
+
     console.log('📨 Attempting to send message...');
     console.log('Input text:', inputText);
     console.log('Socket available:', !!socket);
     console.log('Socket connected:', socket?.connected);
     console.log('Selected chat:', selectedChat?.chatid);
-    
+
     if (!inputText.trim() && selectedMedia.length === 0 && selectedFiles.length === 0) {
       console.log('⚠️ No content to send');
       return;
     }
-    
+
     if (!socket) {
       console.error('❌ Socket not available');
       alert('Chat connection not available. Please refresh the page.');
       return;
     }
-    
+
     if (!socket.connected) {
       console.error('❌ Socket not connected');
       alert('Not connected to chat server. Please wait for connection.');
       return;
     }
-    
+
     if (!selectedChat) {
       console.error('❌ No chat selected');
       alert('No chat selected');
@@ -684,7 +701,7 @@ const ComprehensiveChatInterface = ({
     const clientMessageId = `msg_${Date.now()}_${Math.random()}`;
     const messageContent = inputText.trim();
     const messageType = selectedMedia.length > 0 ? 'media' : selectedFiles.length > 0 ? 'file' : 'text';
-    
+
     // Create optimistic message for immediate UI update
     const optimisticMessage = {
       id: clientMessageId,
@@ -709,7 +726,7 @@ const ComprehensiveChatInterface = ({
 
     // Add optimistic message to UI
     setMessages(prev => [...prev, optimisticMessage]);
-    
+
     // Clear input and selected items
     setInputText('');
     setSelectedMedia([]);
@@ -722,12 +739,12 @@ const ComprehensiveChatInterface = ({
       p => p.profileid !== user?.profileid
     ) || [];
     const receiverId = otherParticipants.length > 0 ? otherParticipants[0].profileid : null;
-    
+
     console.log('Chat participants:', selectedChat.participants);
     console.log('Current user:', user?.profileid);
     console.log('Other participants:', otherParticipants);
     console.log('Recipient ID:', receiverId);
-    
+
     // Send message through Socket.io
     const messageData = {
       chatid: selectedChat.chatid,
@@ -747,10 +764,10 @@ const ComprehensiveChatInterface = ({
     };
 
     console.log('Sending message:', messageData);
-    
+
     socket.emit('send_message', messageData, (response) => {
       console.log('Message send response:', response);
-      
+
       if (response) {
         if (response.success) {
           // Update the optimistic message with server data
@@ -782,7 +799,7 @@ const ComprehensiveChatInterface = ({
     if (socket) {
       socket.emit('typing_stop', selectedChat.chatid);
     }
-    
+
     // End timer for message send
     if (process.env.NODE_ENV === 'development' && sendTimer) {
       endTimer('message_send', sendTimer);
@@ -810,7 +827,7 @@ const ComprehensiveChatInterface = ({
       sticker: sticker,
       status: 'sending'
     };
-    
+
     setMessages(prev => [...prev, newMessage]);
     setShowStickerPanel(false);
   }, [user]);
@@ -826,27 +843,27 @@ const ComprehensiveChatInterface = ({
       gif: gif,
       status: 'sending'
     };
-    
+
     setMessages(prev => [...prev, newMessage]);
     setShowGifPanel(false);
   }, [user]);
 
   const handleReaction = useCallback((messageId, emoji) => {
     if (!socket || !selectedChat) return;
-    
+
     // Optimistically update the UI
     const userId = user?.profileid || "me";
     setMessages(prev => prev.map(msg => {
       if (msg.id === messageId) {
         const existingReaction = msg.reactions?.find(r => r.emoji === emoji);
-        
+
         if (existingReaction) {
           if (existingReaction.users && existingReaction.users.includes(userId)) {
             // Remove reaction
             return {
               ...msg,
-              reactions: msg.reactions.map(r => 
-                r.emoji === emoji 
+              reactions: msg.reactions.map(r =>
+                r.emoji === emoji
                   ? { ...r, count: r.count - 1, users: r.users.filter(u => u !== userId) }
                   : r
               ).filter(r => r.count > 0)
@@ -855,8 +872,8 @@ const ComprehensiveChatInterface = ({
             // Add reaction
             return {
               ...msg,
-              reactions: msg.reactions.map(r => 
-                r.emoji === emoji 
+              reactions: msg.reactions.map(r =>
+                r.emoji === emoji
                   ? { ...r, count: r.count + 1, users: [...(r.users || []), userId] }
                   : r
               )
@@ -872,14 +889,14 @@ const ComprehensiveChatInterface = ({
       }
       return msg;
     }));
-    
+
     // Send reaction to server
     socket.emit('react_to_message', {
       messageid: messageId,
       emoji: emoji,
       chatid: selectedChat.chatid
     });
-    
+
     setShowReactionPicker(null);
   }, [user, socket, selectedChat]);
 
@@ -887,7 +904,7 @@ const ComprehensiveChatInterface = ({
     if (isRecording) {
       // Stop recording
       setIsRecording(false);
-      
+
       // Create voice message
       const newMessage = {
         id: Date.now(),
@@ -903,7 +920,7 @@ const ComprehensiveChatInterface = ({
         },
         status: 'sending'
       };
-      
+
       setMessages(prev => [...prev, newMessage]);
     } else {
       // Start recording
@@ -938,7 +955,7 @@ const ComprehensiveChatInterface = ({
         }
         break;
       case 'pin':
-        setMessages(prev => prev.map(m => 
+        setMessages(prev => prev.map(m =>
           m.id === messageId ? { ...m, isPinned: !m.isPinned } : m
         ));
         break;
@@ -952,9 +969,9 @@ const ComprehensiveChatInterface = ({
   }, [messages, user]);
 
   const formatTime = (timestamp) => {
-    return new Date(timestamp).toLocaleTimeString([], { 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    return new Date(timestamp).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit'
     });
   };
 
@@ -963,14 +980,14 @@ const ComprehensiveChatInterface = ({
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
-  
+
   // Settings Panel Handlers
   const handleMoreThemes = useCallback(() => {
     console.log('Opening theme selector modal...');
     setShowThemesModal(true);
     setShowSettingsPanel(false);
   }, []);
-  
+
   const handlePinnedMessages = useCallback(() => {
     console.log('Opening pinned messages modal...');
     const pinned = messages.filter(msg => msg.isPinned);
@@ -978,112 +995,101 @@ const ComprehensiveChatInterface = ({
     setShowPinnedMessagesModal(true);
     setShowSettingsPanel(false);
   }, [messages]);
-  
+
   const handleArchiveChat = useCallback(() => {
     if (!selectedChat) return;
-    
+
     const action = chatArchived ? 'unarchive' : 'archive';
     console.log(`${action} chat:`, selectedChat.chatid);
-    
+
     setChatArchived(!chatArchived);
-    
+
     if (!chatArchived) {
       setArchivedChats(prev => [...prev, selectedChat.chatid]);
     } else {
       setArchivedChats(prev => prev.filter(id => id !== selectedChat.chatid));
     }
-    
+
     // Show confirmation message
     const message = chatArchived ? 'Chat unarchived' : 'Chat archived';
     alert(message);
-    
+
     setShowSettingsPanel(false);
   }, [selectedChat, chatArchived]);
-  
+
   const handleBlockUser = useCallback(() => {
     if (!selectedChat) return;
-    
+
     const otherParticipant = selectedChat.participants?.find(p => p !== user?.profileid);
     if (!otherParticipant) return;
-    
+
     const action = userBlocked ? 'unblock' : 'block';
-    const confirmMessage = userBlocked 
+    const confirmMessage = userBlocked
       ? `Unblock this user? You will be able to message each other again.`
       : `Block this user? You won't be able to message each other.`;
-    
+
     if (confirm(confirmMessage)) {
       console.log(`${action} user:`, otherParticipant);
-      
+
       setUserBlocked(!userBlocked);
-      
+
       if (!userBlocked) {
         setBlockedUsers(prev => [...prev, otherParticipant]);
       } else {
         setBlockedUsers(prev => prev.filter(id => id !== otherParticipant));
       }
-      
+
       // Show confirmation message
       const message = userBlocked ? 'User unblocked' : 'User blocked';
       alert(message);
-      
+
       setShowSettingsPanel(false);
     }
   }, [selectedChat, user, userBlocked]);
 
   if (!selectedChat) {
     return (
-      <div className={`flex-1 flex items-center justify-center ${
-        theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'
-      }`}>
+      <div className={`flex-1 flex items-center justify-center ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'
+        }`}>
         <div className="text-center">
           <div className={`w-32 h-32 mx-auto mb-6 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center`}>
             <MessageCircle className="w-16 h-16 text-white" />
           </div>
-          <h2 className={`text-2xl font-bold mb-2 ${
-            theme === 'dark' ? 'text-white' : 'text-gray-900'
-          }`}>
+          <h2 className={`text-2xl font-bold mb-2 ${theme === 'dark' ? 'text-white' : 'text-gray-900'
+            }`}>
             Welcome to SwagGo Chat
           </h2>
-          <p className={`text-lg ${
-            theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
-          }`}>
+          <p className={`text-lg ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+            }`}>
             {socket ? 'Chat is ready!' : 'Connecting to chat server...'}
           </p>
-          
+
           {/* Connection Status */}
           <div className="mt-4 flex items-center justify-center space-x-2">
-            <div className={`w-3 h-3 rounded-full ${
-              socket && isConnected ? 'bg-green-500' : 'bg-red-500'
-            }`} />
-            <span className={`text-sm ${
-              theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-            }`}>
+            <div className={`w-3 h-3 rounded-full ${socket && isConnected ? 'bg-green-500' : 'bg-red-500'
+              }`} />
+            <span className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+              }`}>
               {socket && isConnected ? 'Connected to server' : 'Not connected'}
             </span>
           </div>
-          
+
           <div className="mt-8 grid grid-cols-2 gap-4 max-w-md">
-            <div className={`p-4 rounded-xl ${
-              theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-            } shadow-lg`}>
+            <div className={`p-4 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+              } shadow-lg`}>
               <Shield className="w-8 h-8 text-blue-500 mb-2" />
-              <h3 className={`font-semibold ${
-                theme === 'dark' ? 'text-white' : 'text-gray-900'
-              }`}>Secure</h3>
-              <p className={`text-sm ${
-                theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-              }`}>End-to-end encrypted</p>
+              <h3 className={`font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'
+                }`}>Secure</h3>
+              <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                }`}>End-to-end encrypted</p>
             </div>
-            <div className={`p-4 rounded-xl ${
-              theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-            } shadow-lg`}>
+            <div className={`p-4 rounded-xl ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+              } shadow-lg`}>
               <Zap className="w-8 h-8 text-yellow-500 mb-2" />
-              <h3 className={`font-semibold ${
-                theme === 'dark' ? 'text-white' : 'text-gray-900'
-              }`}>Fast</h3>
-              <p className={`text-sm ${
-                theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-              }`}>Lightning quick delivery</p>
+              <h3 className={`font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'
+                }`}>Fast</h3>
+              <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                }`}>Lightning quick delivery</p>
             </div>
           </div>
         </div>
@@ -1092,15 +1098,13 @@ const ComprehensiveChatInterface = ({
   }
 
   return (
-    <div className={`flex-1 flex flex-col h-full ${
-      theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'
-    } transition-colors duration-300`}>
+    <div className={`flex-1 flex flex-col h-full ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'
+      } transition-colors duration-300`}>
       {/* Chat Header */}
-      <div className={`flex items-center justify-between p-4 border-b ${
-        theme === 'dark' 
-          ? 'bg-gray-900 border-gray-700' 
+      <div className={`flex items-center justify-between p-4 border-b ${theme === 'dark'
+          ? 'bg-gray-900 border-gray-700'
           : 'bg-white border-gray-200'
-      } shadow-sm`}>
+        } shadow-sm`}>
         <div className="flex items-center space-x-3">
           <div className="relative">
             <img
@@ -1113,15 +1117,13 @@ const ComprehensiveChatInterface = ({
             )}
           </div>
           <div>
-            <h3 className={`font-semibold ${
-              theme === 'dark' ? 'text-white' : 'text-gray-900'
-            }`}>
+            <h3 className={`font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'
+              }`}>
               {selectedChat.name}
               {chatNickname && <span className="text-red-500"> ({chatNickname})</span>}
             </h3>
-            <div className={`flex items-center space-x-2 text-sm ${
-              theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
-            }`}>
+            <div className={`flex items-center space-x-2 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'
+              }`}>
               {otherUserTyping ? (
                 <div className="flex items-center space-x-1">
                   <div className="flex space-x-1">
@@ -1156,11 +1158,10 @@ const ComprehensiveChatInterface = ({
           {/* Search Button */}
           <button
             onClick={() => setShowSearchPanel(!showSearchPanel)}
-            className={`p-2 rounded-full transition-colors ${
-              theme === 'dark'
+            className={`p-2 rounded-full transition-colors ${theme === 'dark'
                 ? 'hover:bg-gray-700 text-gray-300'
                 : 'hover:bg-gray-100 text-gray-600'
-            }`}
+              }`}
           >
             <Search className="w-5 h-5" />
           </button>
@@ -1169,11 +1170,10 @@ const ComprehensiveChatInterface = ({
           <button
             onClick={() => handleStartCall('voice')}
             disabled={isCallActive || !socket || !selectedChat}
-            className={`p-2 rounded-full transition-colors ${
-              theme === 'dark'
+            className={`p-2 rounded-full transition-colors ${theme === 'dark'
                 ? 'hover:bg-gray-700 text-gray-300'
                 : 'hover:bg-gray-100 text-gray-600'
-            } disabled:opacity-50`}
+              } disabled:opacity-50`}
           >
             <Phone className="w-5 h-5" />
           </button>
@@ -1182,11 +1182,10 @@ const ComprehensiveChatInterface = ({
           <button
             onClick={() => handleStartCall('video')}
             disabled={isCallActive || !socket || !selectedChat}
-            className={`p-2 rounded-full transition-colors ${
-              theme === 'dark'
+            className={`p-2 rounded-full transition-colors ${theme === 'dark'
                 ? 'hover:bg-gray-700 text-gray-300'
                 : 'hover:bg-gray-100 text-gray-600'
-            } disabled:opacity-50`}
+              } disabled:opacity-50`}
           >
             <Video className="w-5 h-5" />
           </button>
@@ -1195,11 +1194,10 @@ const ComprehensiveChatInterface = ({
           <div className="relative">
             <button
               onClick={() => setShowSettingsPanel(!showSettingsPanel)}
-              className={`p-2 rounded-full transition-colors ${
-                theme === 'dark'
+              className={`p-2 rounded-full transition-colors ${theme === 'dark'
                   ? 'hover:bg-gray-700 text-gray-300'
                   : 'hover:bg-gray-100 text-gray-600'
-              }`}
+                }`}
             >
               <MoreVertical className="w-5 h-5" />
             </button>
@@ -1211,22 +1209,19 @@ const ComprehensiveChatInterface = ({
                   initial={{ opacity: 0, scale: 0.95, y: -10 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                  className={`absolute right-0 top-12 w-64 ${
-                    theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
-                  } rounded-lg shadow-xl border z-50`}
+                  className={`absolute right-0 top-12 w-64 ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
+                    } rounded-lg shadow-xl border z-50`}
                 >
                   <div className="p-4 space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className={`text-sm font-medium ${
-                        theme === 'dark' ? 'text-white' : 'text-gray-900'
-                      }`}>
+                      <span className={`text-sm font-medium ${theme === 'dark' ? 'text-white' : 'text-gray-900'
+                        }`}>
                         Chat Settings
                       </span>
                       <button
                         onClick={() => setShowSettingsPanel(false)}
-                        className={`p-1 rounded ${
-                          theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
-                        }`}
+                        className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
+                          }`}
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -1236,19 +1231,16 @@ const ComprehensiveChatInterface = ({
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
                         <Eye className="w-4 h-4" />
-                        <span className={`text-sm ${
-                          theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                        }`}>Vanish Mode</span>
+                        <span className={`text-sm ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                          }`}>Vanish Mode</span>
                       </div>
                       <button
                         onClick={() => setVanishMode(!vanishMode)}
-                        className={`w-10 h-6 rounded-full transition-colors ${
-                          vanishMode ? 'bg-red-500' : theme === 'dark' ? 'bg-gray-600' : 'bg-gray-300'
-                        } relative`}
+                        className={`w-10 h-6 rounded-full transition-colors ${vanishMode ? 'bg-red-500' : theme === 'dark' ? 'bg-gray-600' : 'bg-gray-300'
+                          } relative`}
                       >
-                        <div className={`w-4 h-4 rounded-full bg-white transition-transform ${
-                          vanishMode ? 'transform translate-x-5' : 'transform translate-x-1'
-                        } mt-1`} />
+                        <div className={`w-4 h-4 rounded-full bg-white transition-transform ${vanishMode ? 'transform translate-x-5' : 'transform translate-x-1'
+                          } mt-1`} />
                       </button>
                     </div>
 
@@ -1256,27 +1248,23 @@ const ComprehensiveChatInterface = ({
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
                         <Lock className="w-4 h-4" />
-                        <span className={`text-sm ${
-                          theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                        }`}>Secret Chat</span>
+                        <span className={`text-sm ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                          }`}>Secret Chat</span>
                       </div>
                       <button
                         onClick={() => setSecretChat(!secretChat)}
-                        className={`w-10 h-6 rounded-full transition-colors ${
-                          secretChat ? 'bg-green-500' : theme === 'dark' ? 'bg-gray-600' : 'bg-gray-300'
-                        } relative`}
+                        className={`w-10 h-6 rounded-full transition-colors ${secretChat ? 'bg-green-500' : theme === 'dark' ? 'bg-gray-600' : 'bg-gray-300'
+                          } relative`}
                       >
-                        <div className={`w-4 h-4 rounded-full bg-white transition-transform ${
-                          secretChat ? 'transform translate-x-5' : 'transform translate-x-1'
-                        } mt-1`} />
+                        <div className={`w-4 h-4 rounded-full bg-white transition-transform ${secretChat ? 'transform translate-x-5' : 'transform translate-x-1'
+                          } mt-1`} />
                       </button>
                     </div>
 
                     {/* Theme Selector */}
                     <div>
-                      <label className={`text-sm font-medium ${
-                        theme === 'dark' ? 'text-white' : 'text-gray-900'
-                      }`}>
+                      <label className={`text-sm font-medium ${theme === 'dark' ? 'text-white' : 'text-gray-900'
+                        }`}>
                         Chat Theme
                       </label>
                       <div className="grid grid-cols-3 gap-2 mt-2">
@@ -1284,9 +1272,8 @@ const ComprehensiveChatInterface = ({
                           <button
                             key={chatTheme.id}
                             onClick={() => setSelectedTheme(chatTheme.id)}
-                            className={`w-full h-8 rounded-md ${
-                              selectedTheme === chatTheme.id ? 'ring-2 ring-blue-500' : ''
-                            }`}
+                            className={`w-full h-8 rounded-md ${selectedTheme === chatTheme.id ? 'ring-2 ring-blue-500' : ''
+                              }`}
                             style={{ background: chatTheme.preview }}
                           />
                         ))}
@@ -1296,25 +1283,23 @@ const ComprehensiveChatInterface = ({
                     <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
                       <button
                         onClick={handleMoreThemes}
-                        className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
-                          theme === 'dark'
+                        className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
                             ? 'hover:bg-gray-700 text-gray-300'
                             : 'hover:bg-gray-100 text-gray-700'
-                        }`}
+                          }`}
                       >
                         <div className="flex items-center space-x-2">
                           <Palette className="w-4 h-4" />
                           <span>More Themes</span>
                         </div>
                       </button>
-                      
-                      <button 
+
+                      <button
                         onClick={handlePinnedMessages}
-                        className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
-                          theme === 'dark'
+                        className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
                             ? 'hover:bg-gray-700 text-gray-300'
                             : 'hover:bg-gray-100 text-gray-700'
-                        }`}
+                          }`}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-2">
@@ -1326,28 +1311,26 @@ const ComprehensiveChatInterface = ({
                           </span>
                         </div>
                       </button>
-                      
-                      <button 
+
+                      <button
                         onClick={handleArchiveChat}
-                        className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
-                          theme === 'dark'
+                        className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
                             ? 'hover:bg-gray-700 text-gray-300'
                             : 'hover:bg-gray-100 text-gray-700'
-                        }`}
+                          }`}
                       >
                         <div className="flex items-center space-x-2">
                           <Archive className="w-4 h-4" />
                           <span>{chatArchived ? 'Unarchive Chat' : 'Archive Chat'}</span>
                         </div>
                       </button>
-                      
-                      <button 
+
+                      <button
                         onClick={handleBlockUser}
-                        className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
-                          userBlocked 
+                        className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${userBlocked
                             ? 'text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20'
                             : 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20'
-                        }`}
+                          }`}
                       >
                         <div className="flex items-center space-x-2">
                           {userBlocked ? <UserCheck className="w-4 h-4" /> : <UserX className="w-4 h-4" />}
@@ -1370,9 +1353,8 @@ const ComprehensiveChatInterface = ({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className={`border-b ${
-              theme === 'dark' ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'
-            }`}
+            className={`border-b ${theme === 'dark' ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'
+              }`}
           >
             <div className="p-4">
               <div className="relative">
@@ -1382,21 +1364,20 @@ const ComprehensiveChatInterface = ({
                   placeholder="Search in chat..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className={`w-full pl-10 pr-4 py-2 rounded-lg border ${
-                    theme === 'dark'
+                  className={`w-full pl-10 pr-4 py-2 rounded-lg border ${theme === 'dark'
                       ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400'
                       : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'
-                  } focus:ring-2 focus:ring-red-500 focus:border-red-500`}
+                    } focus:ring-2 focus:ring-red-500 focus:border-red-500`}
                 />
               </div>
               {searchQuery && (
                 <div className="mt-3">
                   {(() => {
-                    const searchResults = messages.filter(msg => 
+                    const searchResults = messages.filter(msg =>
                       msg.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
                       msg.senderName.toLowerCase().includes(searchQuery.toLowerCase())
                     );
-                    
+
                     if (searchResults.length === 0) {
                       return (
                         <div className="text-sm text-gray-500">
@@ -1404,7 +1385,7 @@ const ComprehensiveChatInterface = ({
                         </div>
                       );
                     }
-                    
+
                     return (
                       <div className="space-y-2">
                         <div className="text-sm font-medium text-gray-600 dark:text-gray-400">
@@ -1414,9 +1395,8 @@ const ComprehensiveChatInterface = ({
                           {searchResults.map(msg => (
                             <div
                               key={msg.id}
-                              className={`p-2 rounded border-l-4 border-red-500 cursor-pointer ${
-                                theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-50 hover:bg-gray-100'
-                              }`}
+                              className={`p-2 rounded border-l-4 border-red-500 cursor-pointer ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-50 hover:bg-gray-100'
+                                }`}
                               onClick={() => {
                                 // Scroll to message (implement if needed)
                                 setShowSearchPanel(false);
@@ -1441,26 +1421,126 @@ const ComprehensiveChatInterface = ({
         )}
       </AnimatePresence>
 
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col">
+        {/* Top Bar */}
+        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between">
+          <div className="flex items-center">
+            {selectedChat && (
+              <>
+                <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold mr-3">
+                  {selectedChat.name.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <h2 className="font-semibold text-gray-800 dark:text-white">{selectedChat.name}</h2>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {selectedChat.participants?.length || 0} participants
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center space-x-3">
+            {/* Offline Mode Manager */}
+            <OfflineModeManager />
+
+            {/* Existing connection status */}
+            <ConnectionStatus />
+
+            {/* Theme Selector */}
+            <div className="relative">
+              <button
+                onClick={() => setShowThemePanel(!showThemePanel)}
+                className={`p-2 rounded-full transition-colors ${theme === 'dark'
+                    ? 'hover:bg-gray-700 text-gray-300'
+                    : 'hover:bg-gray-100 text-gray-600'
+                  }`}
+              >
+                <Palette className="w-5 h-5" />
+              </button>
+
+              {/* Theme Panel */}
+              <AnimatePresence>
+                {showThemePanel && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                    className={`absolute right-0 top-12 w-64 ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
+                      } rounded-lg shadow-xl border z-50`}
+                  >
+                    <div className="p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className={`text-sm font-medium ${theme === 'dark' ? 'text-white' : 'text-gray-900'
+                          }`}>
+                          Chat Theme
+                        </span>
+                        <button
+                          onClick={() => setShowThemePanel(false)}
+                          className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
+                            }`}
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div>
+                        <label className={`text-sm font-medium ${theme === 'dark' ? 'text-white' : 'text-gray-900'
+                          }`}>
+                          Chat Theme
+                        </label>
+                        <div className="grid grid-cols-3 gap-2 mt-2">
+                          {CHAT_THEMES.slice(0, 6).map(chatTheme => (
+                            <button
+                              key={chatTheme.id}
+                              onClick={() => setSelectedTheme(chatTheme.id)}
+                              className={`w-full h-8 rounded-md ${selectedTheme === chatTheme.id ? 'ring-2 ring-blue-500' : ''
+                                }`}
+                              style={{ background: chatTheme.preview }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
+                        <button
+                          onClick={handleMoreThemes}
+                          className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
+                              ? 'hover:bg-gray-700 text-gray-300'
+                              : 'hover:bg-gray-100 text-gray-700'
+                            }`}
+                        >
+                          <div className="flex items-center space-x-2">
+                            <Palette className="w-4 h-4" />
+                            <span>More Themes</span>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+        </div>
+      </div>
       {/* Messages Area */}
-      <div className={`flex-1 overflow-y-auto p-4 space-y-4 ${
-        theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'
-      }`}>
+      <div className={`flex-1 overflow-y-auto p-4 space-y-4 ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'
+        }`}>
         {/* User Note/Status */}
         {userNote && (
-          <div className={`p-3 rounded-lg ${
-            theme === 'dark' ? 'bg-blue-900/30 border-blue-700' : 'bg-blue-50 border-blue-200'
-          } border`}>
+          <div className={`p-3 rounded-lg ${theme === 'dark' ? 'bg-blue-900/30 border-blue-700' : 'bg-blue-50 border-blue-200'
+            } border`}>
             <div className="flex items-center space-x-2 mb-2">
               <MessageCircle className="w-4 h-4 text-blue-500" />
-              <span className={`text-sm font-medium ${
-                theme === 'dark' ? 'text-blue-300' : 'text-blue-700'
-              }`}>
+              <span className={`text-sm font-medium ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'
+                }`}>
                 {selectedChat.name}'s Note
               </span>
             </div>
-            <p className={`text-sm ${
-              theme === 'dark' ? 'text-blue-200' : 'text-blue-600'
-            }`}>
+            <p className={`text-sm ${theme === 'dark' ? 'text-blue-200' : 'text-blue-600'
+              }`}>
               {userNote}
             </p>
           </div>
@@ -1468,22 +1548,19 @@ const ComprehensiveChatInterface = ({
 
         {/* Pinned Messages */}
         {pinnedMessages.length > 0 && (
-          <div className={`p-3 rounded-lg ${
-            theme === 'dark' ? 'bg-yellow-900/30 border-yellow-700' : 'bg-yellow-50 border-yellow-200'
-          } border`}>
+          <div className={`p-3 rounded-lg ${theme === 'dark' ? 'bg-yellow-900/30 border-yellow-700' : 'bg-yellow-50 border-yellow-200'
+            } border`}>
             <div className="flex items-center space-x-2 mb-2">
               <Pin className="w-4 h-4 text-yellow-500" />
-              <span className={`text-sm font-medium ${
-                theme === 'dark' ? 'text-yellow-300' : 'text-yellow-700'
-              }`}>
+              <span className={`text-sm font-medium ${theme === 'dark' ? 'text-yellow-300' : 'text-yellow-700'
+                }`}>
                 Pinned Messages
               </span>
             </div>
             <div className="space-y-1">
               {pinnedMessages.map(msg => (
-                <div key={msg.id} className={`text-sm ${
-                  theme === 'dark' ? 'text-yellow-200' : 'text-yellow-600'
-                }`}>
+                <div key={msg.id} className={`text-sm ${theme === 'dark' ? 'text-yellow-200' : 'text-yellow-600'
+                  }`}>
                   {msg.content.substring(0, 100)}...
                 </div>
               ))}
@@ -1513,7 +1590,7 @@ const ComprehensiveChatInterface = ({
             />
           ))}
         </div>
-        
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -1524,26 +1601,23 @@ const ComprehensiveChatInterface = ({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
-            className={`mx-4 mb-2 p-3 rounded-lg border-l-4 border-red-500 ${
-              theme === 'dark' ? 'bg-gray-800' : 'bg-gray-100'
-            }`}
+            className={`mx-4 mb-2 p-3 rounded-lg border-l-4 border-red-500 ${theme === 'dark' ? 'bg-gray-800' : 'bg-gray-100'
+              }`}
           >
             <div className="flex items-center justify-between">
               <div>
                 <div className={`text-sm font-medium text-red-500`}>
                   Replying to {replyingTo.senderName}
                 </div>
-                <div className={`text-sm ${
-                  theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-                } truncate`}>
+                <div className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                  } truncate`}>
                   {replyingTo.content || replyingTo.type}
                 </div>
               </div>
               <button
                 onClick={() => setReplyingTo(null)}
-                className={`p-1 rounded ${
-                  theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'
-                }`}
+                className={`p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'
+                  }`}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1563,9 +1637,8 @@ const ComprehensiveChatInterface = ({
           >
             <div className="flex items-center space-x-2 mb-2">
               <Bot className="w-4 h-4 text-blue-500" />
-              <span className={`text-sm font-medium ${
-                theme === 'dark' ? 'text-blue-300' : 'text-blue-700'
-              }`}>
+              <span className={`text-sm font-medium ${theme === 'dark' ? 'text-blue-300' : 'text-blue-700'
+                }`}>
                 Smart Suggestions
               </span>
             </div>
@@ -1577,11 +1650,10 @@ const ComprehensiveChatInterface = ({
                     setInputText(suggestion);
                     setAiSuggestions([]);
                   }}
-                  className={`px-3 py-1 rounded-full text-sm transition-colors ${
-                    theme === 'dark'
+                  className={`px-3 py-1 rounded-full text-sm transition-colors ${theme === 'dark'
                       ? 'bg-gray-700 hover:bg-gray-600 text-gray-300'
                       : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
-                  }`}
+                    }`}
                 >
                   {suggestion}
                 </button>
@@ -1592,9 +1664,8 @@ const ComprehensiveChatInterface = ({
       </AnimatePresence>
 
       {/* Input Area */}
-      <div className={`p-4 border-t ${
-        theme === 'dark' ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'
-      }`}>
+      <div className={`p-4 border-t ${theme === 'dark' ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'
+        }`}>
         {/* Media Preview */}
         <AnimatePresence>
           {selectedMedia.length > 0 && (
@@ -1614,9 +1685,8 @@ const ComprehensiveChatInterface = ({
                         className="w-16 h-16 object-cover rounded-lg"
                       />
                     ) : (
-                      <div className={`w-16 h-16 rounded-lg flex items-center justify-center ${
-                        theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'
-                      }`}>
+                      <div className={`w-16 h-16 rounded-lg flex items-center justify-center ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'
+                        }`}>
                         <Video className="w-6 h-6" />
                       </div>
                     )}
@@ -1629,7 +1699,7 @@ const ComprehensiveChatInterface = ({
                   </div>
                 ))}
               </div>
-              
+
               {/* Media Options */}
               <div className="flex items-center space-x-4 mt-2">
                 <div className="flex items-center space-x-2">
@@ -1640,20 +1710,18 @@ const ComprehensiveChatInterface = ({
                     onChange={(e) => setViewOnceMode(e.target.checked)}
                     className="rounded text-red-500 focus:ring-red-500"
                   />
-                  <label htmlFor="viewOnce" className={`text-sm ${
-                    theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                  }`}>
+                  <label htmlFor="viewOnce" className={`text-sm ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                    }`}>
                     View once
                   </label>
                 </div>
                 <select
                   value={mediaQuality}
                   onChange={(e) => setMediaQuality(e.target.value)}
-                  className={`text-sm rounded px-2 py-1 ${
-                    theme === 'dark'
+                  className={`text-sm rounded px-2 py-1 ${theme === 'dark'
                       ? 'bg-gray-700 text-white border-gray-600'
                       : 'bg-white text-gray-900 border-gray-300'
-                  } border`}
+                    } border`}
                 >
                   <option value="normal">Normal Quality</option>
                   <option value="hd">HD Quality</option>
@@ -1671,27 +1739,24 @@ const ComprehensiveChatInterface = ({
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className={`mb-3 p-4 rounded-lg ${
-                theme === 'dark' ? 'bg-red-900/30 border-red-700' : 'bg-red-50 border-red-200'
-              } border`}
+              className={`mb-3 p-4 rounded-lg ${theme === 'dark' ? 'bg-red-900/30 border-red-700' : 'bg-red-50 border-red-200'
+                } border`}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
                   <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-                  <span className={`font-medium ${
-                    theme === 'dark' ? 'text-red-300' : 'text-red-700'
-                  }`}>
+                  <span className={`font-medium ${theme === 'dark' ? 'text-red-300' : 'text-red-700'
+                    }`}>
                     Recording... {formatDuration(Math.floor(recordingTime / 10))}
                   </span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <button
                     onClick={() => setIsRecording(false)}
-                    className={`px-3 py-1 text-sm rounded ${
-                      theme === 'dark'
+                    className={`px-3 py-1 text-sm rounded ${theme === 'dark'
                         ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                         : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
+                      }`}
                   >
                     Cancel
                   </button>
@@ -1703,7 +1768,7 @@ const ComprehensiveChatInterface = ({
                   </button>
                 </div>
               </div>
-              
+
               {/* Voice Waveform Preview */}
               <div className="mt-3 flex items-center space-x-1 h-8">
                 {voiceWaveform.slice(-20).map((amplitude, index) => (
@@ -1724,11 +1789,10 @@ const ComprehensiveChatInterface = ({
           <div className="relative">
             <button
               onClick={() => setShowAttachmentPanel(!showAttachmentPanel)}
-              className={`p-2 rounded-full transition-colors ${
-                theme === 'dark'
+              className={`p-2 rounded-full transition-colors ${theme === 'dark'
                   ? 'hover:bg-gray-700 text-gray-300'
                   : 'hover:bg-gray-100 text-gray-600'
-              }`}
+                }`}
             >
               <Plus className="w-5 h-5" />
             </button>
@@ -1740,11 +1804,9 @@ const ComprehensiveChatInterface = ({
                   initial={{ opacity: 0, scale: 0.95, y: 10 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                  className={`absolute bottom-12 left-0 w-64 ${
-                    theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                  } rounded-lg shadow-xl border ${
-                    theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
-                  } z-50`}
+                  className={`absolute bottom-12 left-0 w-64 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                    } rounded-lg shadow-xl border ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
+                    } z-50`}
                 >
                   <div className="p-4">
                     <div className="grid grid-cols-2 gap-3">
@@ -1770,11 +1832,10 @@ const ComprehensiveChatInterface = ({
                           input.click();
                           setShowAttachmentPanel(false);
                         }}
-                        className={`flex flex-col items-center p-3 rounded-lg transition-colors ${
-                          theme === 'dark'
+                        className={`flex flex-col items-center p-3 rounded-lg transition-colors ${theme === 'dark'
                             ? 'hover:bg-gray-700 text-gray-300'
                             : 'hover:bg-gray-100 text-gray-700'
-                        }`}
+                          }`}
                       >
                         <Image className="w-6 h-6 text-blue-500 mb-2" />
                         <span className="text-sm">Photo</span>
@@ -1802,11 +1863,10 @@ const ComprehensiveChatInterface = ({
                           input.click();
                           setShowAttachmentPanel(false);
                         }}
-                        className={`flex flex-col items-center p-3 rounded-lg transition-colors ${
-                          theme === 'dark'
+                        className={`flex flex-col items-center p-3 rounded-lg transition-colors ${theme === 'dark'
                             ? 'hover:bg-gray-700 text-gray-300'
                             : 'hover:bg-gray-100 text-gray-700'
-                        }`}
+                          }`}
                       >
                         <Video className="w-6 h-6 text-green-500 mb-2" />
                         <span className="text-sm">Video</span>
@@ -1834,11 +1894,10 @@ const ComprehensiveChatInterface = ({
                           input.click();
                           setShowAttachmentPanel(false);
                         }}
-                        className={`flex flex-col items-center p-3 rounded-lg transition-colors ${
-                          theme === 'dark'
+                        className={`flex flex-col items-center p-3 rounded-lg transition-colors ${theme === 'dark'
                             ? 'hover:bg-gray-700 text-gray-300'
                             : 'hover:bg-gray-100 text-gray-700'
-                        }`}
+                          }`}
                       >
                         <FileText className="w-6 h-6 text-orange-500 mb-2" />
                         <span className="text-sm">Document</span>
@@ -1879,11 +1938,10 @@ const ComprehensiveChatInterface = ({
                           }
                           setShowAttachmentPanel(false);
                         }}
-                        className={`flex flex-col items-center p-3 rounded-lg transition-colors ${
-                          theme === 'dark'
+                        className={`flex flex-col items-center p-3 rounded-lg transition-colors ${theme === 'dark'
                             ? 'hover:bg-gray-700 text-gray-300'
                             : 'hover:bg-gray-100 text-gray-700'
-                        }`}
+                          }`}
                       >
                         <Camera className="w-6 h-6 text-purple-500 mb-2" />
                         <span className="text-sm">Camera</span>
@@ -1899,7 +1957,7 @@ const ComprehensiveChatInterface = ({
                             let option2 = prompt('Enter second option:');
                             if (option1 && option2) {
                               options.push(option1, option2);
-                              
+
                               // Add more options if needed
                               let moreOptions = true;
                               while (moreOptions && options.length < 5) {
@@ -1910,7 +1968,7 @@ const ComprehensiveChatInterface = ({
                                   moreOptions = false;
                                 }
                               }
-                              
+
                               // Create poll message
                               const pollMessage = {
                                 id: Date.now(),
@@ -1926,18 +1984,17 @@ const ComprehensiveChatInterface = ({
                                 },
                                 status: 'sending'
                               };
-                              
+
                               setMessages(prev => [...prev, pollMessage]);
                               console.log('Poll created:', pollMessage);
                             }
                           }
                           setShowAttachmentPanel(false);
                         }}
-                        className={`flex flex-col items-center p-3 rounded-lg transition-colors ${
-                          theme === 'dark'
+                        className={`flex flex-col items-center p-3 rounded-lg transition-colors ${theme === 'dark'
                             ? 'hover:bg-gray-700 text-gray-300'
                             : 'hover:bg-gray-100 text-gray-700'
-                        }`}
+                          }`}
                       >
                         <BarChart3 className="w-6 h-6 text-indigo-500 mb-2" />
                         <span className="text-sm">Poll</span>
@@ -1948,7 +2005,7 @@ const ComprehensiveChatInterface = ({
                         onClick={() => {
                           const contactName = prompt('Enter contact name:');
                           const contactPhone = prompt('Enter contact phone number:');
-                          
+
                           if (contactName && contactPhone) {
                             const contactMessage = {
                               id: Date.now(),
@@ -1964,17 +2021,16 @@ const ComprehensiveChatInterface = ({
                               },
                               status: 'sending'
                             };
-                            
+
                             setMessages(prev => [...prev, contactMessage]);
                             console.log('Contact shared:', contactMessage);
                           }
                           setShowAttachmentPanel(false);
                         }}
-                        className={`flex flex-col items-center p-3 rounded-lg transition-colors ${
-                          theme === 'dark'
+                        className={`flex flex-col items-center p-3 rounded-lg transition-colors ${theme === 'dark'
                             ? 'hover:bg-gray-700 text-gray-300'
                             : 'hover:bg-gray-100 text-gray-700'
-                        }`}
+                          }`}
                       >
                         <UserPlus className="w-6 h-6 text-teal-500 mb-2" />
                         <span className="text-sm">Contact</span>
@@ -1999,25 +2055,23 @@ const ComprehensiveChatInterface = ({
                 }
               }}
               placeholder={`Message ${selectedChat.name}...`}
-              className={`w-full p-3 pr-20 rounded-2xl border resize-none max-h-32 ${
-                theme === 'dark'
+              className={`w-full p-3 pr-20 rounded-2xl border resize-none max-h-32 ${theme === 'dark'
                   ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:bg-gray-600'
                   : 'bg-gray-100 border-gray-300 text-gray-900 placeholder-gray-500 focus:bg-white'
-              } focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-colors`}
+                } focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-colors`}
               rows={1}
               style={{ minHeight: '48px' }}
             />
-            
+
             {/* Input Buttons */}
             <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center space-x-1">
               {/* Emoji Button */}
               <button
                 onClick={() => setShowEmojiPanel(!showEmojiPanel)}
-                className={`p-1.5 rounded-full transition-colors ${
-                  theme === 'dark'
+                className={`p-1.5 rounded-full transition-colors ${theme === 'dark'
                     ? 'hover:bg-gray-600 text-gray-400'
                     : 'hover:bg-gray-200 text-gray-500'
-                }`}
+                  }`}
               >
                 <Smile className="w-4 h-4" />
               </button>
@@ -2025,11 +2079,10 @@ const ComprehensiveChatInterface = ({
               {/* GIF Button */}
               <button
                 onClick={() => setShowGifPanel(!showGifPanel)}
-                className={`p-1.5 rounded-full transition-colors ${
-                  theme === 'dark'
+                className={`p-1.5 rounded-full transition-colors ${theme === 'dark'
                     ? 'hover:bg-gray-600 text-gray-400'
                     : 'hover:bg-gray-200 text-gray-500'
-                }`}
+                  }`}
               >
                 <Gift className="w-4 h-4" />
               </button>
@@ -2037,13 +2090,23 @@ const ComprehensiveChatInterface = ({
               {/* Sticker Button */}
               <button
                 onClick={() => setShowStickerPanel(!showStickerPanel)}
-                className={`p-1.5 rounded-full transition-colors ${
-                  theme === 'dark'
+                className={`p-1.5 rounded-full transition-colors ${theme === 'dark'
                     ? 'hover:bg-gray-600 text-gray-400'
                     : 'hover:bg-gray-200 text-gray-500'
-                }`}
+                  }`}
               >
                 <Heart className="w-4 h-4" />
+              </button>
+
+              {/* Call History Button */}
+              <button
+                onClick={() => setShowCallHistoryPanel(!showCallHistoryPanel)}
+                className={`p-1.5 rounded-full transition-colors ${theme === 'dark'
+                    ? 'hover:bg-gray-600 text-gray-400'
+                    : 'hover:bg-gray-200 text-gray-500'
+                  }`}
+              >
+                <Phone className="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -2060,13 +2123,12 @@ const ComprehensiveChatInterface = ({
             ) : (
               <button
                 onClick={handleVoiceRecord}
-                className={`p-3 rounded-full transition-all duration-300 ${
-                  isRecording
+                className={`p-3 rounded-full transition-all duration-300 ${isRecording
                     ? 'bg-red-500 text-white hover:bg-red-600'
                     : theme === 'dark'
-                    ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                    : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
-                }`}
+                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                  }`}
               >
                 <Mic className={`w-5 h-5 ${isRecording ? 'animate-pulse' : ''}`} />
               </button>
@@ -2105,6 +2167,28 @@ const ComprehensiveChatInterface = ({
             theme={theme}
           />
         </ChatPanelWrapper>
+
+        {/* Call History Panel */}
+        <ChatPanelWrapper type="callHistory" theme={theme} show={showCallHistoryPanel}>
+          <CallHistory
+            currentUser={user}
+            onCallBack={(chatId, callType, targetUserId) => {
+              // Handle callback functionality
+              console.log('Call back requested:', { chatId, callType, targetUserId });
+              // You can implement the callback functionality here
+            }}
+            onDeleteCall={(callId) => {
+              // Handle delete call functionality
+              console.log('Delete call requested:', callId);
+              // You can implement the delete functionality here
+            }}
+            onCallInfo={(call) => {
+              // Handle call info functionality
+              console.log('Call info requested:', call);
+              // You can implement the info functionality here
+            }}
+          />
+        </ChatPanelWrapper>
       </div>
 
       {/* Incoming Call Notification */}
@@ -2123,19 +2207,17 @@ const ComprehensiveChatInterface = ({
                 className="w-12 h-12 rounded-full"
               />
               <div className="flex-1">
-                <h3 className={`font-semibold ${
-                  theme === 'dark' ? 'text-white' : 'text-gray-900'
-                }`}>
+                <h3 className={`font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'
+                  }`}>
                   {incomingCall.caller?.username || 'Unknown'}
                 </h3>
-                <p className={`text-sm ${
-                  theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-                }`}>
+                <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                  }`}>
                   Incoming {incomingCall.callType} call...
                 </p>
               </div>
             </div>
-            
+
             <div className="flex justify-end space-x-2 mt-4">
               <button
                 onClick={() => handleAnswerCall(false)}
@@ -2193,9 +2275,8 @@ const ComprehensiveChatInterface = ({
                 )}
                 <button
                   onClick={() => setIsScreenSharing(!isScreenSharing)}
-                  className={`p-2 rounded-full ${
-                    isScreenSharing ? 'bg-blue-500' : 'bg-gray-700'
-                  } text-white hover:bg-opacity-80`}
+                  className={`p-2 rounded-full ${isScreenSharing ? 'bg-blue-500' : 'bg-gray-700'
+                    } text-white hover:bg-opacity-80`}
                 >
                   <Monitor className="w-5 h-5" />
                 </button>
@@ -2217,7 +2298,7 @@ const ComprehensiveChatInterface = ({
                       <p className="text-white text-xl">{selectedChat.name}</p>
                     </div>
                   </div>
-                  
+
                   {/* Local Video (Picture-in-Picture) */}
                   <div className="absolute top-4 right-4 w-48 h-36 bg-gray-700 rounded-lg overflow-hidden">
                     <div className="w-full h-full bg-gray-600 flex items-center justify-center">
@@ -2245,9 +2326,8 @@ const ComprehensiveChatInterface = ({
               {/* Mute */}
               <button
                 onClick={() => setIsCallMuted(!isCallMuted)}
-                className={`p-4 rounded-full ${
-                  isCallMuted ? 'bg-red-500' : 'bg-gray-700'
-                } text-white hover:bg-opacity-80 transition-colors`}
+                className={`p-4 rounded-full ${isCallMuted ? 'bg-red-500' : 'bg-gray-700'
+                  } text-white hover:bg-opacity-80 transition-colors`}
               >
                 {isCallMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
               </button>
@@ -2256,9 +2336,8 @@ const ComprehensiveChatInterface = ({
               {callType === 'video' && (
                 <button
                   onClick={() => setIsVideoEnabled(!isVideoEnabled)}
-                  className={`p-4 rounded-full ${
-                    !isVideoEnabled ? 'bg-red-500' : 'bg-gray-700'
-                  } text-white hover:bg-opacity-80 transition-colors`}
+                  className={`p-4 rounded-full ${!isVideoEnabled ? 'bg-red-500' : 'bg-gray-700'
+                    } text-white hover:bg-opacity-80 transition-colors`}
                 >
                   {isVideoEnabled ? <Video className="w-6 h-6" /> : <Video className="w-6 h-6" />}
                 </button>
@@ -2274,7 +2353,7 @@ const ComprehensiveChatInterface = ({
 
               {/* Add Participant */}
               <button
-                onClick={() => {/* Implement add participant */}}
+                onClick={() => {/* Implement add participant */ }}
                 className="p-4 rounded-full bg-gray-700 text-white hover:bg-gray-600 transition-colors"
               >
                 <UserPlus className="w-6 h-6" />
@@ -2283,21 +2362,19 @@ const ComprehensiveChatInterface = ({
               {/* Record */}
               <button
                 onClick={() => setCallRecording(!callRecording)}
-                className={`p-4 rounded-full ${
-                  callRecording ? 'bg-red-500' : 'bg-gray-700'
-                } text-white hover:bg-opacity-80 transition-colors`}
+                className={`p-4 rounded-full ${callRecording ? 'bg-red-500' : 'bg-gray-700'
+                  } text-white hover:bg-opacity-80 transition-colors`}
               >
                 <div className="w-6 h-6 rounded-full border-2 border-current flex items-center justify-center">
-                  <div className={`w-2 h-2 rounded-full ${
-                    callRecording ? 'bg-white' : 'bg-transparent'
-                  }`} />
+                  <div className={`w-2 h-2 rounded-full ${callRecording ? 'bg-white' : 'bg-transparent'
+                    }`} />
                 </div>
               </button>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
-      
+
       {/* Theme Selector Modal */}
       <AnimatePresence>
         {showThemesModal && (
@@ -2312,28 +2389,25 @@ const ComprehensiveChatInterface = ({
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className={`w-full max-w-md mx-4 rounded-lg ${
-                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-              } shadow-xl`}
+              className={`w-full max-w-md mx-4 rounded-lg ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                } shadow-xl`}
               onClick={(e) => e.stopPropagation()}
             >
               <div className="p-6">
                 <div className="flex items-center justify-between mb-6">
-                  <h3 className={`text-lg font-semibold ${
-                    theme === 'dark' ? 'text-white' : 'text-gray-900'
-                  }`}>
+                  <h3 className={`text-lg font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'
+                    }`}>
                     Choose Chat Theme
                   </h3>
                   <button
                     onClick={() => setShowThemesModal(false)}
-                    className={`p-2 rounded-full ${
-                      theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
-                    }`}
+                    className={`p-2 rounded-full ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
+                      }`}
                   >
                     <X className="w-5 h-5" />
                   </button>
                 </div>
-                
+
                 <div className="grid grid-cols-2 gap-4">
                   {CHAT_THEMES.map(chatTheme => (
                     <button
@@ -2342,33 +2416,30 @@ const ComprehensiveChatInterface = ({
                         setSelectedTheme(chatTheme.id);
                         console.log('Selected theme:', chatTheme.name);
                       }}
-                      className={`p-4 rounded-lg border-2 transition-all ${
-                        selectedTheme === chatTheme.id 
-                          ? 'border-blue-500 ring-2 ring-blue-200' 
+                      className={`p-4 rounded-lg border-2 transition-all ${selectedTheme === chatTheme.id
+                          ? 'border-blue-500 ring-2 ring-blue-200'
                           : 'border-gray-200 dark:border-gray-600 hover:border-gray-300'
-                      }`}
+                        }`}
                     >
-                      <div 
+                      <div
                         className="w-full h-16 rounded-md mb-2"
                         style={{ background: chatTheme.preview }}
                       />
-                      <p className={`text-sm font-medium ${
-                        theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                      }`}>
+                      <p className={`text-sm font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                        }`}>
                         {chatTheme.name}
                       </p>
                     </button>
                   ))}
                 </div>
-                
+
                 <div className="mt-6 flex space-x-3">
                   <button
                     onClick={() => setShowThemesModal(false)}
-                    className={`flex-1 py-2 px-4 rounded-lg border ${
-                      theme === 'dark'
+                    className={`flex-1 py-2 px-4 rounded-lg border ${theme === 'dark'
                         ? 'border-gray-600 text-gray-300 hover:bg-gray-700'
                         : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                    }`}
+                      }`}
                   >
                     Cancel
                   </button>
@@ -2387,7 +2458,7 @@ const ComprehensiveChatInterface = ({
           </motion.div>
         )}
       </AnimatePresence>
-      
+
       {/* Pinned Messages Modal */}
       <AnimatePresence>
         {showPinnedMessagesModal && (
@@ -2402,45 +2473,39 @@ const ComprehensiveChatInterface = ({
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className={`w-full max-w-lg mx-4 rounded-lg ${
-                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-              } shadow-xl max-h-[80vh] overflow-hidden`}
+              className={`w-full max-w-lg mx-4 rounded-lg ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                } shadow-xl max-h-[80vh] overflow-hidden`}
               onClick={(e) => e.stopPropagation()}
             >
               <div className="p-6">
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center space-x-2">
                     <Pin className="w-5 h-5 text-yellow-500" />
-                    <h3 className={`text-lg font-semibold ${
-                      theme === 'dark' ? 'text-white' : 'text-gray-900'
-                    }`}>
+                    <h3 className={`text-lg font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'
+                      }`}>
                       Pinned Messages
                     </h3>
                   </div>
                   <button
                     onClick={() => setShowPinnedMessagesModal(false)}
-                    className={`p-2 rounded-full ${
-                      theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
-                    }`}
+                    className={`p-2 rounded-full ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
+                      }`}
                   >
                     <X className="w-5 h-5" />
                   </button>
                 </div>
-                
+
                 <div className="max-h-96 overflow-y-auto space-y-3">
                   {pinnedMessages.length === 0 ? (
                     <div className="text-center py-8">
-                      <Pin className={`w-12 h-12 mx-auto mb-3 ${
-                        theme === 'dark' ? 'text-gray-600' : 'text-gray-400'
-                      }`} />
-                      <p className={`text-sm ${
-                        theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-                      }`}>
+                      <Pin className={`w-12 h-12 mx-auto mb-3 ${theme === 'dark' ? 'text-gray-600' : 'text-gray-400'
+                        }`} />
+                      <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                        }`}>
                         No pinned messages yet.
                       </p>
-                      <p className={`text-xs mt-1 ${
-                        theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
-                      }`}>
+                      <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-gray-500' : 'text-gray-500'
+                        }`}>
                         Long press on a message to pin it.
                       </p>
                     </div>
@@ -2448,27 +2513,23 @@ const ComprehensiveChatInterface = ({
                     pinnedMessages.map((message, index) => (
                       <div
                         key={message.id}
-                        className={`p-3 rounded-lg ${
-                          theme === 'dark' ? 'bg-gray-700' : 'bg-gray-50'
-                        } border-l-4 border-yellow-500`}
+                        className={`p-3 rounded-lg ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-50'
+                          } border-l-4 border-yellow-500`}
                       >
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="flex items-center space-x-2 mb-1">
-                              <span className={`text-xs font-medium ${
-                                theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
-                              }`}>
+                              <span className={`text-xs font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+                                }`}>
                                 {message.senderName}
                               </span>
-                              <span className={`text-xs ${
-                                theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
-                              }`}>
+                              <span className={`text-xs ${theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
+                                }`}>
                                 {formatTime(message.timestamp)}
                               </span>
                             </div>
-                            <p className={`text-sm ${
-                              theme === 'dark' ? 'text-gray-200' : 'text-gray-800'
-                            }`}>
+                            <p className={`text-sm ${theme === 'dark' ? 'text-gray-200' : 'text-gray-800'
+                              }`}>
                               {message.content}
                             </p>
                           </div>
@@ -2478,9 +2539,8 @@ const ComprehensiveChatInterface = ({
                               const updatedPinned = pinnedMessages.filter(m => m.id !== message.id);
                               setPinnedMessages(updatedPinned);
                             }}
-                            className={`ml-2 p-1 rounded ${
-                              theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-200'
-                            }`}
+                            className={`ml-2 p-1 rounded ${theme === 'dark' ? 'hover:bg-gray-600' : 'hover:bg-gray-200'
+                              }`}
                             title="Unpin message"
                           >
                             <X className="w-4 h-4 text-gray-500" />
@@ -2490,7 +2550,7 @@ const ComprehensiveChatInterface = ({
                     ))
                   )}
                 </div>
-                
+
                 <div className="mt-6">
                   <button
                     onClick={() => setShowPinnedMessagesModal(false)}
@@ -2527,7 +2587,7 @@ const MessageBubble = ({
 }) => {
   const [showActions, setShowActions] = useState(false);
   const [voiceProgress, setVoiceProgress] = useState(0);
-  
+
   const handleDoubleClick = () => {
     if (!isOwn) {
       onReaction('❤️');
@@ -2559,18 +2619,16 @@ const MessageBubble = ({
         return (
           <div>
             {message.replyTo && (
-              <div className={`mb-2 p-2 rounded border-l-2 border-gray-400 ${
-                theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'
-              }`}>
+              <div className={`mb-2 p-2 rounded border-l-2 border-gray-400 ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'
+                }`}>
                 <div className="text-xs text-gray-500 mb-1">{message.replyTo.senderName}</div>
                 <div className="text-sm opacity-75">{message.replyTo.content}</div>
               </div>
             )}
             <p className="text-sm leading-relaxed">{message.content}</p>
             {showTranslation && (
-              <div className={`mt-2 p-2 rounded text-sm ${
-                theme === 'dark' ? 'bg-blue-900/30' : 'bg-blue-50'
-              } border-l-2 border-blue-400`}>
+              <div className={`mt-2 p-2 rounded text-sm ${theme === 'dark' ? 'bg-blue-900/30' : 'bg-blue-50'
+                } border-l-2 border-blue-400`}>
                 <div className="flex items-center space-x-1 mb-1">
                   <Languages className="w-3 h-3 text-blue-500" />
                   <span className="text-xs text-blue-500">Translated to {translationLanguage}</span>
@@ -2586,13 +2644,12 @@ const MessageBubble = ({
           <div className="flex items-center space-x-3 min-w-[200px]">
             <button
               onClick={handleVoicePlay}
-              className={`p-2 rounded-full transition-colors ${
-                isOwn
+              className={`p-2 rounded-full transition-colors ${isOwn
                   ? 'bg-white/20 hover:bg-white/30'
                   : theme === 'dark'
-                  ? 'bg-gray-600 hover:bg-gray-500'
-                  : 'bg-gray-200 hover:bg-gray-300'
-              }`}
+                    ? 'bg-gray-600 hover:bg-gray-500'
+                    : 'bg-gray-200 hover:bg-gray-300'
+                }`}
             >
               {playingVoiceId === message.id ? (
                 <Pause className="w-4 h-4" />
@@ -2600,26 +2657,25 @@ const MessageBubble = ({
                 <Play className="w-4 h-4" />
               )}
             </button>
-            
+
             {/* Waveform */}
             <div className="flex-1 flex items-center space-x-1 h-8">
               {message.voiceData.waveform.map((amplitude, index) => (
                 <div
                   key={index}
-                  className={`w-1 rounded-full transition-all duration-200 ${
-                    playingVoiceId === message.id && index <= voiceProgress
+                  className={`w-1 rounded-full transition-all duration-200 ${playingVoiceId === message.id && index <= voiceProgress
                       ? isOwn ? 'bg-white' : 'bg-red-500'
                       : isOwn
-                      ? 'bg-white/50'
-                      : theme === 'dark'
-                      ? 'bg-gray-400'
-                      : 'bg-gray-400'
-                  }`}
+                        ? 'bg-white/50'
+                        : theme === 'dark'
+                          ? 'bg-gray-400'
+                          : 'bg-gray-400'
+                    }`}
                   style={{ height: `${Math.max(amplitude * 24, 4)}px` }}
                 />
               ))}
             </div>
-            
+
             <span className="text-xs opacity-75">
               {formatDuration(message.voiceData.duration)}
             </span>
@@ -2631,10 +2687,16 @@ const MessageBubble = ({
           <div>
             {message.media.type === 'image' ? (
               <div className="relative">
-                <img
-                  src={message.media.url}
+                {/* Optimize image URL through CDN */}
+                <LazyImage
+                  src={cdnService.optimizeImage(message.media.url, {
+                    width: 400,
+                    quality: 'MEDIUM',
+                    format: 'AUTO'
+                  })}
                   alt={message.media.caption || 'Image'}
                   className="max-w-xs rounded-lg cursor-pointer hover:opacity-95 transition-opacity"
+                  onClick={() => openLightbox(message.media)}
                 />
                 {message.media.viewOnce && (
                   <div className="absolute top-2 left-2 bg-black/50 rounded-full p-1">
@@ -2649,8 +2711,9 @@ const MessageBubble = ({
               </div>
             ) : (
               <div className="relative max-w-xs">
+                {/* Optimize video URL through CDN */}
                 <video
-                  src={message.media.url}
+                  src={cdnService.optimizeVideo(message.media.url)}
                   className="w-full rounded-lg"
                   controls
                 />
@@ -2661,9 +2724,6 @@ const MessageBubble = ({
                 )}
               </div>
             )}
-            {message.media.caption && (
-              <p className="mt-2 text-sm">{message.media.caption}</p>
-            )}
           </div>
         );
 
@@ -2673,26 +2733,24 @@ const MessageBubble = ({
             {message.files.map((file, index) => (
               <div
                 key={index}
-                className={`flex items-center space-x-3 p-3 rounded-lg ${
-                  isOwn
+                className={`flex items-center space-x-3 p-3 rounded-lg ${isOwn
                     ? 'bg-white/10'
                     : theme === 'dark'
-                    ? 'bg-gray-700'
-                    : 'bg-gray-100'
-                }`}
+                      ? 'bg-gray-700'
+                      : 'bg-gray-100'
+                  }`}
               >
                 <FileText className="w-8 h-8 text-blue-500" />
                 <div className="flex-1">
                   <div className="font-medium text-sm">{file.name}</div>
                   <div className="text-xs opacity-75">{file.size}</div>
                 </div>
-                <button className={`p-1 rounded ${
-                  isOwn
+                <button className={`p-1 rounded ${isOwn
                     ? 'hover:bg-white/20'
                     : theme === 'dark'
-                    ? 'hover:bg-gray-600'
-                    : 'hover:bg-gray-200'
-                }`}>
+                      ? 'hover:bg-gray-600'
+                      : 'hover:bg-gray-200'
+                  }`}>
                   <Download className="w-4 h-4" />
                 </button>
               </div>
@@ -2715,23 +2773,22 @@ const MessageBubble = ({
             className="max-w-xs rounded-lg"
           />
         );
-        
+
       case 'poll':
         return (
-          <div className={`p-3 rounded-lg border ${
-            theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-gray-50'
-          }`}>
+          <div className={`p-3 rounded-lg border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-gray-50'
+            }`}>
             <div className="flex items-center space-x-2 mb-3">
               <BarChart3 className="w-5 h-5 text-indigo-500" />
               <h4 className="font-medium text-sm">{message.poll.question}</h4>
             </div>
             <div className="space-y-2">
               {message.poll.options.map((option, index) => {
-                const percentage = message.poll.totalVotes > 0 
-                  ? (option.votes / message.poll.totalVotes) * 100 
+                const percentage = message.poll.totalVotes > 0
+                  ? (option.votes / message.poll.totalVotes) * 100
                   : 0;
                 const userVoted = option.voters.includes(user?.profileid || 'me');
-                
+
                 return (
                   <button
                     key={index}
@@ -2763,11 +2820,10 @@ const MessageBubble = ({
                         }));
                       }
                     }}
-                    className={`w-full text-left p-2 rounded-md border transition-colors ${
-                      userVoted 
-                        ? 'bg-indigo-100 border-indigo-300 dark:bg-indigo-900 dark:border-indigo-600' 
+                    className={`w-full text-left p-2 rounded-md border transition-colors ${userVoted
+                        ? 'bg-indigo-100 border-indigo-300 dark:bg-indigo-900 dark:border-indigo-600'
                         : 'hover:bg-gray-100 dark:hover:bg-gray-600 border-gray-200 dark:border-gray-500'
-                    }`}
+                      }`}
                     disabled={userVoted}
                   >
                     <div className="flex items-center justify-between mb-1">
@@ -2776,7 +2832,7 @@ const MessageBubble = ({
                     </div>
                     {percentage > 0 && (
                       <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-1">
-                        <div 
+                        <div
                           className="bg-indigo-500 h-1 rounded-full transition-all duration-300"
                           style={{ width: `${percentage}%` }}
                         />
@@ -2791,12 +2847,11 @@ const MessageBubble = ({
             </div>
           </div>
         );
-        
+
       case 'contact':
         return (
-          <div className={`p-3 rounded-lg border ${
-            theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-gray-50'
-          }`}>
+          <div className={`p-3 rounded-lg border ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-300 bg-gray-50'
+            }`}>
             <div className="flex items-center space-x-3">
               <img
                 src={message.contact.avatar}
@@ -2810,22 +2865,20 @@ const MessageBubble = ({
               <div className="flex space-x-2">
                 <button
                   onClick={() => alert(`Calling ${message.contact.name}...`)}
-                  className={`p-2 rounded-full transition-colors ${
-                    theme === 'dark'
+                  className={`p-2 rounded-full transition-colors ${theme === 'dark'
                       ? 'bg-green-600 hover:bg-green-700'
                       : 'bg-green-500 hover:bg-green-600'
-                  } text-white`}
+                    } text-white`}
                   title="Call"
                 >
                   <Phone className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => alert(`Adding ${message.contact.name} to contacts...`)}
-                  className={`p-2 rounded-full transition-colors ${
-                    theme === 'dark'
+                  className={`p-2 rounded-full transition-colors ${theme === 'dark'
                       ? 'bg-blue-600 hover:bg-blue-700'
                       : 'bg-blue-500 hover:bg-blue-600'
-                  } text-white`}
+                    } text-white`}
                   title="Add to contacts"
                 >
                   <UserPlus className="w-4 h-4" />
@@ -2854,9 +2907,8 @@ const MessageBubble = ({
               alt={message.senderName}
               className="w-6 h-6 rounded-full"
             />
-            <span className={`text-xs font-medium ${
-              theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-            }`}>
+            <span className={`text-xs font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+              }`}>
               {message.senderName}
             </span>
           </div>
@@ -2864,13 +2916,12 @@ const MessageBubble = ({
 
         {/* Message Bubble */}
         <div
-          className={`relative px-4 py-2 rounded-2xl ${
-            isOwn
+          className={`relative px-4 py-2 rounded-2xl ${isOwn
               ? 'bg-gradient-to-r from-red-500 to-red-600 text-white ml-auto rounded-br-md'
               : theme === 'dark'
-              ? 'bg-gray-800 text-white rounded-bl-md'
-              : 'bg-white text-gray-900 rounded-bl-md shadow-sm border border-gray-200'
-          } ${message.isPinned ? 'ring-2 ring-yellow-500' : ''}`}
+                ? 'bg-gray-800 text-white rounded-bl-md'
+                : 'bg-white text-gray-900 rounded-bl-md shadow-sm border border-gray-200'
+            } ${message.isPinned ? 'ring-2 ring-yellow-500' : ''}`}
         >
           {/* Pinned Indicator */}
           {message.isPinned && (
@@ -2898,7 +2949,7 @@ const MessageBubble = ({
                 <span className="text-xs opacity-60">edited</span>
               )}
             </div>
-            
+
             {isOwn && (
               <div className="flex items-center space-x-1">
                 {message.status === 'sending' && (
@@ -2924,11 +2975,10 @@ const MessageBubble = ({
                 <button
                   key={index}
                   onClick={() => onReaction(reaction.emoji)}
-                  className={`flex items-center space-x-1 px-2 py-1 rounded-full text-xs transition-colors ${
-                    theme === 'dark'
+                  className={`flex items-center space-x-1 px-2 py-1 rounded-full text-xs transition-colors ${theme === 'dark'
                       ? 'bg-gray-700 hover:bg-gray-600'
                       : 'bg-gray-100 hover:bg-gray-200'
-                  }`}
+                    }`}
                 >
                   <span>{reaction.emoji}</span>
                   <span className="font-medium">{reaction.count}</span>
@@ -2939,31 +2989,28 @@ const MessageBubble = ({
         </div>
 
         {/* Quick Actions */}
-        <div className={`flex items-center mt-1 space-x-2 opacity-0 group-hover:opacity-100 transition-opacity ${
-          isOwn ? 'justify-end' : 'justify-start'
-        }`}>
+        <div className={`flex items-center mt-1 space-x-2 opacity-0 group-hover:opacity-100 transition-opacity ${isOwn ? 'justify-end' : 'justify-start'
+          }`}>
           {/* Quick Reactions */}
           <div className="flex items-center space-x-1">
             {quickReactions.slice(0, 3).map(emoji => (
               <button
                 key={emoji}
                 onClick={() => onReaction(emoji)}
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-sm transition-all hover:scale-110 ${
-                  theme === 'dark'
+                className={`w-8 h-8 rounded-full flex items-center justify-center text-sm transition-all hover:scale-110 ${theme === 'dark'
                     ? 'bg-gray-800 hover:bg-gray-700'
                     : 'bg-white hover:bg-gray-50 shadow-sm border'
-                }`}
+                  }`}
               >
                 {emoji}
               </button>
             ))}
             <button
               onClick={() => setShowReactionPicker(showReactionPicker === message.id ? null : message.id)}
-              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all hover:scale-110 ${
-                theme === 'dark'
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all hover:scale-110 ${theme === 'dark'
                   ? 'bg-gray-800 hover:bg-gray-700'
                   : 'bg-white hover:bg-gray-50 shadow-sm border'
-              }`}
+                }`}
             >
               <Plus className="w-3 h-3" />
             </button>
@@ -2972,11 +3019,10 @@ const MessageBubble = ({
           {/* More Actions */}
           <button
             onClick={() => setShowActions(!showActions)}
-            className={`w-8 h-8 rounded-full flex items-center justify-center transition-all hover:scale-110 ${
-              theme === 'dark'
+            className={`w-8 h-8 rounded-full flex items-center justify-center transition-all hover:scale-110 ${theme === 'dark'
                 ? 'bg-gray-800 hover:bg-gray-700'
                 : 'bg-white hover:bg-gray-50 shadow-sm border'
-            }`}
+              }`}
           >
             <MoreVertical className="w-3 h-3" />
           </button>
@@ -2988,11 +3034,9 @@ const MessageBubble = ({
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className={`absolute ${isOwn ? 'right-0' : 'left-0'} top-10 w-48 ${
-                  theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-                } rounded-lg shadow-xl border ${
-                  theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
-                } z-50`}
+                className={`absolute ${isOwn ? 'right-0' : 'left-0'} top-10 w-48 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                  } rounded-lg shadow-xl border ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
+                  } z-50`}
               >
                 <div className="p-2">
                   <button
@@ -3000,11 +3044,10 @@ const MessageBubble = ({
                       onAction('reply', message.id);
                       setShowActions(false);
                     }}
-                    className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
-                      theme === 'dark'
+                    className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
                         ? 'hover:bg-gray-700 text-gray-300'
                         : 'hover:bg-gray-100 text-gray-700'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center space-x-2">
                       <Reply className="w-4 h-4" />
@@ -3016,11 +3059,10 @@ const MessageBubble = ({
                       onAction('forward', message.id);
                       setShowActions(false);
                     }}
-                    className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
-                      theme === 'dark'
+                    className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
                         ? 'hover:bg-gray-700 text-gray-300'
                         : 'hover:bg-gray-100 text-gray-700'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center space-x-2">
                       <Forward className="w-4 h-4" />
@@ -3032,11 +3074,10 @@ const MessageBubble = ({
                       onAction('copy', message.id);
                       setShowActions(false);
                     }}
-                    className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
-                      theme === 'dark'
+                    className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
                         ? 'hover:bg-gray-700 text-gray-300'
                         : 'hover:bg-gray-100 text-gray-700'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center space-x-2">
                       <Copy className="w-4 h-4" />
@@ -3048,11 +3089,10 @@ const MessageBubble = ({
                       onAction('pin', message.id);
                       setShowActions(false);
                     }}
-                    className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
-                      theme === 'dark'
+                    className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
                         ? 'hover:bg-gray-700 text-gray-300'
                         : 'hover:bg-gray-100 text-gray-700'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center space-x-2">
                       <Pin className="w-4 h-4" />
@@ -3065,11 +3105,10 @@ const MessageBubble = ({
                         onAction('translate', message.id);
                         setShowActions(false);
                       }}
-                      className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
-                        theme === 'dark'
+                      className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
                           ? 'hover:bg-gray-700 text-gray-300'
                           : 'hover:bg-gray-100 text-gray-700'
-                      }`}
+                        }`}
                     >
                       <div className="flex items-center space-x-2">
                         <Languages className="w-4 h-4" />
@@ -3084,11 +3123,10 @@ const MessageBubble = ({
                           onAction('edit', message.id);
                           setShowActions(false);
                         }}
-                        className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
-                          theme === 'dark'
+                        className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
                             ? 'hover:bg-gray-700 text-gray-300'
                             : 'hover:bg-gray-100 text-gray-700'
-                        }`}
+                          }`}
                       >
                         <div className="flex items-center space-x-2">
                           <Edit3 className="w-4 h-4" />
@@ -3122,11 +3160,9 @@ const MessageBubble = ({
               initial={{ opacity: 0, scale: 0.9, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 10 }}
-              className={`absolute ${isOwn ? 'right-0' : 'left-0'} top-12 ${
-                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-              } rounded-lg shadow-xl border ${
-                theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
-              } z-50 p-2`}
+              className={`absolute ${isOwn ? 'right-0' : 'left-0'} top-12 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'
+                } rounded-lg shadow-xl border ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
+                } z-50 p-2`}
             >
               <div className="flex items-center space-x-2">
                 {quickReactions.map(emoji => (

@@ -12,6 +12,17 @@ import geoip from 'geoip-lite';
 import { UAParser } from 'ua-parser-js';
 import Profile from '../Models/FeedModels/Profile.js';
 import { v4 as uuidv4 } from 'uuid';
+import argon2 from 'argon2'; // 🔒 SECURITY FIX #59: Import argon2 for dummy password verification
+
+// 🔒 SECURITY FIX #65: Import password reset rate limiter for brute force protection
+import { passwordResetRateLimiter } from '../Middleware/rateLimitingMiddleware.js';
+
+// 🔒 SECURITY FIX #66: Import audit log service for security event logging
+import AuditLogService from '../Services/AuditLogService.js';
+
+// 🔧 API RESPONSE STANDARDIZATION #98: Import standardized API response utility
+import ApiResponse from '../Utils/ApiResponse.js';
+const { sendSuccess, sendError, sendConflict, sendUnauthorized, sendValidationError, sendNotFound, sendTooManyRequests } = ApiResponse;
 
 const router = express.Router();
 
@@ -101,6 +112,102 @@ const generateDeviceFingerprint = (req) => {
 /**
  * User Registration/Signup
  * POST /api/auth/signup
+ * @swagger
+ * /api/auth/signup:
+ *   post:
+ *     summary: Register a new user
+ *     description: Create a new user account with username, email, and password. Requires acceptance of terms and GDPR consent.
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - username
+ *               - email
+ *               - password
+ *               - acceptTerms
+ *               - gdprConsent
+ *             properties:
+ *               username:
+ *                 type: string
+ *                 minLength: 3
+ *                 maxLength: 30
+ *                 pattern: '^[a-zA-Z0-9_.-]+$'
+ *                 description: Unique username (3-30 characters, alphanumeric and underscore, dot, hyphen only)
+ *                 example: johndoe
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: Valid email address
+ *                 example: john@example.com
+ *               password:
+ *                 type: string
+ *                 minLength: 12
+ *                 description: Strong password with uppercase, lowercase, number, and special character
+ *                 example: SecurePass123!
+ *               displayName:
+ *                 type: string
+ *                 maxLength: 100
+ *                 description: Display name for the user
+ *                 example: John Doe
+ *               dateOfBirth:
+ *                 type: string
+ *                 format: date
+ *                 description: User's date of birth (ISO 8601 format)
+ *                 example: "1990-01-01"
+ *               acceptTerms:
+ *                 type: boolean
+ *                 description: Acceptance of terms and conditions
+ *                 example: true
+ *               gdprConsent:
+ *                 type: boolean
+ *                 description: GDPR consent for data processing
+ *                 example: true
+ *     responses:
+ *       "201":
+ *         description: User registered successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: success
+ *                 message:
+ *                   type: string
+ *                   example: User registered successfully
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *                 profile:
+ *                   type: object
+ *                   description: User profile information
+ *                 tokens:
+ *                   $ref: '#/components/schemas/AuthTokens'
+ *       "400":
+ *         $ref: '#/components/responses/BadRequest'
+ *       "409":
+ *         description: User already exists
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: error
+ *                 message:
+ *                   type: string
+ *                   example: A user with this email or username already exists
+ *                 field:
+ *                   type: string
+ *                   description: Field that caused the conflict
+ *                   example: email
+ *       "500":
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.post('/signup', [
   // Rate limiting
@@ -120,7 +227,7 @@ router.post('/signup', [
   body('password')
     .isLength({ min: SecurityConfig.auth.password.minLength, max: SecurityConfig.auth.password.maxLength })
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
-    .withMessage('Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'),
+    .withMessage(`Password must be at least ${SecurityConfig.auth.password.minLength} characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character`),
   
   body('displayName')
     .optional()
@@ -172,11 +279,7 @@ router.post('/signup', [
     
     if (existingUser || existingProfile) {
       const conflictField = (existingUser?.email === email.toLowerCase() || existingProfile?.email === email.toLowerCase()) ? 'email' : 'username';
-      return res.status(409).json({
-        error: 'user_exists',
-        message: 'A user with this email or username already exists',
-        field: conflictField
-      });
+      return sendConflict(res, 'A user with this email or username already exists', conflictField);
     }
     
     // Create new user
@@ -268,9 +371,25 @@ router.post('/signup', [
     // Log successful signup
     console.log(`✅ New user signup: ${newUser.username} (${newUser.email}) from ${context.ipAddress}`);
     
-    res.status(201).json({
-      success: true,
-      message: 'Account created successfully',
+    // 🔒 SECURITY FIX #66: Log successful signup using audit logging service
+    await AuditLogService.log({
+      eventType: 'USER_REGISTER',
+      severity: 'LOW',
+      userId: newUser.id,
+      username: newUser.username,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      action: 'CREATE',
+      resourceType: 'USER',
+      status: 'SUCCESS',
+      details: {
+        email: newUser.email,
+        profileId: newProfile.profileid
+      },
+      complianceTags: ['ISO_27001']
+    });
+    
+    const responseData = {
       user: {
         id: newUser.id,
         username: newUser.username,
@@ -291,7 +410,9 @@ router.post('/signup', [
         deviceFingerprint,
         requiresEmailVerification: !newUser.profile.emailVerified
       }
-    });
+    };
+    
+    return sendSuccess(res, responseData, 'Account created successfully', 201);
     
   } catch (error) {
     console.error('🚨 DETAILED SIGNUP ERROR:');
@@ -300,19 +421,142 @@ router.post('/signup', [
     console.error('  Error stack:', error.stack);
     if (error.code) console.error('  Error code:', error.code);
     
-    res.status(500).json({
-      error: 'signup_error',
-      message: 'Failed to create account',
-      debug: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+    return sendError(res, 'Failed to create account', 500, 'SIGNUP_ERROR', 
+      process.env.NODE_ENV === 'development' ? { debug: error.message } : undefined);
   }
 });
 
 /**
  * User Login
  * POST /api/auth/login
+ * @swagger
+ * /api/auth/login:
+ *   post:
+ *     summary: User login
+ *     description: Authenticate user with email/username and password. Supports TOTP-based two-factor authentication if enabled.
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - identifier
+ *               - password
+ *             properties:
+ *               identifier:
+ *                 type: string
+ *                 description: Email or username for authentication
+ *                 example: john@example.com
+ *               password:
+ *                 type: string
+ *                 description: User password
+ *                 example: SecurePass123!
+ *               totpCode:
+ *                 type: string
+ *                 minLength: 6
+ *                 maxLength: 6
+ *                 description: Time-based one-time password for 2FA (if enabled)
+ *                 example: "123456"
+ *               rememberMe:
+ *                 type: boolean
+ *                 description: Whether to extend session duration
+ *                 example: false
+ *               trustDevice:
+ *                 type: boolean
+ *                 description: Whether to trust this device for future logins
+ *                 example: false
+ *     responses:
+ *       "200":
+ *         description: Login successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Login successful
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *                 tokens:
+ *                   type: object
+ *                   properties:
+ *                     accessToken:
+ *                       type: string
+ *                       description: JWT access token
+ *                     refreshToken:
+ *                       type: string
+ *                       description: Refresh token for obtaining new access tokens
+ *                     csrfToken:
+ *                       type: string
+ *                       description: CSRF protection token
+ *                     expiresAt:
+ *                       type: string
+ *                       format: date-time
+ *                       description: Access token expiration time
+ *                 security:
+ *                   type: object
+ *                   properties:
+ *                     riskScore:
+ *                       type: integer
+ *                       description: Security risk score for this login
+ *                     deviceFingerprint:
+ *                       type: string
+ *                       description: Device fingerprint identifier
+ *                     deviceTrusted:
+ *                       type: boolean
+ *                       description: Whether the device is trusted
+ *                     requiresEmailVerification:
+ *                       type: boolean
+ *                       description: Whether email verification is required
+ *                 session:
+ *                   type: object
+ *                   properties:
+ *                     rememberMe:
+ *                       type: boolean
+ *                     trustDevice:
+ *                       type: boolean
+ *       "400":
+ *         $ref: '#/components/responses/BadRequest'
+ *       "401":
+ *         description: Invalid credentials
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: invalid_credentials
+ *                 message:
+ *                   type: string
+ *                   example: Invalid email/username or password
+ *       "423":
+ *         description: Account locked
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: account_locked
+ *                 message:
+ *                   type: string
+ *                   example: Account is temporarily locked due to failed login attempts
+ *                 lockUntil:
+ *                   type: string
+ *                   format: date-time
+ *       "500":
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.post('/login', [
+  
   // Rate limiting
   loginLimiter,
   
@@ -350,42 +594,42 @@ router.post('/login', [
     
     // Find user
     const user = await User.findByUsernameOrEmail(identifier);
-    if (!user) {
-      return res.status(401).json({
-        error: 'invalid_credentials',
-        message: 'Invalid email/username or password'
-      });
+    
+    // 🔒 SECURITY FIX #59: Account enumeration protection
+    // Always perform password verification to prevent timing attacks and user enumeration
+    let isPasswordValid = false;
+    if (user) {
+      isPasswordValid = await user.verifyPassword(password);
+    } else {
+      // For non-existent users, still perform a dummy password verification
+      // to prevent timing attacks that could reveal user existence
+      await argon2.verify('$argon2id$v=19$m=65536,t=3,p=1$dummySalt$dummyHash', password);
+    }
+    
+    // If user doesn't exist or password is invalid, return generic error
+    if (!user || !isPasswordValid) {
+      // Increment fake login attempts for non-existent users to maintain consistency
+      if (user) {
+        await user.incrementLoginAttempts();
+      }
+      
+      return sendUnauthorized(res, 'Invalid email/username or password');
     }
     
     // Check if account is locked
     if (user.isAccountLocked()) {
-      return res.status(423).json({
-        error: 'account_locked',
-        message: 'Account is temporarily locked due to failed login attempts',
-        lockUntil: user.security.loginAttempts.lockUntil
-      });
-    }
-    
-    // Verify password
-    const isPasswordValid = await user.verifyPassword(password);
-    if (!isPasswordValid) {
-      await user.incrementLoginAttempts();
-      
-      return res.status(401).json({
-        error: 'invalid_credentials',
-        message: 'Invalid email/username or password',
-        attemptsRemaining: Math.max(0, user.security.loginAttempts.maxAttempts - user.security.loginAttempts.count)
-      });
+      return sendError(res, 'Account is temporarily locked due to failed login attempts', 423, 'ACCOUNT_LOCKED', 
+        { lockUntil: user.security.loginAttempts.lockUntil });
     }
     
     // Check for MFA requirement
     if (user.security.mfa.enabled) {
       if (!totpCode) {
-        return res.status(200).json({
+        const mfaData = {
           requiresMFA: true,
-          message: 'Two-factor authentication code required',
           mfaType: 'totp'
-        });
+        };
+        return sendSuccess(res, mfaData, 'Two-factor authentication code required', 200);
       }
       
       // Verify TOTP code
@@ -393,10 +637,7 @@ router.post('/login', [
       if (!isTotpValid) {
         await user.incrementLoginAttempts();
         
-        return res.status(401).json({
-          error: 'invalid_mfa_code',
-          message: 'Invalid two-factor authentication code'
-        });
+        return sendUnauthorized(res, 'Invalid two-factor authentication code', 'INVALID_MFA_CODE');
       }
     }
     
@@ -474,9 +715,26 @@ router.post('/login', [
     // Log successful login
     console.log(`✅ User login: ${user.username} from ${context.ipAddress} (Risk: ${riskScore})`);
     
-    res.json({
-      success: true,
-      message: 'Login successful',
+    // 🔒 SECURITY FIX #66: Log successful login using audit logging service
+    await AuditLogService.log({
+      eventType: 'USER_LOGIN',
+      severity: 'LOW',
+      userId: user.id,
+      username: user.username,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      action: 'LOGIN',
+      resourceType: 'USER',
+      status: 'SUCCESS',
+      details: {
+        email: user.email,
+        riskScore: riskScore,
+        deviceTrusted: deviceTrustLevel >= 3
+      },
+      complianceTags: ['ISO_27001']
+    });
+    
+    const responseData = {
       user: user.toSafeObject(),
       tokens: {
         accessToken: accessTokenResult.token,
@@ -494,20 +752,97 @@ router.post('/login', [
         rememberMe,
         trustDevice: trustDevice && riskScore < 30
       }
-    });
+    };
+    
+    return sendSuccess(res, responseData, 'Login successful');
     
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({
-      error: 'login_error',
-      message: 'Login failed due to server error'
-    });
+    return sendError(res, 'Login failed due to server error', 500, 'LOGIN_ERROR');
   }
 });
 
 /**
  * Token Refresh
  * POST /api/auth/refresh
+ * @swagger
+ * /api/auth/refresh:
+ *   post:
+ *     summary: Refresh authentication tokens
+ *     description: Obtain new access and refresh tokens using a valid refresh token. This endpoint revokes the old refresh token for security.
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               refreshToken:
+ *                 type: string
+ *                 description: Refresh token (if not provided in cookies)
+ *     responses:
+ *       "200":
+ *         description: Tokens refreshed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Tokens refreshed successfully
+ *                 tokens:
+ *                   type: object
+ *                   properties:
+ *                     accessToken:
+ *                       type: string
+ *                       description: New JWT access token
+ *                     refreshToken:
+ *                       type: string
+ *                       description: New refresh token
+ *                     csrfToken:
+ *                       type: string
+ *                       description: New CSRF protection token
+ *                     expiresAt:
+ *                       type: string
+ *                       format: date-time
+ *                       description: Access token expiration time
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *                 metadata:
+ *                   type: object
+ *                   properties:
+ *                     rotated:
+ *                       type: boolean
+ *                       description: Whether tokens were rotated
+ *                     generation:
+ *                       type: integer
+ *                       description: Token generation number
+ *                     riskScore:
+ *                       type: integer
+ *                       description: Security risk score
+ *       "401":
+ *         description: Invalid or expired refresh token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: refresh_failed
+ *                 reason:
+ *                   type: string
+ *                   example: invalid_token
+ *                 message:
+ *                   type: string
+ *                   example: Token refresh failed
+ *       "500":
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.post('/refresh', refreshLimiter, async (req, res) => {
   try {
@@ -518,10 +853,7 @@ router.post('/refresh', refreshLimiter, async (req, res) => {
     const refreshToken = AuthenticationMiddleware.extractRefreshToken(req) || req.body?.refreshToken;
     
     if (!refreshToken) {
-      return res.status(401).json({
-        error: 'no_refresh_token',
-        message: 'Refresh token is required'
-      });
+      return sendUnauthorized(res, 'Refresh token is required', 'NO_REFRESH_TOKEN');
     }
     
     // SECURITY FIX: Refresh tokens with secure context and 10/10 security
@@ -539,11 +871,8 @@ router.post('/refresh', refreshLimiter, async (req, res) => {
       // Clear cookies on refresh failure
       AuthenticationMiddleware.clearAuthenticationCookies(res);
       
-      return res.status(401).json({
-        error: 'refresh_failed',
-        reason: refreshResult.reason,
-        message: refreshResult.details || 'Token refresh failed'
-      });
+      return sendUnauthorized(res, refreshResult.details || 'Token refresh failed', 'REFRESH_FAILED', 
+        { reason: refreshResult.reason });
     }
     
     // Set new tokens in cookies
@@ -555,88 +884,168 @@ router.post('/refresh', refreshLimiter, async (req, res) => {
     
     console.log(`🔄 Token refreshed: ${refreshResult.user.username} (Gen: ${refreshResult.metadata.generation})`);
     
-    res.json({
-      success: true,
-      message: 'Tokens refreshed successfully',
+    // 🔒 SECURITY FIX #66: Log token refresh using audit logging service
+    await AuditLogService.log({
+      eventType: 'TOKEN_REFRESH',
+      severity: 'LOW',
+      userId: refreshResult.user.id,
+      username: refreshResult.user.username,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      action: 'UPDATE',
+      resourceType: 'USER',
+      status: 'SUCCESS',
+      details: {
+        generation: refreshResult.metadata.generation,
+        rotated: refreshResult.metadata.rotated
+      },
+      complianceTags: ['ISO_27001']
+    });
+    
+    const responseData = {
       tokens: {
         accessToken: refreshResult.accessToken.token,
         refreshToken: refreshResult.refreshToken.token,
         csrfToken: refreshResult.csrfToken,
         expiresAt: refreshResult.accessToken.expiresAt
       },
-      user: refreshResult.user,
-      metadata: {
-        rotated: refreshResult.metadata.rotated,
-        generation: refreshResult.metadata.generation,
-        riskScore: refreshResult.metadata.riskScore
-      }
-    });
+      user: refreshResult.user
+    };
+    
+    const metadata = {
+      rotated: refreshResult.metadata.rotated,
+      generation: refreshResult.metadata.generation,
+      riskScore: refreshResult.metadata.riskScore
+    };
+    
+    return sendSuccess(res, responseData, 'Tokens refreshed successfully', 200, metadata);
     
   } catch (error) {
     console.error('Token refresh error:', error);
-    res.status(500).json({
-      error: 'refresh_error',
-      message: 'Token refresh failed'
-    });
+    return sendError(res, 'Token refresh failed', 500, 'REFRESH_ERROR');
   }
 });
 
 /**
  * User Logout
  * POST /api/auth/logout
+ * @swagger
+ * /api/auth/logout:
+ *   post:
+ *     summary: User logout
+ *     description: Log out the current user by revoking all active tokens and clearing authentication cookies.
+ *     tags: [Authentication]
+ *     responses:
+ *       "200":
+ *         description: Successfully logged out
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Successfully logged out
+ *       "401":
+ *         $ref: '#/components/responses/Unauthorized'
+ *       "500":
+ *         $ref: '#/components/responses/InternalServerError'
  */
-router.post('/logout', 
+// 🔒 SECURITY FIX #60: Implement logout functionality with token blacklisting
+// 🔒 SECURITY FIX #62: Add CSRF protection
+router.post('/logout', [
+  // Require authentication for logout
   AuthenticationMiddleware.authenticate,
-  AuthenticationMiddleware.csrfProtectionMiddleware, // SECURITY FIX: Use simple CSRF middleware
-  async (req, res) => {
+  
+  // Add CSRF protection
+  AuthenticationMiddleware.csrfProtection,
+  
+  // Rate limiting for logout attempts
+  loginLimiter
+], async (req, res) => {
+  try {
+    // Extract authentication context
+    const context = extractContext(req);
+    const deviceFingerprint = generateDeviceFingerprint(req);
+    
+    // Get user from authentication middleware
+    const user = req.user;
+    
+    if (!user) {
+      return sendUnauthorized(res, 'Authentication required');
+    }
+    
+    // Revoke all active refresh tokens for this user
+    const RefreshToken = (await import('../Models/RefreshToken.js')).default;
+    
     try {
-      const { logoutAll = false } = req.body;
-      const context = extractContext(req);
-      
-      if (logoutAll) {
-        // Revoke all user tokens
-        await TokenService.revokeAllUserTokens(req.user.id, 'user_logout_all');
-        console.log(`🚪 User logged out from all devices: ${req.user.username}`);
-      } else {
-        // Just revoke current refresh token family
-        const refreshToken = AuthenticationMiddleware.extractRefreshToken(req);
-        if (refreshToken) {
-          const verificationResult = await TokenService.verifyRefreshToken(refreshToken, {
-            ipAddress: context.ipAddress,
-            userAgent: context.userAgent,
-            deviceHash: generateDeviceFingerprint(req)
-          });
-          
-          if (verificationResult.valid) {
-            await TokenService.revokeToken(
-              verificationResult.token,
-              'user_logout',
-              req.user.id,
-              context.ipAddress
-            );
+      // Revoke all active tokens for this user
+      const revokeResult = await RefreshToken.updateMany(
+        { 
+          userId: user.id, 
+          status: 'active'
+        },
+        {
+          $set: {
+            status: 'revoked',
+            'revocation.reason': 'user_logout',
+            'revocation.revokedAt': new Date(),
+            'revocation.revokedBy': user.id,
+            'revocation.revokedFromIP': context.ipAddress,
+            'revocation.revokedFromDevice': deviceFingerprint
           }
         }
-        
-        console.log(`🚪 User logged out: ${req.user.username} from ${context.ipAddress}`);
-      }
+      );
       
-      // Clear authentication cookies
-      AuthenticationMiddleware.clearAuthenticationCookies(res);
+      console.log(`✅ User ${user.id} logged out. Revoked ${revokeResult.modifiedCount} tokens.`);
       
-      res.json({
-        success: true,
-        message: logoutAll ? 'Logged out from all devices' : 'Logged out successfully'
+      // Log the logout event
+      console.log(`🔒 Logout event for user ${user.username} from ${context.ipAddress}`);
+      // 🔒 SECURITY FIX #66: Log logout using audit logging service
+      await AuditLogService.log({
+        eventType: 'USER_LOGOUT',
+        severity: 'LOW',
+        userId: user.id,
+        username: user.username,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        action: 'LOGOUT',
+        resourceType: 'USER',
+        status: 'SUCCESS',
+        details: {
+          email: user.email,
+          tokensRevoked: revokeResult.modifiedCount
+        },
+        complianceTags: ['ISO_27001']
       });
-      
-    } catch (error) {
-      console.error('Logout error:', error);
-      res.status(500).json({
-        error: 'logout_error',
-        message: 'Logout failed'
-      });
+    } catch (revokeError) {
+      console.error('❌ Token revocation failed during logout:', revokeError);
+      // Continue with logout even if token revocation fails
     }
+    
+    // Clear authentication cookies
+    AuthenticationMiddleware.clearAuthenticationCookies(res);
+    
+    // Update user's last logout time
+    try {
+      user.audit.lastLogout = new Date();
+      await user.save();
+    } catch (saveError) {
+      console.error('❌ Failed to update user logout timestamp:', saveError);
+      // Continue with logout even if user update fails
+    }
+    
+    // Return success response
+    return sendSuccess(res, null, 'Successfully logged out', 200);
+    
+  } catch (error) {
+    console.error('🚨 Logout error:', error);
+    return sendError(res, 'Failed to logout', 500, 'LOGOUT_ERROR');
   }
-);
+});
 
 /**
  * SECURITY FIX: Get Current User - Changed to POST with CSRF protection
@@ -684,7 +1093,59 @@ router.post('/me',
 /**
  * Enable Two-Factor Authentication
  * POST /api/auth/enable-2fa
+ * @swagger
+ * /api/auth/enable-2fa:
+ *   post:
+ *     summary: Enable two-factor authentication
+ *     description: Initiate the setup process for two-factor authentication (2FA) using TOTP.
+ *     tags: [Authentication]
+ *     responses:
+ *       "200":
+ *         description: 2FA setup initiated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Two-factor authentication setup initiated
+ *                 qrCode:
+ *                   type: string
+ *                   description: Data URL for QR code to scan with authenticator app
+ *                 backupCodes:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                   description: Backup codes for 2FA
+ *                 secret:
+ *                   type: string
+ *                   description: Secret for manual entry in authenticator app
+ *                 instructions:
+ *                   type: object
+ *                   description: Setup instructions
+ *       "400":
+ *         description: 2FA already enabled
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: mfa_already_enabled
+ *                 message:
+ *                   type: string
+ *                   example: Two-factor authentication is already enabled
+ *       "401":
+ *         $ref: '#/components/responses/Unauthorized'
+ *       "500":
+ *         $ref: '#/components/responses/InternalServerError'
  */
+
 router.post('/enable-2fa',
   AuthenticationMiddleware.authenticate,
   AuthenticationMiddleware.csrfProtection,
@@ -737,6 +1198,60 @@ router.post('/enable-2fa',
 /**
  * Verify and Complete Two-Factor Authentication Setup
  * POST /api/auth/verify-2fa
+ * @swagger
+ * /api/auth/verify-2fa:
+ *   post:
+ *     summary: Verify and complete 2FA setup
+ *     description: Complete the two-factor authentication setup by verifying a TOTP code.
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - totpCode
+ *             properties:
+ *               totpCode:
+ *                 type: string
+ *                 minLength: 6
+ *                 maxLength: 6
+ *                 description: TOTP code from authenticator app
+ *                 example: "123456"
+ *     responses:
+ *       "200":
+ *         description: 2FA enabled successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Two-factor authentication enabled successfully
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       "400":
+ *         description: Invalid TOTP code
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: invalid_totp_code
+ *                 message:
+ *                   type: string
+ *                   example: Invalid verification code
+ *       "401":
+ *         $ref: '#/components/responses/Unauthorized'
+ *       "500":
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.post('/verify-2fa',
   AuthenticationMiddleware.authenticate,
@@ -778,6 +1293,25 @@ router.post('/verify-2fa',
       
       console.log(`🔐 2FA enabled for user: ${req.user.username}`);
       
+      // 🔒 SECURITY FIX #66: Log 2FA enable using audit logging service
+      const context = extractContext(req);
+      await AuditLogService.log({
+        eventType: 'MFA_ENABLED',
+        severity: 'HIGH',
+        userId: req.user.id,
+        username: req.user.username,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        action: 'UPDATE',
+        resourceType: 'USER',
+        status: 'SUCCESS',
+        details: {
+          email: req.user.email,
+          mfaEnabled: true
+        },
+        complianceTags: ['ISO_27001']
+      });
+      
       res.json({
         success: true,
         message: 'Two-factor authentication enabled successfully',
@@ -797,6 +1331,65 @@ router.post('/verify-2fa',
 /**
  * Disable Two-Factor Authentication
  * POST /api/auth/disable-2fa
+ * @swagger
+ * /api/auth/disable-2fa:
+ *   post:
+ *     summary: Disable two-factor authentication
+ *     description: Disable two-factor authentication by providing current password and a TOTP code.
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - password
+ *               - totpCode
+ *             properties:
+ *               password:
+ *                 type: string
+ *                 description: Current password
+ *                 example: CurrentSecurePass123!
+ *               totpCode:
+ *                 type: string
+ *                 minLength: 6
+ *                 maxLength: 6
+ *                 description: TOTP code from authenticator app
+ *                 example: "123456"
+ *     responses:
+ *       "200":
+ *         description: 2FA disabled successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Two-factor authentication disabled successfully
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       "400":
+ *         description: Invalid request
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: invalid_totp_code
+ *                 message:
+ *                   type: string
+ *                   example: Invalid two-factor authentication code
+ *       "401":
+ *         $ref: '#/components/responses/Unauthorized'
+ *       "500":
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.post('/disable-2fa',
   AuthenticationMiddleware.authenticate,
@@ -852,6 +1445,25 @@ router.post('/disable-2fa',
       
       console.log(`🔓 2FA disabled for user: ${req.user.username}`);
       
+      // 🔒 SECURITY FIX #66: Log 2FA disable using audit logging service
+      const context = extractContext(req);
+      await AuditLogService.log({
+        eventType: 'MFA_DISABLED',
+        severity: 'HIGH',
+        userId: req.user.id,
+        username: req.user.username,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        action: 'UPDATE',
+        resourceType: 'USER',
+        status: 'SUCCESS',
+        details: {
+          email: req.user.email,
+          mfaDisabled: true
+        },
+        complianceTags: ['ISO_27001']
+      });
+      
       res.json({
         success: true,
         message: 'Two-factor authentication disabled successfully',
@@ -871,6 +1483,67 @@ router.post('/disable-2fa',
 /**
  * Get Active Sessions/Devices
  * GET /api/auth/sessions
+ * @swagger
+ * /api/auth/sessions:
+ *   get:
+ *     summary: Get active sessions and devices
+ *     description: Retrieve information about active sessions and trusted devices for the current user.
+ *     tags: [Authentication]
+ *     responses:
+ *       "200":
+ *         description: Sessions information retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 sessions:
+ *                   type: object
+ *                   properties:
+ *                     active:
+ *                       type: integer
+ *                       description: Number of active tokens
+ *                     total:
+ *                       type: integer
+ *                       description: Total number of tokens
+ *                     devices:
+ *                       type: integer
+ *                       description: Number of unique devices
+ *                     locations:
+ *                       type: integer
+ *                       description: Number of unique locations
+ *                 trustedDevices:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         description: Device ID
+ *                       name:
+ *                         type: string
+ *                         description: Device name
+ *                       trustLevel:
+ *                         type: integer
+ *                         description: Trust level of the device
+ *                       lastUsed:
+ *                         type: string
+ *                         format: date-time
+ *                         description: Last used timestamp
+ *                       createdAt:
+ *                         type: string
+ *                         format: date-time
+ *                         description: Device registration timestamp
+ *                       isCurrent:
+ *                         type: boolean
+ *                         description: Whether this is the current device
+ *       "401":
+ *         $ref: '#/components/responses/Unauthorized'
+ *       "500":
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.get('/sessions',
   AuthenticationMiddleware.authenticate,
@@ -1032,10 +1705,50 @@ router.post('/validate-session',
 /**
  * Password Reset Request
  * POST /api/auth/forgot-password
+ * @swagger
+ * /api/auth/forgot-password:
+ *   post:
+ *     summary: Request password reset
+ *     description: Request a password reset link to be sent to the user's email address.
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: Email address associated with the account
+ *                 example: john@example.com
+ *     responses:
+ *       "200":
+ *         description: Password reset request processed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: If an account with that email exists, a password reset link has been sent
+ *       "400":
+ *         $ref: '#/components/responses/BadRequest'
+ *       "429":
+ *         $ref: '#/components/responses/TooManyRequests'
+ *       "500":
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.post('/forgot-password', [
   // Rate limiting
-  loginLimiter,
+  passwordResetRateLimiter,
   
   body('email')
     .isEmail()
@@ -1108,10 +1821,66 @@ router.post('/forgot-password', [
 /**
  * Password Reset Completion
  * POST /api/auth/reset-password
+ * @swagger
+ * /api/auth/reset-password:
+ *   post:
+ *     summary: Complete password reset
+ *     description: Set a new password using a valid reset token.
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *               - password
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 description: Password reset token
+ *                 example: abcdef123456
+ *               password:
+ *                 type: string
+ *                 minLength: 12
+ *                 description: New password
+ *                 example: NewSecurePass123!
+ *     responses:
+ *       "200":
+ *         description: Password reset successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Password reset successfully. Please log in with your new password.
+ *       "400":
+ *         description: Invalid token or password
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: invalid_reset_token
+ *                 message:
+ *                   type: string
+ *                   example: Invalid or expired password reset token
+ *       "429":
+ *         $ref: '#/components/responses/TooManyRequests'
+ *       "500":
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.post('/reset-password', [
   // Rate limiting
-  loginLimiter,
+  passwordResetRateLimiter,
   
   body('token')
     .notEmpty()
@@ -1120,7 +1889,7 @@ router.post('/reset-password', [
   body('password')
     .isLength({ min: SecurityConfig.auth.password.minLength, max: SecurityConfig.auth.password.maxLength })
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
-    .withMessage('Password must meet security requirements')
+    .withMessage(`Password must be at least ${SecurityConfig.auth.password.minLength} characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character`)
 ], async (req, res) => {
   try {
     const validationError = validateRequest(req, res);
@@ -1170,6 +1939,24 @@ router.post('/reset-password', [
     
     console.log(`🔐 Password reset completed for: ${user.username} from ${context.ipAddress}`);
     
+    // 🔒 SECURITY FIX #66: Log password reset completion using audit logging service
+    await AuditLogService.log({
+      eventType: 'PASSWORD_RESET_COMPLETED',
+      severity: 'HIGH',
+      userId: user.id,
+      username: user.username,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      action: 'UPDATE',
+      resourceType: 'USER',
+      status: 'SUCCESS',
+      details: {
+        email: user.email,
+        passwordResetCompleted: true
+      },
+      complianceTags: ['ISO_27001']
+    });
+    
     res.json({
       success: true,
       message: 'Password reset successfully. Please log in with your new password.'
@@ -1187,6 +1974,62 @@ router.post('/reset-password', [
 /**
  * Change Password (for authenticated users)
  * POST /api/auth/change-password
+ * @swagger
+ * /api/auth/change-password:
+ *   post:
+ *     summary: Change password
+ *     description: Change the password for the currently authenticated user.
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - currentPassword
+ *               - newPassword
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *                 description: Current password
+ *                 example: CurrentSecurePass123!
+ *               newPassword:
+ *                 type: string
+ *                 minLength: 12
+ *                 description: New password
+ *                 example: NewSecurePass456@
+ *     responses:
+ *       "200":
+ *         description: Password changed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Password changed successfully
+ *       "400":
+ *         description: Invalid request
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: same_password
+ *                 message:
+ *                   type: string
+ *                   example: New password cannot be the same as current password
+ *       "401":
+ *         $ref: '#/components/responses/Unauthorized'
+ *       "500":
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.post('/change-password',
   AuthenticationMiddleware.authenticate,
@@ -1199,7 +2042,7 @@ router.post('/change-password',
     body('newPassword')
       .isLength({ min: SecurityConfig.auth.password.minLength, max: SecurityConfig.auth.password.maxLength })
       .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
-      .withMessage('Password must meet security requirements')
+      .withMessage(`Password must be at least ${SecurityConfig.auth.password.minLength} characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character`)
   ],
   async (req, res) => {
     try {
@@ -1235,6 +2078,24 @@ router.post('/change-password',
       // await TokenService.revokeAllUserTokens(req.user.id, 'password_change', req.sessionID);
       
       console.log(`🔐 Password changed for user: ${req.user.username} from ${context.ipAddress}`);
+      
+      // 🔒 SECURITY FIX #66: Log password change using audit logging service
+      await AuditLogService.log({
+        eventType: 'PASSWORD_CHANGED',
+        severity: 'MEDIUM',
+        userId: req.user.id,
+        username: req.user.username,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        action: 'UPDATE',
+        resourceType: 'USER',
+        status: 'SUCCESS',
+        details: {
+          email: req.user.email,
+          passwordChanged: true
+        },
+        complianceTags: ['ISO_27001']
+      });
       
       res.json({
         success: true,
@@ -1319,6 +2180,24 @@ router.post('/register-biometric',
       
       console.log(`🔐 Biometric authentication registered for user: ${req.user.username}`);
       
+      // 🔒 SECURITY FIX #66: Log biometric registration using audit logging service
+      await AuditLogService.log({
+        eventType: 'BIOMETRIC_REGISTERED',
+        severity: 'HIGH',
+        userId: req.user.id,
+        username: req.user.username,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        action: 'CREATE',
+        resourceType: 'USER',
+        status: 'SUCCESS',
+        details: {
+          email: req.user.email,
+          biometricRegistered: true
+        },
+        complianceTags: ['ISO_27001']
+      });
+      
       res.json({
         success: true,
         message: 'Biometric authentication registered successfully',
@@ -1347,7 +2226,7 @@ router.post('/register-biometric',
  * Provides CSRF token for client-side requests
  * This endpoint is exempt from CSRF protection as it's used to obtain the token
  */
-router.get('/csrf', (req, res) => {
+router.get('/csrf', async (req, res) => {
   try {
     // Generate session ID if not present
     if (!req.sessionId) {
@@ -1362,6 +2241,24 @@ router.get('/csrf', (req, res) => {
     csrfProtection.setSecureCSRFCookie(req, res, token);
     
     console.log('🛡️ CSRF token generated for session:', req.sessionId.substring(0, 8) + '...');
+    
+    // 🔒 SECURITY FIX #66: Log CSRF token generation using audit logging service
+    const context = extractContext(req);
+    await AuditLogService.log({
+      eventType: 'CSRF_TOKEN_GENERATED',
+      severity: 'LOW',
+      userId: req.user?.id || 'anonymous',
+      username: req.user?.username || 'anonymous',
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      action: 'CREATE',
+      resourceType: 'USER',
+      status: 'SUCCESS',
+      details: {
+        sessionId: req.sessionId
+      },
+      complianceTags: ['ISO_27001']
+    });
     
     res.json({
       success: true,
@@ -1470,6 +2367,24 @@ router.post('/session-status',
             // Update user activity
             await user.updateLastActivity();
             
+            // 🔒 SECURITY FIX #66: Log successful session status check using audit logging service
+            await AuditLogService.log({
+              eventType: 'SESSION_STATUS_CHECK',
+              severity: 'LOW',
+              userId: user.id,
+              username: user.username,
+              ipAddress: context.ipAddress,
+              userAgent: context.userAgent,
+              action: 'READ',
+              resourceType: 'USER',
+              status: 'SUCCESS',
+              details: {
+                email: user.email,
+                accessTokenValid: true
+              },
+              complianceTags: ['ISO_27001']
+            });
+            
             return res.json({
               authenticated: true,
               user: user.toSafeObject(),
@@ -1496,107 +2411,152 @@ router.post('/session-status',
     }
     
     // If access token failed or doesn't exist, try refresh token with auto-refresh
-    if (refreshToken) {
-      try {
-        console.log('🔄 Attempting token refresh with refresh token...');
-        
-        const refreshContext = {
-          ipAddress: context.ipAddress,
-          userAgent: context.userAgent,
-          deviceHash: deviceFingerprint,
-          sessionId: req.sessionID || crypto.randomUUID()
-        };
-        
-        // Perform token refresh
-        const refreshResult = await TokenService.refreshTokens(refreshToken, refreshContext);
-        
-        if (refreshResult.valid) {
-          console.log('✅ Token refresh successful for user:', refreshResult.user.username);
-          
-          // Set new tokens in cookies
-          AuthenticationMiddleware.setAuthenticationCookies(res, {
-            accessToken: refreshResult.accessToken.token,
-            refreshToken: refreshResult.refreshToken.token,
-            csrfToken: refreshResult.csrfToken
-          });
-          
-          const user = await User.findOne({ id: refreshResult.user.id });
-          if (user && !user.isAccountLocked()) {
-            // Update user activity
-            await user.updateLastActivity();
+     if (refreshToken) {
+          try {
+            console.log('🔄 Attempting token refresh with refresh token...');
             
-            return res.json({
-              authenticated: true,
-              user: user.toSafeObject(),
-              session: {
-                lastActivity: user.audit.lastActivity,
-                ipAddress: context.ipAddress,
-                location: context.location,
-                deviceFingerprint
-              },
-              security: {
-                riskScore: refreshResult.metadata?.riskScore || 0,
-                deviceTrusted: user.isDeviceTrusted(deviceFingerprint, deviceFingerprint)
-              },
-              tokensRefreshed: true // Indicate tokens were refreshed
-            });
-          }
-        } else {
-          console.log('❌ Token refresh failed:', refreshResult.reason);
-          
-          // SECURITY FIX: Handle token cleanup scenario
-          if (refreshResult.reason === 'tokens_cleaned_up') {
-            console.log('🧹 Tokens were cleaned up due to security mismatch');
-            AuthenticationMiddleware.clearAuthenticationCookies(res);
+            const refreshContext = {
+              ipAddress: context.ipAddress,
+              userAgent: context.userAgent,
+              deviceHash: deviceFingerprint,
+              sessionId: req.sessionID || crypto.randomUUID()
+            };
             
-            return res.json({
-              authenticated: false,
-              reason: 'tokens_reset',
-              message: 'Authentication tokens were reset for security. Please log in again.',
-              requiresReauthentication: true,
-              securityReason: 'Token format mismatch detected'
-            });
+            // Perform token refresh
+            const refreshResult = await TokenService.refreshTokens(refreshToken, refreshContext);
+            
+            if (refreshResult.valid) {
+              console.log('✅ Token refresh successful for user:', refreshResult.user.username);
+              
+              // Set new tokens in cookies
+              AuthenticationMiddleware.setAuthenticationCookies(res, {
+                accessToken: refreshResult.accessToken.token,
+                refreshToken: refreshResult.refreshToken.token,
+                csrfToken: refreshResult.csrfToken
+              });
+              
+              const user = await User.findOne({ id: refreshResult.user.id });
+              if (user && !user.isAccountLocked()) {
+                // Update user activity
+                await user.updateLastActivity();
+                
+                // 🔒 SECURITY FIX #66: Log successful token refresh in session status check using audit logging service
+                await AuditLogService.log({
+                  eventType: 'SESSION_STATUS_CHECK',
+                  severity: 'LOW',
+                  userId: user.id,
+                  username: user.username,
+                  ipAddress: context.ipAddress,
+                  userAgent: context.userAgent,
+                  action: 'UPDATE',
+                  resourceType: 'USER',
+                  status: 'SUCCESS',
+                  details: {
+                    email: user.email,
+                    tokensRefreshed: true,
+                    generation: refreshResult.metadata?.generation
+                  },
+                  complianceTags: ['ISO_27001']
+                });
+                
+                return res.json({
+                  authenticated: true,
+                  user: user.toSafeObject(),
+                  session: {
+                    lastActivity: user.audit.lastActivity,
+                    ipAddress: context.ipAddress,
+                    location: context.location,
+                    deviceFingerprint
+                  },
+                  security: {
+                    riskScore: refreshResult.metadata?.riskScore || 0,
+                    deviceTrusted: user.isDeviceTrusted(deviceFingerprint, deviceFingerprint)
+                  },
+                  tokensRefreshed: true // Indicate tokens were refreshed
+                });
+              }
+            } else {
+              console.log('❌ Token refresh failed:', refreshResult.reason);
+              
+              // SECURITY FIX: Handle token cleanup scenario
+              if (refreshResult.reason === 'tokens_cleaned_up') {
+                console.log('🧹 Tokens were cleaned up due to security mismatch');
+                AuthenticationMiddleware.clearAuthenticationCookies(res);
+                
+                return res.json({
+                  authenticated: false,
+                  reason: 'tokens_reset',
+                  message: 'Authentication tokens were reset for security. Please log in again.',
+                  requiresReauthentication: true,
+                  securityReason: 'Token format mismatch detected'
+                });
+              }
+            }
+          } catch (refreshTokenError) {
+            console.error('❌ Refresh token error:', refreshTokenError.message);
           }
         }
-      } catch (refreshTokenError) {
-        console.error('❌ Refresh token error:', refreshTokenError.message);
+        
+        // If we get here, tokens are invalid or expired
+        console.log('🚫 All token validation attempts failed');
+        
+        // Clear invalid cookies
+        AuthenticationMiddleware.clearAuthenticationCookies(res);
+        
+        return res.json({
+          authenticated: false,
+          reason: 'invalid_tokens',
+          message: 'Authentication tokens are invalid or expired'
+        });
+        
+      } catch (error) {
+        console.error('❌ Session status check error:', error);
+        
+        // Clear cookies on error for security
+        try {
+          AuthenticationMiddleware.clearAuthenticationCookies(res);
+        } catch (clearError) {
+          console.error('Failed to clear cookies:', clearError);
+        }
+        
+        res.status(500).json({
+          authenticated: false,
+          reason: 'server_error',
+          message: 'Failed to check session status',
+          debug: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
       }
-    }
-    
-    // If we get here, tokens are invalid or expired
-    console.log('🚫 All token validation attempts failed');
-    
-    // Clear invalid cookies
-    AuthenticationMiddleware.clearAuthenticationCookies(res);
-    
-    return res.json({
-      authenticated: false,
-      reason: 'invalid_tokens',
-      message: 'Authentication tokens are invalid or expired'
     });
-    
-  } catch (error) {
-    console.error('❌ Session status check error:', error);
-    
-    // Clear cookies on error for security
-    try {
-      AuthenticationMiddleware.clearAuthenticationCookies(res);
-    } catch (clearError) {
-      console.error('Failed to clear cookies:', clearError);
-    }
-    
-    res.status(500).json({
-      authenticated: false,
-      reason: 'server_error',
-      message: 'Failed to check session status',
-      debug: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
 
 /**
  * Health Check Endpoint
  * GET /api/auth/health
+ * @swagger
+ * /api/auth/health:
+ *   get:
+ *     summary: Health check
+ *     description: Check the health status of the authentication service.
+ *     tags: [Authentication]
+ *     responses:
+ *       "200":
+ *         description: Service is healthy
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: ok
+ *                 message:
+ *                   type: string
+ *                   example: Authentication service is running
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *                 service:
+ *                   type: string
+ *                   example: auth-service
  */
 router.get('/health', (req, res) => {
   res.status(200).json({
@@ -1610,16 +2570,36 @@ router.get('/health', (req, res) => {
 /**
  * Get Current User
  * GET /api/auth/me
+ * @swagger
+ * /api/auth/me:
+ *   get:
+ *     summary: Get current user information
+ *     description: Retrieve information about the currently authenticated user.
+ *     tags: [Authentication]
+ *     responses:
+ *       "200":
+ *         description: User information retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       "401":
+ *         $ref: '#/components/responses/Unauthorized'
+ *       "500":
+ *         $ref: '#/components/responses/InternalServerError'
  */
 router.get('/me', 
   AuthenticationMiddleware.authenticate,
   async (req, res) => {
     try {
       if (!req.user) {
-        return res.status(401).json({
-          error: 'unauthorized',
-          message: 'User not authenticated'
-        });
+        return sendUnauthorized(res, 'User not authenticated');
       }
       
       // Ensure profileid is available
@@ -1627,16 +2607,31 @@ router.get('/me',
         req.user.profileid = req.user.id;
       }
       
-      res.json({
-        success: true,
-        user: req.user.toSafeObject ? req.user.toSafeObject() : req.user
+      // 🔒 SECURITY FIX #66: Log get current user request using audit logging service
+      const context = extractContext(req);
+      await AuditLogService.log({
+        eventType: 'GET_CURRENT_USER',
+        severity: 'LOW',
+        userId: req.user.id,
+        username: req.user.username,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent,
+        action: 'READ',
+        resourceType: 'USER',
+        status: 'SUCCESS',
+        details: {
+          email: req.user.email
+        },
+        complianceTags: ['ISO_27001']
       });
+      
+      const responseData = {
+        user: req.user.toSafeObject ? req.user.toSafeObject() : req.user
+      };
+      return sendSuccess(res, responseData, 'User information retrieved successfully');
     } catch (error) {
       console.error('Get user error:', error);
-      res.status(500).json({
-        error: 'server_error',
-        message: 'Failed to retrieve user information'
-      });
+      return sendError(res, 'Failed to retrieve user information', 500, 'SERVER_ERROR');
     }
   }
 );
@@ -1680,8 +2675,23 @@ async function sendPasswordResetEmail(user, resetToken, context) {
   // Construct reset link
   const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
   
-  // Log security event
-  console.log(`🔐 Password reset link generated for ${user.username} from ${context.ipAddress}`);
+  // 🔒 SECURITY FIX #66: Log security event using audit logging service
+  await AuditLogService.log({
+    eventType: 'PASSWORD_RESET_REQUEST',
+    severity: 'MEDIUM',
+    userId: user.id,
+    username: user.username,
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent,
+    action: 'CREATE',
+    resourceType: 'USER',
+    status: 'SUCCESS',
+    details: {
+      email: user.email,
+      resetLinkGenerated: true
+    },
+    complianceTags: ['ISO_27001']
+  });
   
   // Send email with reset link
   // await emailService.send({

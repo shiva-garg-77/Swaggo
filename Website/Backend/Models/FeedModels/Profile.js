@@ -126,6 +126,15 @@ ProfileSchema.index({ lastActivity: -1 });
 ProfileSchema.index({ 'ipAddresses.ip': 1 });
 ProfileSchema.index({ role: 1 });
 
+// 🔧 NEW: Additional indexes for critical queries
+ProfileSchema.index({ isOnline: 1, lastActivity: -1 }); // For online status queries
+ProfileSchema.index({ 'settings.privacy.showOnlineStatus': 1, isOnline: 1 }); // For privacy-aware online queries
+ProfileSchema.index({ 'permissions.canSendMessages': 1 }); // For permission-based queries
+ProfileSchema.index({ 'stats.totalMessages': -1 }); // For user activity ranking
+ProfileSchema.index({ 'settings.notifications.push': 1 }); // For notification queries
+ProfileSchema.index({ lastLoginAt: -1 }); // For login activity queries
+ProfileSchema.index({ accountStatus: 1, isActive: 1 }); // For account status queries
+
 // Instance methods for security
 ProfileSchema.methods.isAccountLocked = function() {
     return this.accountLockedUntil && this.accountLockedUntil > Date.now();

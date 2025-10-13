@@ -23,10 +23,35 @@ const errorLink = onError(({ networkError }) => {
 
 const client = new ApolloClient({
   link: from([errorLink, authLink, httpLink]),
-  cache: new InMemoryCache(),
+  cache: new InMemoryCache({
+    typePolicies: {
+      Query: {
+        fields: {
+          getMessagesByChat: {
+            // Don't cache separate results for different cursor/limit args
+            keyArgs: ['chatid'],
+            // Merge existing messages with incoming messages
+            merge(existing = { messages: [], pageInfo: {}, totalCount: 0 }, incoming, { args }) {
+              // If we're fetching the first page (no cursor), replace existing data
+              if (!args?.cursor) {
+                return incoming;
+              }
+              
+              // For subsequent pages, merge messages
+              return {
+                ...incoming,
+                messages: [...existing.messages, ...incoming.messages],
+              };
+            },
+          },
+        },
+      },
+    },
+  }),
   defaultOptions: {
-    watchQuery: { errorPolicy: 'all', fetchPolicy: 'cache-first' },
+    watchQuery: { errorPolicy: 'all', fetchPolicy: 'cache-and-network' },
     query: { errorPolicy: 'all', fetchPolicy: 'cache-first' },
+    mutate: { errorPolicy: 'all' }
   }
 });
 

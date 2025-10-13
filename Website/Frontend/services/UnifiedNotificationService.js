@@ -914,34 +914,171 @@ class UnifiedNotificationService {
    * Request push notification permission
    */
   async requestPermission() {
-    if (!this.isBrowser || !this.isPushSupported) {
-      return PERMISSION_STATES.UNSUPPORTED;
-    }
-    
-    if (this.permissionState === PERMISSION_STATES.GRANTED) {
-      return PERMISSION_STATES.GRANTED;
-    }
-    
     try {
+      // Check if Notification API is available
+      if (!('Notification' in window)) {
+        console.warn('This browser does not support desktop notification');
+        return 'denied';
+      }
+
+      // Check current permission status
+      if (Notification.permission === 'granted') {
+        this.permission = 'granted';
+        return 'granted';
+      }
+
+      // If permission is denied, don't ask again
+      if (Notification.permission === 'denied') {
+        this.permission = 'denied';
+        return 'denied';
+      }
+
+      // Request permission
       const permission = await Notification.requestPermission();
-      this.permissionState = permission;
-      this.permission = permission; // Backward compatibility
+      this.permission = permission;
       
-      this.emit('permissionChanged', { permission });
-      
-      if (permission === PERMISSION_STATES.GRANTED) {
-        this.show({
-          type: NOTIFICATION_TYPES.SUCCESS,
-          title: 'Notifications Enabled',
-          message: 'You will now receive push notifications',
-          category: NOTIFICATION_CATEGORIES.SYSTEM
-        });
+      // Update registration if we have a service worker
+      if (this.registration && permission === 'granted') {
+        try {
+          await this.registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: this.vapidPublicKey
+          });
+        } catch (error) {
+          console.error('Failed to subscribe to push notifications:', error);
+        }
       }
       
       return permission;
     } catch (error) {
-      console.error('❌ Error requesting notification permission:', error);
-      return PERMISSION_STATES.DENIED;
+      console.error('Error requesting notification permission:', error);
+      return 'denied';
+    }
+  }
+
+  /**
+   * Show a browser notification with ringtone for incoming calls
+   */
+  async showCallNotification(title, options = {}) {
+    try {
+      // Request permission if not already granted
+      if (this.permission !== 'granted') {
+        const permission = await this.requestPermission();
+        if (permission !== 'granted') {
+          console.warn('Notification permission not granted');
+          return null;
+        }
+      }
+
+      // Play ringtone if specified
+      if (options.ringtone) {
+        this.playRingtone(options.ringtone);
+      }
+
+      // Create notification
+      const notification = new Notification(title, {
+        body: options.body || '',
+        icon: options.icon || '/logo192.png',
+        tag: options.tag || 'call-notification',
+        requireInteraction: true, // Keep notification until user interacts
+        ...options
+      });
+
+      // Handle notification events
+      notification.onclick = (event) => {
+        event.preventDefault();
+        window.focus();
+        if (options.onClick) {
+          options.onClick();
+        }
+        notification.close();
+      };
+
+      notification.onclose = () => {
+        if (options.onClose) {
+          options.onClose();
+        }
+        this.stopRingtone();
+      };
+
+      return notification;
+    } catch (error) {
+      console.error('Error showing call notification:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Play ringtone for incoming calls
+   */
+  playRingtone(ringtoneUrl) {
+    try {
+      // Stop any existing ringtone
+      this.stopRingtone();
+      
+      // Create audio element
+      this.ringtoneAudio = new Audio(ringtoneUrl);
+      this.ringtoneAudio.loop = true;
+      this.ringtoneAudio.volume = 0.8;
+      
+      // Play the ringtone
+      this.ringtoneAudio.play().catch(error => {
+        console.warn('Failed to play ringtone:', error);
+      });
+    } catch (error) {
+      console.warn('Error playing ringtone:', error);
+    }
+  }
+
+  /**
+   * Stop ringtone
+   */
+  stopRingtone() {
+    try {
+      if (this.ringtoneAudio) {
+        this.ringtoneAudio.pause();
+        this.ringtoneAudio = null;
+      }
+    } catch (error) {
+      console.warn('Error stopping ringtone:', error);
+    }
+  }
+
+  /**
+   * Persist notification until answered/rejected
+   */
+  async showPersistentNotification(title, options = {}) {
+    try {
+      // Request permission if not granted
+      if (this.permission !== 'granted') {
+        const permission = await this.requestPermission();
+        if (permission !== 'granted') {
+          return null;
+        }
+      }
+
+      // Create persistent notification
+      const notification = new Notification(title, {
+        body: options.body || '',
+        icon: options.icon || '/logo192.png',
+        tag: options.tag || 'persistent-notification',
+        requireInteraction: true, // Keep notification until user interacts
+        ...options
+      });
+
+      // Handle notification events
+      notification.onclick = (event) => {
+        event.preventDefault();
+        window.focus();
+        if (options.onClick) {
+          options.onClick();
+        }
+      };
+
+      return notification;
+    } catch (error) {
+      console.error('Error showing persistent notification:', error);
+      return null;
     }
   }
   

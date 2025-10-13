@@ -37,6 +37,7 @@
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { io } from 'socket.io-client';
 import { useFixedSecureAuth } from '../../context/FixedSecureAuthContext';
+import unifiedNotificationService, { NOTIFICATION_TYPES, NOTIFICATION_CATEGORIES } from '../../services/UnifiedNotificationService';
 
 // ========================================
 // CONSTANTS & CONFIGURATION
@@ -188,6 +189,31 @@ export default function PerfectSocketProvider({ children }) {
   
   // Event listener tracking (for complete cleanup)
   const eventListeners = useRef(new Map());
+
+  // Keyword alerts cache for smart notifications
+  const keywordAlertsRef = useRef([]);
+
+  // Initialize socket function ref to avoid circular dependencies
+  const initializeSocketRef = useRef(null);
+
+  const messageMatchesKeywords = useCallback((content) => {
+    if (!content || keywordAlertsRef.current.length === 0) return null;
+    const text = String(content);
+    for (const alert of keywordAlertsRef.current) {
+      if (alert?.active === false) continue;
+      const kw = String(alert.keyword || '').trim();
+      if (!kw) continue;
+      let found = false;
+      if (alert.wholeWord) {
+        const pattern = new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, alert.caseSensitive ? '' : 'i');
+        found = pattern.test(text);
+      } else {
+        found = alert.caseSensitive ? text.includes(kw) : text.toLowerCase().includes(kw.toLowerCase());
+      }
+      if (found) return alert;
+    }
+    return null;
+  }, []);
   
   // ========================================
   // UTILITY FUNCTIONS
@@ -230,6 +256,23 @@ export default function PerfectSocketProvider({ children }) {
     }
   }, []);
   
+  /**
+   * Load keyword alerts for smart notifications
+   */
+  const loadKeywordAlerts = useCallback(async (profileid) => {
+    try {
+      if (!profileid || typeof window === 'undefined') return;
+      const res = await fetch(`/api/keyword-alerts/${profileid}`);
+      if (res.ok) {
+        const alerts = await res.json();
+        keywordAlertsRef.current = Array.isArray(alerts) ? alerts : [];
+        log('success', 'Loaded keyword alerts', { count: keywordAlertsRef.current.length });
+      }
+    } catch (e) {
+      log('error', 'Failed to load keyword alerts', { error: e.message });
+    }
+  }, [log]);
+  
   // ========================================
   // MESSAGE QUEUE MANAGEMENT
   // ========================================
@@ -257,30 +300,41 @@ export default function PerfectSocketProvider({ children }) {
       // Check size limit
       let newQueue = [...cleaned, queuedMessage];
       if (newQueue.length > SOCKET_CONFIG.MAX_QUEUE_SIZE) {
-        log('warn', `Queue size limit exceeded (${newQueue.length}), removing oldest`);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('⚠️ SOCKET: Queue size limit exceeded, removing oldest', { size: newQueue.length });
+        }
         newQueue = newQueue.slice(-SOCKET_CONFIG.MAX_QUEUE_SIZE);
       }
       
-      log('info', `Message queued`, { queueSize: newQueue.length, messageId: queuedMessage.id });
-      updateMetrics({ messagesQueued: newQueue.length });
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔌 SOCKET: Message queued', { queueSize: newQueue.length, messageId: queuedMessage.id });
+      }
+      
+      if (SOCKET_CONFIG.ENABLE_METRICS) {
+        setMetrics(prev => ({ ...prev, messagesQueued: newQueue.length }));
+      }
       
       return newQueue;
     });
     
     return queuedMessage.id;
-  }, [generateMessageId, log, updateMetrics]);
+  }, [generateMessageId]);
   
   /**
    * Process queued messages when connection restored
    */
   const processMessageQueue = useCallback((socketInstance) => {
-    if (!socketInstance || !socketInstance.connected || messageQueue.length === 0) {
+    // Get current message queue at time of execution
+    const currentQueue = messageQueue.length > 0 ? [...messageQueue] : [];
+    
+    if (!socketInstance || !socketInstance.connected || currentQueue.length === 0) {
       return;
     }
     
-    log('info', `Processing ${messageQueue.length} queued messages`);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔌 SOCKET: Processing queued messages', { count: currentQueue.length });
+    }
     
-    const messagesToProcess = [...messageQueue];
     setMessageQueue([]);
     
     // Clean up old pending messages first
@@ -299,7 +353,7 @@ export default function PerfectSocketProvider({ children }) {
     });
     
     // Process each message with retry logic
-    messagesToProcess.forEach(async (queuedMessage) => {
+    currentQueue.forEach(async (queuedMessage) => {
       if (queuedMessage.attempts < queuedMessage.maxAttempts) {
         queuedMessage.attempts++;
         
@@ -313,16 +367,22 @@ export default function PerfectSocketProvider({ children }) {
         // Emit message
         socketInstance.emit('send_message', queuedMessage.data, (ack) => {
           if (ack && ack.success) {
-            log('success', `Queued message delivered`, { id: queuedMessage.id });
+            if (process.env.NODE_ENV === 'development') {
+              console.log('✅ SOCKET: Queued message delivered', { id: queuedMessage.id });
+            }
             setPendingMessages(prev => {
               const newMap = new Map(prev);
               const msg = newMap.get(queuedMessage.id);
               if (msg) msg.status = 'delivered';
               return newMap;
             });
-            updateMetrics(m => ({ messagesSent: m.messagesSent + 1 }));
+            if (SOCKET_CONFIG.ENABLE_METRICS) {
+              setMetrics(prev => ({ ...prev, messagesSent: prev.messagesSent + 1 }));
+            }
           } else {
-            log('error', `Queued message failed`, { id: queuedMessage.id, error: ack?.error });
+            if (process.env.NODE_ENV === 'development') {
+              console.log('❌ SOCKET: Queued message failed', { id: queuedMessage.id, error: ack?.error });
+            }
             
             // Re-queue if attempts remaining
             if (queuedMessage.attempts < queuedMessage.maxAttempts) {
@@ -339,11 +399,11 @@ export default function PerfectSocketProvider({ children }) {
       }
       
       // Delay between messages to avoid overwhelming
-      if (messagesToProcess.length > 10) {
+      if (currentQueue.length > 10) {
         await new Promise(resolve => setTimeout(resolve, SOCKET_CONFIG.BATCH_MESSAGE_DELAY));
       }
     });
-  }, [messageQueue, log, updateMetrics]);
+  }, []); // Remove dependencies to prevent re-creation
   
   // ========================================
   // RECONNECTION LOGIC
@@ -415,7 +475,16 @@ export default function PerfectSocketProvider({ children }) {
       
       log('info', `Executing reconnection attempt`, { userId });
       updateMetrics(m => ({ reconnections: m.reconnections + 1 }));
-      initializeSocket();
+      // Use ref to avoid circular dependency
+      if (initializationInProgress.current) {
+        log('warn', 'Initialization already in progress, skipping reconnection');
+        return;
+      }
+      if (initializeSocketRef.current) {
+        initializeSocketRef.current();
+      } else {
+        log('error', 'initializeSocket not available for reconnection');
+      }
     }, delay);
   }, [isAuthenticated, getUserId, log, updateMetrics]);
   
@@ -646,8 +715,21 @@ export default function PerfectSocketProvider({ children }) {
       // Start heartbeat
       startHeartbeat(newSocket);
       
+      // Issue #17: Request current online users list
+      newSocket.emit('get_online_users', {}, (response) => {
+        if (response && response.success && response.users) {
+          log('success', 'Received initial online users', { count: response.users.length });
+          const userIds = response.users.map(user => user.profileid || user.id).filter(Boolean);
+          setOnlineUsers(new Set(userIds));
+        }
+      });
+      
       // Process queued messages
       processMessageQueue(newSocket);
+
+      // Load keyword alerts for notifications
+      const currentUserId = authUser?.profileid || authUser?.id;
+      loadKeywordAlerts(currentUserId);
     });
     
     /**
@@ -763,9 +845,80 @@ export default function PerfectSocketProvider({ children }) {
         sender: data.sender?.username
       });
       updateMetrics(m => ({ messagesReceived: m.messagesReceived + 1 }));
-      // Emit to application layer
+      
+      // Notify application of unread count increment if chat not focused
+      try {
+        if (typeof window !== 'undefined') {
+          const event = new CustomEvent('new-message-received', { detail: data });
+          window.dispatchEvent(event);
+        }
+      } catch (err) {
+        log('error', 'Failed to dispatch new-message-received event', { error: err.message });
+      }
+
+      // Smart notifications: keyword-based alerts
+      try {
+        const msg = data.message || data;
+        const content = msg?.content || '';
+        const senderId = data.sender?.profileid || data.senderid;
+        const currentUserId = (authUser?.profileid || authUser?.id);
+        if (senderId && currentUserId && senderId !== currentUserId) {
+          const matchedAlert = messageMatchesKeywords(content);
+          if (matchedAlert) {
+            unifiedNotificationService.show({
+              type: NOTIFICATION_TYPES.INFO,
+              title: `Keyword matched: ${matchedAlert.keyword}`,
+              message: content?.slice(0, 120) || 'New message',
+              category: NOTIFICATION_CATEGORIES.CHAT,
+              data: {
+                chatId: msg?.chatid,
+                messageId: msg?.messageid,
+                senderId
+              },
+              onClick: () => {
+                if (typeof window !== 'undefined') {
+                  window.focus();
+                }
+              }
+            });
+          }
+        }
+      } catch (e) {
+        log('error', 'Keyword notification error', { error: e.message });
+      }
     });
-    
+
+    /**
+     * Reactions events (add/remove/sync)
+     */
+    newSocket.on('reaction_added', (data) => {
+      try {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('reaction-updated', { detail: { type: 'added', ...data } }));
+        }
+      } catch (e) {
+        log('error', 'Failed to dispatch reaction-updated (added)', { error: e.message });
+      }
+    });
+    newSocket.on('reaction_removed', (data) => {
+      try {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('reaction-updated', { detail: { type: 'removed', ...data } }));
+        }
+      } catch (e) {
+        log('error', 'Failed to dispatch reaction-updated (removed)', { error: e.message });
+      }
+    });
+    newSocket.on('reactions_sync', (data) => {
+      try {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('reaction-updated', { detail: { type: 'sync', ...data } }));
+        }
+      } catch (e) {
+        log('error', 'Failed to dispatch reaction-updated (sync)', { error: e.message });
+      }
+    });
+
     /**
      * Message acknowledgment
      */
@@ -794,14 +947,42 @@ export default function PerfectSocketProvider({ children }) {
     });
     
     /**
-     * User presence events
+     * User presence events (Issue #17: Enhanced online status)
      */
     if (SOCKET_CONFIG.ENABLE_PRESENCE) {
+      // User comes online
+      newSocket.on('user_online', (data) => {
+        log('info', 'User came online', { profileid: data.profileid, username: data.username });
+        setOnlineUsers(prev => new Set([...prev, data.profileid]));
+      });
+      
+      // User goes offline
+      newSocket.on('user_offline', (data) => {
+        log('info', 'User went offline', { profileid: data.profileid, username: data.username });
+        setOnlineUsers(prev => {
+          const updated = new Set(prev);
+          updated.delete(data.profileid);
+          return updated;
+        });
+      });
+      
+      // Bulk online users update (on connect)
+      newSocket.on('online_users_list', (data) => {
+        log('info', 'Received online users list', { count: data.users?.length });
+        if (data.users && Array.isArray(data.users)) {
+          const userIds = data.users.map(user => user.profileid || user.id).filter(Boolean);
+          setOnlineUsers(new Set(userIds));
+        }
+      });
+      
+      // Legacy events for backwards compatibility
       newSocket.on('user_joined_chat', (data) => {
+        log('info', 'User joined chat', { profileid: data.profileid });
         setOnlineUsers(prev => new Set([...prev, data.profileid]));
       });
       
       newSocket.on('user_left', (data) => {
+        log('info', 'User left chat', { profileid: data.profileid });
         setOnlineUsers(prev => {
           const updated = new Set(prev);
           updated.delete(data.profileid);
@@ -810,6 +991,7 @@ export default function PerfectSocketProvider({ children }) {
       });
       
       newSocket.on('user_status_changed', (data) => {
+        log('info', 'User status changed', { profileid: data.profileid, isOnline: data.isOnline });
         if (data.isOnline) {
           setOnlineUsers(prev => new Set([...prev, data.profileid]));
         } else {
@@ -819,6 +1001,21 @@ export default function PerfectSocketProvider({ children }) {
             return updated;
           });
         }
+      });
+      
+      // Connection status events
+      newSocket.on('user_connected', (data) => {
+        log('info', 'User connected to server', { profileid: data.profileid });
+        setOnlineUsers(prev => new Set([...prev, data.profileid]));
+      });
+      
+      newSocket.on('user_disconnected', (data) => {
+        log('info', 'User disconnected from server', { profileid: data.profileid });
+        setOnlineUsers(prev => {
+          const updated = new Set(prev);
+          updated.delete(data.profileid);
+          return updated;
+        });
       });
     }
     
@@ -917,17 +1114,43 @@ export default function PerfectSocketProvider({ children }) {
       log('error', 'Chat error', { error: data.error, chatid: data.chatid });
     });
     
-    newSocket.on('rate_limited', (data) => {
-      log('warn', 'Rate limited', { message: data.message, retryAfter: data.retryAfter });
+    // Add handlers for chat_joined and chat_error events
+    newSocket.on('chat_joined', (data) => {
+      log('success', 'Successfully joined chat', { chatid: data.chatid });
     });
     
-    newSocket.on('auth_required', () => {
-      log('error', 'Authentication required - token may have expired');
-      setConnectionStatus(CONNECTION_STATES.AUTHENTICATION_FAILED);
+    newSocket.on('chat_error', (data) => {
+      log('error', 'Chat error', { error: data.error, chatid: data.chatid });
     });
     
-    newSocket.on('tokens_refreshed', (data) => {
-      log('success', 'Tokens refreshed', { expiresAt: data.expiresAt });
+    /**
+     * Unread count events (Issue #16)
+     */
+    newSocket.on('unread_count_updated', (data) => {
+      log('info', 'Unread count updated', { 
+        chatid: data.chatid,
+        count: data.count,
+        profileid: data.profileid
+      });
+      
+      // Only update if it's for current user
+      const currentUserId = authUser?.profileid || authUser?.id;
+      if (data.profileid === currentUserId) {
+        updateUnreadCount(data.chatid, data.count);
+      }
+    });
+    
+    newSocket.on('chat_marked_read', (data) => {
+      log('success', 'Chat marked as read confirmed', { 
+        chatid: data.chatid,
+        profileid: data.profileid
+      });
+      
+      // Only update if it's for current user
+      const currentUserId = authUser?.profileid || authUser?.id;
+      if (data.profileid === currentUserId) {
+        updateUnreadCount(data.chatid, 0); // Reset to 0
+      }
     });
     
     /**
@@ -962,6 +1185,9 @@ export default function PerfectSocketProvider({ children }) {
     return newSocket;
     
   }, []); // 🔄 CRITICAL FIX: Empty dependency array - prevent re-initialization loops
+  
+  // Store initializeSocket in ref for use by other functions
+  initializeSocketRef.current = initializeSocket;
   
   // ========================================
   // CLEANUP FUNCTIONS
@@ -1047,6 +1273,33 @@ export default function PerfectSocketProvider({ children }) {
   }, [log]);
   
   // ========================================
+  // UNREAD COUNT MANAGEMENT (Issue #16)
+  // ========================================
+  
+  /**
+   * Mark chat as read and reset unread count
+   */
+  const markChatAsRead = useCallback((chatid) => {
+    if (socket && socket.connected) {
+      socket.emit('mark_chat_as_read', { chatid });
+      log('info', 'Marked chat as read', { chatid });
+    }
+  }, [socket, log]);
+  
+  /**
+   * Update local unread count state
+   */
+  const updateUnreadCount = useCallback((chatid, count) => {
+    // Emit custom event for ChatList to listen to
+    if (typeof window !== 'undefined') {
+      const event = new CustomEvent('unread-count-updated', {
+        detail: { chatid, count }
+      });
+      window.dispatchEvent(event);
+    }
+  }, []);
+
+  // ========================================
   // PUBLIC API METHODS
   // ========================================
   
@@ -1126,6 +1379,12 @@ export default function PerfectSocketProvider({ children }) {
       socket.emit('react_to_message', { messageid, emoji, chatid });
     }
   }, [socket]);
+
+  const removeReaction = useCallback((messageid, emoji, chatid) => {
+    if (socket && socket.connected) {
+      socket.emit('remove_reaction', { messageid, emoji, chatid });
+    }
+  }, [socket]);
   
   /**
    * Initiate call
@@ -1192,6 +1451,31 @@ export default function PerfectSocketProvider({ children }) {
       socket.emit('webrtc_ice_candidate', { callId, targetId, candidate });
     }
   }, [socket]);
+  
+  /**
+   * Get online users list (Issue #17)
+   */
+  const requestOnlineUsers = useCallback(() => {
+    if (socket && socket.connected) {
+      socket.emit('get_online_users', {}, (response) => {
+        if (response && response.success && response.users) {
+          log('success', 'Updated online users list', { count: response.users.length });
+          const userIds = response.users.map(user => user.profileid || user.id).filter(Boolean);
+          setOnlineUsers(new Set(userIds));
+        }
+      });
+    }
+  }, [socket, log]);
+  
+  /**
+   * Update user status (Issue #17)
+   */
+  const updateUserStatus = useCallback((status = 'online') => {
+    if (socket && socket.connected) {
+      socket.emit('update_user_status', { status });
+      log('info', 'Updated user status', { status });
+    }
+  }, [socket, log]);
   
   /**
    * Manual reconnection
@@ -1388,6 +1672,7 @@ export default function PerfectSocketProvider({ children }) {
     // Chat methods
     joinChat,
     leaveChat,
+    markChatAsRead,
     
     // Messaging methods
     sendMessage,
@@ -1409,7 +1694,11 @@ export default function PerfectSocketProvider({ children }) {
     // Utility methods
     reconnect,
     queueMessage,
-    processMessageQueue: () => processMessageQueue(socket)
+    processMessageQueue: () => processMessageQueue(socket),
+    
+    // Presence methods (Issue #17)
+    requestOnlineUsers,
+    updateUserStatus
   }), [
     socket,
     isConnected,
@@ -1422,6 +1711,7 @@ export default function PerfectSocketProvider({ children }) {
     metrics,
     joinChat,
     leaveChat,
+    markChatAsRead,
     sendMessage,
     markMessageRead,
     reactToMessage,
@@ -1435,7 +1725,9 @@ export default function PerfectSocketProvider({ children }) {
     sendICECandidate,
     reconnect,
     queueMessage,
-    processMessageQueue
+    processMessageQueue,
+    requestOnlineUsers,
+    updateUserStatus
   ]);
   
   // ========================================

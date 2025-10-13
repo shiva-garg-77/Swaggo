@@ -1,0 +1,71 @@
+# Story-related GraphQL schema definitions
+
+extend type Query {
+  # Story queries
+  getUserStories(profileid: String!, limit: Int): [Story!]
+  getActiveStoriesForUser(profileid: String!): [Story!]
+  getStoryViewers(storyid: String!): [StoryViewer!]
+  getStoriesByViewer(profileid: String!, limit: Int): [Story!]
+  
+  # Highlight queries
+  getUserHighlights(profileid: String!, limit: Int): [Highlight!]
+  getHighlightStories(highlightid: String!): [HighlightStory!]
+  searchHighlights(profileid: String!, query: String!): [Highlight!]
+  
+  # Memory queries
+  getMemoriesWithStories(profileid: String!, limit: Int): [Memory!]
+}
+
+extend type Mutation {
+  # Story mutations
+  createStoryWithPreview(input: CreateStoryInput!): Story
+  deleteStoryWithViewers(storyid: String!): Response
+  viewStory(storyid: String!, profileid: String!): Story
+  saveStoryToHighlights(storyid: String!, highlightid: String!): Highlight
+  unsaveStoryFromHighlights(storyid: String!, highlightid: String!): Highlight
+  expireStory(storyid: String!): Story
+  
+  # Highlight mutations
+  createHighlightWithStories(input: CreateHighlightInput!): Highlight
+  updateHighlightContent(highlightid: String!, input: UpdateHighlightInput!): Highlight
+  deleteHighlightWithStories(highlightid: String!): Response
+  addStoryToHighlight(highlightid: String!, storyid: String!): Highlight
+  removeStoryFromHighlight(highlightid: String!, storyid: String!): Highlight
+  reorderHighlightStories(highlightid: String!, storyOrder: [String!]!): Highlight
+  
+  # Memory mutations
+  createMemoryWithCover(input: CreateMemoryInput!): Memory
+  updateMemoryCover(memoryid: String!, coverImage: URL): Memory
+  deleteMemoryWithCover(memoryid: String!): Response
+}
+
+# Input types for story mutations
+
+input CreateStoryInput {
+  profileid: String!
+  mediaUrl: URL!
+  mediaType: String!
+  caption: String
+  expiresAt: DateTime
+}
+
+input CreateHighlightInput {
+  profileid: String!
+  title: String!
+  coverImage: URL
+  category: String
+  storyIds: [String!]
+}
+
+input UpdateHighlightInput {
+  title: String
+  coverImage: URL
+  category: String
+}
+
+input CreateMemoryInput {
+  profileid: String!
+  title: String!
+  coverImage: URL
+  storyIds: [String!]
+}

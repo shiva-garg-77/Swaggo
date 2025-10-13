@@ -1,0 +1,68 @@
+# User-related GraphQL schema definitions
+
+extend type Query {
+  # User profile queries
+  getUserProfile(username: String!): Profile
+  getUserProfiles(limit: Int, offset: Int): [Profile!]
+  searchUsers(query: String!, limit: Int): [Profile!]
+  getFollowers(profileid: String!): [Profile!]
+  getFollowing(profileid: String!): [Profile!]
+  isFollowing(profileid: String!, targetProfileId: String!): Boolean!
+  
+  # User settings queries
+  getUserSettings(profileid: String!): UserSettings
+}
+
+extend type Mutation {
+  # Profile mutations
+  updateProfileSettings(profileid: String!, input: ProfileSettingsInput!): Profile
+  followUser(profileid: String!, targetProfileId: String!): Profile
+  unfollowUser(profileid: String!, targetProfileId: String!): Profile
+  blockUser(profileid: String!, targetProfileId: String!, reason: String): BlockedAccount
+  unblockUser(profileid: String!, targetProfileId: String!): BlockedAccount
+  restrictUser(profileid: String!, targetProfileId: String!): RestrictedAccount
+  unrestrictUser(profileid: String!, targetProfileId: String!): RestrictedAccount
+  addToCloseFriends(profileid: String!, targetProfileId: String!): CloseFriend
+  removeFromCloseFriends(profileid: String!, targetProfileId: String!): CloseFriend
+  
+  # User settings mutations
+  updateUserSettings(profileid: String!, input: UserSettingsInput!): UserSettings
+  updatePrivacySettings(profileid: String!, input: PrivacySettingsInput!): UserSettings
+  updateNotificationSettings(profileid: String!, input: NotificationSettingsInput!): UserSettings
+}
+
+# Input types for user mutations
+
+input ProfileSettingsInput {
+  name: String
+  bio: String
+  profilePic: URL
+  isPrivate: Boolean
+}
+
+input UserSettingsInput {
+  allowMentions: Boolean
+  mentionNotifications: Boolean
+  tagNotifications: Boolean
+  showTaggedPosts: Boolean
+  isPrivate: Boolean
+  allowMessages: String
+  showActivity: Boolean
+  twoFactor: Boolean
+  notificationsEnabled: Boolean
+  darkMode: Boolean
+}
+
+input PrivacySettingsInput {
+  isPrivate: Boolean
+  allowMessages: String
+  showActivity: Boolean
+}
+
+input NotificationSettingsInput {
+  allowMentions: Boolean
+  mentionNotifications: Boolean
+  tagNotifications: Boolean
+  showTaggedPosts: Boolean
+  notificationsEnabled: Boolean
+}

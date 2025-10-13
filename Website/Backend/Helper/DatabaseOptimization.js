@@ -93,7 +93,6 @@ export const setupDatabaseIndexes = async () => {
         // Notification indexes
         await Notification.collection.createIndex({ recipientid: 1, createdAt: -1 });
         await Notification.collection.createIndex({ isRead: 1 });
-        await Notification.collection.createIndex({ expiresAt: 1 });
         
         console.log('✅ Database indexes created successfully');
         

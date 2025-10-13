@@ -541,7 +541,7 @@ class SecretsManager extends EventEmitter {
    */
   encrypt(data) {
     const iv = crypto.randomBytes(IV_LENGTH);
-    const cipher = crypto.createCipher(ENCRYPTION_ALGORITHM, this.encryptionKey, iv);
+    const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, this.encryptionKey, iv);
     
     let encrypted = cipher.update(data, 'utf8', 'hex');
     encrypted += cipher.final('hex');
@@ -560,7 +560,7 @@ class SecretsManager extends EventEmitter {
     const tag = encryptedData.slice(IV_LENGTH, IV_LENGTH + TAG_LENGTH);
     const encrypted = encryptedData.slice(IV_LENGTH + TAG_LENGTH);
     
-    const decipher = crypto.createDecipher(ENCRYPTION_ALGORITHM, this.encryptionKey, iv);
+    const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, this.encryptionKey, iv);
     decipher.setAuthTag(tag);
     
     let decrypted = decipher.update(encrypted, null, 'utf8');
@@ -639,11 +639,11 @@ class SecretsManager extends EventEmitter {
   }
   
   /**
-   * Get last vault save time
+   * Get last vault save time with async operations
    */
-  getLastVaultSaveTime() {
+  async getLastVaultSaveTime() {
     try {
-      const stats = fs.statSync(this.vaultPath);
+      const stats = await fs.promises.stat(this.vaultPath);
       return stats.mtime.toISOString();
     } catch (error) {
       return null;

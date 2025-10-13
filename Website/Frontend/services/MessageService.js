@@ -4,13 +4,16 @@
  */
 
 import { EventEmitter } from 'events';
-import socketService, { CONNECTION_STATES, MESSAGE_STATUS } from './SocketService';
 import authService from './AuthService';
 import cacheService from './CacheService';
-import errorHandlingService, { ERROR_TYPES } from './ErrorHandlingService';
+import errorHandlingService from './ErrorHandlingService';
 import notificationService from './NotificationService';
-import DataTransformer from '../utils/DataTransformer';
-import { useUnifiedChatStore } from '../store/useUnifiedChatStore';
+import { useUnifiedStore } from './useUnifiedStore'; // Use the new unified store
+import offlineModeService from './OfflineModeService';
+import cdnService from './CDNService';
+import enhancedSearchService from './EnhancedSearchService';
+// Import the service container to get the socket service
+import { getService } from '../core/services';
 
 /**
  * Message Types
@@ -69,7 +72,11 @@ class MessageService extends EventEmitter {
   constructor() {
     super();
     
+    // Store reference to socket service
+    this.socketService = null;
+    
     // Get store actions for state synchronization
+    const store = useUnifiedStore.getState();
     const {
       addMessage,
       updateMessage,
@@ -89,7 +96,7 @@ class MessageService extends EventEmitter {
       setConnected,
       setOnline,
       updateMessageStats
-    } = useUnifiedChatStore.getState();
+    } = store;
     
     this.storeActions = {
       addMessage,
@@ -182,61 +189,100 @@ class MessageService extends EventEmitter {
     this.loadCachedData();
     
     // Subscribe to store changes for synchronization
-    useUnifiedChatStore.subscribe((state) => state.messages, (messages) => {
+    useUnifiedStore.subscribe((state) => state.chat.messages, (messages) => {
       // Sync local messages map with store
       this.messages = messages;
     });
     
-    useUnifiedChatStore.subscribe((state) => state.typingUsers, (typingUsers) => {
+    useUnifiedStore.subscribe((state) => state.chat.typingUsers, (typingUsers) => {
       // Sync local typing users map with store
       this.typingUsers = typingUsers;
     });
   }
 
   /**
+   * Get socket service instance
+   */
+  async getSocketService() {
+    if (!this.socketService) {
+      this.socketService = await getService('socket');
+    }
+    return this.socketService;
+  }
+
+  /**
    * Setup socket event listeners
    */
-  setupSocketListeners() {
-    // Connection events
-    socketService.on('connected', () => {
-      this.onSocketConnected();
-    });
-
-    socketService.on('disconnected', () => {
-      this.onSocketDisconnected();
-    });
-
-    socketService.on('reconnected', () => {
-      this.onSocketReconnected();
-    });
-
-    // Message events
-    socketService.on('message', (message) => {
-      this.handleIncomingMessage(message);
-    });
-
-    socketService.on('message_status_update', (statusUpdate) => {
-      this.handleMessageStatusUpdate(statusUpdate);
-    });
-
-    // Message reaction events
-    socketService.on('message_reaction', (reactionData) => {
-      this.handleMessageReaction(reactionData);
-    });
-
-    // Typing events
-    socketService.on('typing_start', (data) => {
-      this.handleTypingStart(data);
-    });
-
-    socketService.on('typing_stop', (data) => {
-      this.handleTypingStop(data);
-    });
-
-    // System events
-    socketService.on('system_message', (message) => {
-      this.handleSystemMessage(message);
-    });
+  async setupSocketListeners() {
+    try {
+      // Get the socket service from the container
+      const socketService = await this.getSocketService();
+      
+      // Listen for connection events
+      socketService.on('connected', () => {
+        this.setConnected(true);
+        this.setSyncing(false);
+        this.startSyncTimer();
+        this.syncOfflineMessages();
+      });
+      
+      socketService.on('disconnected', () => {
+        this.setConnected(false);
+        this.stopSyncTimer();
+      });
+      
+      socketService.on('reconnected', () => {
+        this.setConnected(true);
+        this.setSyncing(false);
+        this.syncOfflineMessages();
+      });
+      
+      // Listen for message events
+      socketService.on('message', (message) => {
+        this.handleIncomingMessage(message);
+      });
+      
+      socketService.on('message_status_update', (statusUpdate) => {
+        this.handleMessageStatusUpdate(statusUpdate);
+      });
+      
+      socketService.on('message_reaction', (reactionData) => {
+        this.handleMessageReaction(reactionData);
+      });
+      
+      socketService.on('message_edited', (editData) => {
+        this.handleMessageEdit(editData);
+      });
+      
+      socketService.on('message_deleted', (deleteData) => {
+        this.handleMessageDelete(deleteData);
+      });
+      
+      socketService.on('message_deleted_by_others', (deleteData) => {
+        this.handleMessageDeleteByOthers(deleteData);
+      });
+      
+      // Listen for typing events
+      socketService.on('typing_start', (data) => {
+        this.handleTypingStart(data);
+      });
+      
+      socketService.on('typing_stop', (data) => {
+        this.handleTypingStop(data);
+      });
+      
+      // Listen for system messages
+      socketService.on('system_message', (message) => {
+        this.handleSystemMessage(message);
+      });
+      
+      // Listen for chat events
+      socketService.on('chat_joined', (data) => {
+        this.handleChatJoined(data);
+      });
+    } catch (error) {
+      console.error('❌ MessageService: Failed to setup socket listeners:', error);
+    }
   }
 
   /**
@@ -341,106 +387,70 @@ class MessageService extends EventEmitter {
   }
 
   /**
-   * Send a message
+   * Handle message edit
    */
-  async sendMessage(chatId, messageData) {
+  handleMessageEdit(editData) {
     try {
-      // Validate input
-      if (!chatId || !messageData) {
-        throw new Error('Chat ID and message data are required');
+      console.log('✏️ Received message edit:', editData);
+      
+      const { messageid, content, isEdited, editHistory, updatedAt } = editData;
+      
+      // Find the message in our store
+      const message = this.messages.get(messageid);
+      if (!message) {
+        console.warn('⚠️ Edit received for unknown message:', messageid);
+        return;
       }
-
-      // Get current user
-      const currentUser = authService.getCurrentUser();
-      if (!currentUser) {
-        throw new Error('User not authenticated');
-      }
-
-      // Generate message ID and temp ID
-      const tempId = this.generateTempId();
-      const timestamp = Date.now();
-
-      // Create message object
-      const message = {
-        tempId,
-        id: null, // Will be set when server responds
-        chatId,
-        senderId: currentUser.id,
-        type: messageData.type || MESSAGE_TYPES.TEXT,
-        content: messageData.content,
-        metadata: messageData.metadata || {},
-        timestamp,
-        state: MESSAGE_STATES.SENDING,
-        deliveryStatus: MESSAGE_STATUS.PENDING,
-        readBy: [],
-        editedAt: null,
-        deletedAt: null,
-        replyTo: messageData.replyTo || null,
-        forwarded: messageData.forwarded || false
-      };
-
-      // Process message content based on type
-      const processedMessage = await this.processMessage(message);
-
-      // Add to local store immediately (optimistic update)
-      if (this.config.enableOptimisticUpdates) {
-        this.storeActions.addMessage(processedMessage);
-        this.emit('message_added', processedMessage);
-      }
-
-      // Attempt to send via socket
-      if (socketService.isConnected()) {
-        try {
-          const result = await socketService.sendMessage({
-            tempId,
-            chatId,
-            type: processedMessage.type,
-            content: processedMessage.content,
-            metadata: processedMessage.metadata,
-            replyTo: processedMessage.replyTo,
-            forwarded: processedMessage.forwarded
-          });
-
-          // Update message state
-          processedMessage.deliveryStatus = result.status;
-          this.storeActions.updateMessage(processedMessage);
-          
-        } catch (error) {
-          // Handle send error - rollback optimistic update
-          processedMessage.state = MESSAGE_STATES.FAILED;
-          processedMessage.error = error.message;
-          this.storeActions.updateMessage(processedMessage);
-          this.storeActions.addOfflineMessage(processedMessage);
-          
-          // Emit error event for UI to handle rollback
-          this.emit('message_send_failed', {
-            tempId,
-            error: error.message,
-            message: processedMessage
-          });
-          
-          throw error;
-        }
-      } else {
-        // Add to offline queue
-        this.storeActions.addOfflineMessage(processedMessage);
-        notificationService.info('Offline', 'Message will be sent when connection is restored');
-      }
-
-      this.stats.messagesSent++;
-      this.storeActions.updateMessageStats({ messagesSent: this.stats.messagesSent });
-      return processedMessage;
-
+      
+      // Update message content and edit status
+      message.content = content;
+      message.isEdited = isEdited;
+      message.editHistory = editHistory || [];
+      message.updatedAt = updatedAt ? new Date(updatedAt) : new Date();
+      
+      // Update message in store
+      this.storeActions.updateMessage(message);
+      
+      // Emit event for UI updates
+      this.emit('message_edited_updated', {
+        messageId: messageid,
+        content,
+        isEdited,
+        editHistory,
+        updatedAt
+      });
+      
+      console.log('✅ Message edit processed:', {
+        messageId: messageid,
+        contentLength: content.length,
+        editHistoryCount: editHistory?.length || 0
+      });
+      
     } catch (error) {
-      this.stats.failedMessages++;
-      this.storeActions.updateMessageStats({ failedMessages: this.stats.failedMessages });
+      console.error('❌ Error handling message edit:', error);
       errorHandlingService.handleError(
         errorHandlingService.createError(
-          ERROR_TYPES.BUSINESS_RULE_VIOLATION,
-          'Failed to send message',
-          { chatId, messageData, error }
+          ERROR_TYPES.MESSAGE_PROCESSING_FAILED,
+          'Failed to process message edit',
+          { editData, error }
         )
       );
+    }
+  }
+
+  /**
+   * Send a message
+   */
+  async sendMessage(messageData) {
+    try {
+      const socketService = await this.getSocketService();
+      if (socketService.isConnected()) {
+        return await socketService.sendMessage(messageData);
+      } else {
+        throw new Error('Socket not connected');
+      }
+    } catch (error) {
+      console.error('❌ MessageService: Failed to send message:', error);
       throw error;
     }
   }
@@ -592,6 +602,82 @@ class MessageService extends EventEmitter {
   }
 
   /**
+   * Handle message delete confirmation
+   */
+  handleMessageDelete(deleteData) {
+    try {
+      const { messageid, deleteForEveryone } = deleteData;
+      
+      // Update local message state
+      const message = this.messages.get(messageid);
+      if (message) {
+        message.isDeleted = true;
+        message.deletedAt = Date.now();
+        
+        // If deleted for everyone, update for all users
+        if (deleteForEveryone) {
+          message.deletedForEveryone = true;
+        }
+        
+        // Update store
+        this.storeActions.updateMessage(message);
+        this.cacheMessage(message);
+      }
+      
+      console.log('🗑️ Message deleted locally:', { messageid, deleteForEveryone });
+      
+    } catch (error) {
+      errorHandlingService.handleError(
+        errorHandlingService.createError(
+          ERROR_TYPES.JAVASCRIPT_ERROR,
+          'Error handling message delete',
+          { deleteData, error }
+        )
+      );
+    }
+  }
+
+  /**
+   * Handle message deleted by others
+   */
+  handleMessageDeleteByOthers(deleteData) {
+    try {
+      const { messageid, isDeleted, deletedBy, deletedAt, deleteForEveryone } = deleteData;
+      
+      // Update local message state
+      const message = this.messages.get(messageid);
+      if (message) {
+        message.isDeleted = isDeleted;
+        message.deletedBy = deletedBy;
+        message.deletedAt = deletedAt ? new Date(deletedAt).getTime() : Date.now();
+        
+        // If deleted for everyone, update for all users
+        if (deleteForEveryone) {
+          message.deletedForEveryone = true;
+        }
+        
+        // Update store
+        this.storeActions.updateMessage(message);
+        this.cacheMessage(message);
+      }
+      
+      console.log('🗑️ Message deleted by others:', deleteData);
+      
+      // Emit event for UI updates
+      this.emit('message_deleted_by_others', deleteData);
+      
+    } catch (error) {
+      errorHandlingService.handleError(
+        errorHandlingService.createError(
+          ERROR_TYPES.JAVASCRIPT_ERROR,
+          'Error handling message delete by others',
+          { deleteData, error }
+        )
+      );
+    }
+  }
+
+  /**
    * Handle typing start
    */
   handleTypingStart(data) {
@@ -656,20 +742,52 @@ class MessageService extends EventEmitter {
   }
 
   /**
+   * Handle chat joined
+   */
+  handleChatJoined(data) {
+    try {
+      console.log('📥 Chat joined:', data);
+      
+      // Emit event for UI updates
+      this.emit('chat_joined', data);
+      
+    } catch (error) {
+      console.error('❌ Error handling chat joined:', error);
+      errorHandlingService.handleError(
+        errorHandlingService.createError(
+          ERROR_TYPES.JAVASCRIPT_ERROR,
+          'Error handling chat joined',
+          { data, error }
+        )
+      );
+    }
+  }
+
+  /**
    * Start typing indicator
    */
-  startTyping(chatId) {
-    if (socketService.isConnected()) {
-      socketService.sendTypingStart(chatId);
+  async sendTypingStart(chatId) {
+    try {
+      const socketService = await this.getSocketService();
+      if (socketService.isConnected()) {
+        socketService.sendTypingStart(chatId);
+      }
+    } catch (error) {
+      console.error('❌ MessageService: Failed to send typing start:', error);
     }
   }
 
   /**
    * Stop typing indicator
    */
-  stopTyping(chatId) {
-    if (socketService.isConnected()) {
-      socketService.sendTypingStop(chatId);
+  async sendTypingStop(chatId) {
+    try {
+      const socketService = await this.getSocketService();
+      if (socketService.isConnected()) {
+        socketService.sendTypingStop(chatId);
+      }
+    } catch (error) {
+      console.error('❌ MessageService: Failed to send typing stop:', error);
     }
   }
 
@@ -883,8 +1001,31 @@ class MessageService extends EventEmitter {
    */
   getMessagesForChat(chatId, limit = 50, offset = 0) {
     try {
-      return this.storeActions.getMessagesForChat(chatId, limit, offset);
-
+      const messages = this.storeActions.getMessagesForChat(chatId, limit, offset);
+      
+      // Filter out deleted messages
+      const currentUser = authService.getCurrentUser();
+      const filteredMessages = messages.filter(message => {
+        // If message is not deleted, include it
+        if (!message.isDeleted) {
+          return true;
+        }
+        
+        // If message is deleted for everyone, exclude it
+        if (message.deletedForEveryone) {
+          return false;
+        }
+        
+        // If message is deleted for me, exclude it
+        if (message.deletedForMe) {
+          return false;
+        }
+        
+        // Include message by default
+        return true;
+      });
+      
+      return filteredMessages;
     } catch (error) {
       errorHandlingService.handleError(
         errorHandlingService.createError(
@@ -923,7 +1064,7 @@ class MessageService extends EventEmitter {
   }
 
   /**
-   * Search messages
+   * Search messages with enhanced capabilities
    */
   searchMessages(query, options = {}) {
     try {
@@ -933,12 +1074,14 @@ class MessageService extends EventEmitter {
         senderId = null,
         fromDate = null,
         toDate = null,
-        limit = 100
+        limit = 100,
+        filters = {}
       } = options;
 
+      // Use the enhanced search service for better performance
       let results = Array.from(this.messages.values());
-
-      // Apply filters
+      
+      // Apply basic filters first
       if (chatId) {
         results = results.filter(msg => msg.chatId === chatId);
       }
@@ -959,35 +1102,79 @@ class MessageService extends EventEmitter {
         results = results.filter(msg => msg.timestamp <= toDate);
       }
 
-      // Text search
-      if (query) {
-        const searchTerm = query.toLowerCase();
-        results = results.filter(msg => {
-          if (msg.type === MESSAGE_TYPES.TEXT) {
-            return msg.content.toLowerCase().includes(searchTerm);
-          }
-          return false;
-        });
-      }
-
-      // Sort by relevance and timestamp
-      results = results.sort((a, b) => b.timestamp - a.timestamp);
-
+      // Use enhanced search service for text search and advanced filtering
+      const searchResults = enhancedSearchService.search(results, query, filters);
+      
       // Apply limit
-      results = results.slice(0, limit);
-
-      return results;
-
+      return searchResults.slice(0, limit);
     } catch (error) {
-      errorHandlingService.handleError(
-        errorHandlingService.createError(
-          ERROR_TYPES.JAVASCRIPT_ERROR,
-          'Error searching messages',
-          { query, options, error }
-        )
-      );
-      return [];
+      console.error('Enhanced search failed, falling back to basic search:', error);
+      
+      // Fallback to basic search
+      return this.basicSearchMessages(query, options);
     }
+  }
+
+  /**
+   * Basic search as fallback
+   */
+  basicSearchMessages(query, options = {}) {
+    const {
+      chatId = null,
+      type = null,
+      senderId = null,
+      fromDate = null,
+      toDate = null,
+      limit = 100
+    } = options;
+
+    let results = Array.from(this.messages.values());
+
+    // Apply filters
+    if (chatId) {
+      results = results.filter(msg => msg.chatId === chatId);
+    }
+
+    if (type) {
+      results = results.filter(msg => msg.type === type);
+    }
+
+    if (senderId) {
+      results = results.filter(msg => msg.senderId === senderId);
+    }
+
+    if (fromDate) {
+      results = results.filter(msg => msg.timestamp >= fromDate);
+    }
+
+    if (toDate) {
+      results = results.filter(msg => msg.timestamp <= toDate);
+    }
+
+    // Text search
+    if (query) {
+      const searchTerm = query.toLowerCase();
+      results = results.filter(msg => {
+        if (msg.type === MESSAGE_TYPES.TEXT) {
+          return msg.content.toLowerCase().includes(searchTerm);
+        }
+        return false;
+      });
+    }
+
+    // Sort by timestamp (newest first)
+    results.sort((a, b) => b.timestamp - a.timestamp);
+
+    // Apply limit
+    return results.slice(0, limit);
+  }
+
+  /**
+   * Update search index when messages change
+   */
+  updateSearchIndex() {
+    const messages = Array.from(this.messages.values());
+    enhancedSearchService.createIndex(messages);
   }
 
   /**
@@ -1124,28 +1311,27 @@ class MessageService extends EventEmitter {
   }
 
   async syncOfflineMessages() {
-    const offlineMessages = Array.from(this.offlineMessages.values());
-    if (offlineMessages.length === 0) return;
-    
-    console.log(`📤 Syncing ${offlineMessages.length} offline messages...`);
-    
-    this.storeActions.clearOfflineMessages();
-    
-    for (const message of offlineMessages) {
-      try {
-        await socketService.sendMessage({
-          tempId: message.tempId,
-          chatId: message.chatId,
-          type: message.type,
-          content: message.content,
-          metadata: message.metadata,
-          replyTo: message.replyTo,
-          forwarded: message.forwarded
-        });
-      } catch (error) {
-        // Re-queue failed messages
-        this.storeActions.addOfflineMessage(message);
+    try {
+      const socketService = await this.getSocketService();
+      if (!socketService.isConnected()) return;
+      
+      // Process offline messages
+      for (const [tempId, message] of this.offlineMessages.entries()) {
+        try {
+          await socketService.sendMessage({
+            ...message,
+            tempId // Include tempId for correlation
+          });
+          
+          // Remove from offline queue on success
+          this.removeOfflineMessage(tempId);
+        } catch (sendError) {
+          console.warn('⚠️ MessageService: Failed to sync offline message:', sendError);
+          // Keep message in queue for retry
+        }
       }
+    } catch (error) {
+      console.error('❌ MessageService: Failed to sync offline messages:', error);
     }
   }
 
@@ -1171,6 +1357,18 @@ class MessageService extends EventEmitter {
         this.syncMessages();
       }
     }, this.config.syncInterval);
+  }
+
+  /**
+   * Extract URLs from text content
+   * @param {string} text - Text content to extract URLs from
+   * @returns {Array} Array of extracted URLs
+   */
+  extractUrls(text) {
+    if (!text) return [];
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const matches = text.match(urlRegex);
+    return matches || [];
   }
 }
 

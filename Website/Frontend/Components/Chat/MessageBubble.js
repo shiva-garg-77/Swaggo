@@ -7,6 +7,7 @@ import { useSecureAuth } from '../../context/FixedSecureAuthContext';
 import { useSocket } from '../Helper/PerfectSocketProvider';
 import { MessageStatusIcon, MESSAGE_STATUS } from './MessageStatusSystem';
 import VoiceMessagePlayer from './VoiceMessagePlayer';
+import cdnService from '../../services/CDNService'; // 🔧 PERFORMANCE FIX #39: Import CDN service for image optimization
 
 dayjs.extend(relativeTime);
 
@@ -18,17 +19,156 @@ export default function MessageBubble({
   onReply,
   onEdit,
   onDelete,
-  onRetryMessage
+  onRetryMessage,
+  isSelected,
+  isMultiSelectMode,
+  onSelectToggle,
+  isThreadView = false
 }) {
   const { user } = useSecureAuth();
-  const { reactToMessage } = useSocket();
+  const { reactToMessage, socket, removeReaction } = useSocket();
   const [showReactions, setShowReactions] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
+  const [isHighlighted, setIsHighlighted] = useState(false);
+  const [showLightbox, setShowLightbox] = useState(false);
+  const [lightboxMedia, setLightboxMedia] = useState([]);
+  const [showThread, setShowThread] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showAllReactions, setShowAllReactions] = useState(false);
+  const allReactionsRef = useRef(null);
+  const quickReactionsContainerRef = useRef(null);
+  const [recentReactions, setRecentReactions] = useState([]);
+
+  // For progressive loading of media
+  const [loadedMedia, setLoadedMedia] = useState({});
+
+  // 🔧 PERFORMANCE FIX #35: Memoize callback functions to prevent unnecessary re-renders
+  const handleMediaLoad = useCallback((attachmentId) => {
+    setLoadedMedia(prev => ({ ...prev, [attachmentId]: true }));
+  }, []);
+
+  const handleBubbleClick = useCallback((e) => {
+    // If it's a link or button, don't interfere with its functionality
+    if (e.target.tagName === 'A' || e.target.tagName === 'BUTTON') return;
+    
+    // If in multi-select mode, toggle selection
+    if (isMultiSelectMode) {
+      e.preventDefault();
+      onSelectToggle();
+    }
+  }, [isMultiSelectMode, onSelectToggle]);
+
+  const handleReplyInThread = useCallback(() => {
+    if (message.threadId) {
+      setShowThread(true);
+    } else {
+      // If no thread exists, create one by replying to this message
+      onReply && onReply(message);
+    }
+  }, [message, onReply]);
+
+  const saveRecent = useCallback((emoji) => {
+    try {
+      setRecentReactions(prev => {
+        const next = [emoji, ...prev.filter(e => e !== emoji)].slice(0, 8);
+        if (typeof window !== 'undefined') window.localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+        return next;
+      });
+    } catch {}
+  }, []);
+
+  const formatTime = useCallback((timestamp) => {
+    return formatMessageTime(timestamp);
+  }, []);
+
+  const scrollToMessage = useCallback((messageId) => {
+    const element = document.getElementById(`message-${messageId}`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Highlight the message
+      element.classList.add('bg-yellow-100', 'dark:bg-yellow-900/30');
+      setTimeout(() => {
+        element.classList.remove('bg-yellow-100', 'dark:bg-yellow-900/30');
+      }, 2000);
+    }
+  }, []);
+
+  const getRelativeTime = useCallback((timestamp) => {
+    return dayjs(timestamp).fromNow();
+  }, []);
+
+  const handleReaction = useCallback((emoji) => {
+    const userReacted = (message.reactions || []).some(r => r.emoji === emoji && r.profileid === user.profileid);
+    if (userReacted) {
+      removeReaction && removeReaction(message.messageid, emoji, chat.chatid);
+    } else {
+      reactToMessage(message.messageid, emoji, chat.chatid);
+      saveRecent(emoji);
+    }
+    setShowReactions(false);
+  }, [message.reactions, message.messageid, user.profileid, chat.chatid, removeReaction, reactToMessage, saveRecent]);
+
+  const groupReactions = useCallback(() => {
+    if (!message.reactions || !Array.isArray(message.reactions) || message.reactions.length === 0) return [];
+    
+    const grouped = {};
+    message.reactions.forEach(reaction => {
+      if (!grouped[reaction.emoji]) {
+        grouped[reaction.emoji] = {
+          emoji: reaction.emoji,
+          count: 0,
+          users: [],
+          hasUserReacted: false
+        };
+      }
+      grouped[reaction.emoji].count++;
+      grouped[reaction.emoji].users.push(reaction.profile?.username || 'Unknown');
+      if (reaction.profileid === user.profileid) {
+        grouped[reaction.emoji].hasUserReacted = true;
+      }
+    });
+    
+    return Object.values(grouped);
+  }, [message.reactions, user.profileid]);
+
+  const getReadStatus = useCallback(() => {
+    if (!isOwn || !message.readBy || !chat.participants || !Array.isArray(chat.participants)) return null;
+    
+    const otherParticipants = chat.participants.filter(p => p.profileid !== user.profileid);
+    const readByOthers = message.readBy.filter(read => read.profileid !== user.profileid);
+    
+    if (readByOthers.length === 0) return 'Sent';
+    if (readByOthers.length < otherParticipants.length) return 'Delivered';
+    return 'Read';
+  }, [isOwn, message.readBy, chat.participants, user.profileid]);
+
+  const openLightbox = useCallback((attachments, startIndex = 0) => {
+    const media = attachments.map(attachment => ({
+      url: attachment.url,
+      type: attachment.type,
+      filename: attachment.filename,
+      size: attachment.size
+    }));
+    setLightboxMedia(media);
+    setShowLightbox(true);
+  }, []);
+
+  const extractUrls = useCallback((text) => {
+    if (!text) return [];
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const matches = text.match(urlRegex);
+    return matches || [];
+  }, []);
+
+  const isCustomEmojiUrl = useCallback((val) => {
+    if (!val || typeof val !== 'string') return false;
+    return /^(https?:\/\/|data:image\/)/i.test(val);
+  }, []);
 
   const quickReactions = ['👍', '❤️', '😂', '😮', '😢', '😡'];
 
   // Format timestamp with dayjs
-  const formatTime = (timestamp) => {
+  const formatMessageTime = (timestamp) => {
     if (!timestamp) return '';
     const messageTime = dayjs(timestamp);
     const now = dayjs();
@@ -57,52 +197,6 @@ export default function MessageBubble({
     return messageTime.format('MMM D, YYYY HH:mm');
   };
   
-  const getRelativeTime = (timestamp) => {
-    return dayjs(timestamp).fromNow();
-  };
-
-  // Handle reaction
-  const handleReaction = (emoji) => {
-    reactToMessage(message.messageid, emoji, chat.chatid);
-    setShowReactions(false);
-  };
-
-  // Group reactions by emoji
-  const groupReactions = () => {
-    if (!message.reactions || !Array.isArray(message.reactions) || message.reactions.length === 0) return [];
-    
-    const grouped = {};
-    message.reactions.forEach(reaction => {
-      if (!grouped[reaction.emoji]) {
-        grouped[reaction.emoji] = {
-          emoji: reaction.emoji,
-          count: 0,
-          users: [],
-          hasUserReacted: false
-        };
-      }
-      grouped[reaction.emoji].count++;
-      grouped[reaction.emoji].users.push(reaction.profile?.username || 'Unknown');
-      if (reaction.profileid === user.profileid) {
-        grouped[reaction.emoji].hasUserReacted = true;
-      }
-    });
-    
-    return Object.values(grouped);
-  };
-
-  // Get read status
-  const getReadStatus = () => {
-    if (!isOwn || !message.readBy || !chat.participants || !Array.isArray(chat.participants)) return null;
-    
-    const otherParticipants = chat.participants.filter(p => p.profileid !== user.profileid);
-    const readByOthers = message.readBy.filter(read => read.profileid !== user.profileid);
-    
-    if (readByOthers.length === 0) return 'Sent';
-    if (readByOthers.length < otherParticipants.length) return 'Delivered';
-    return 'Read';
-  };
-
   const reactionGroups = groupReactions();
   const readStatus = getReadStatus();
 
@@ -244,11 +338,11 @@ export default function MessageBubble({
                     {attachment.type === 'image' && (
                       <div className="relative rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-200">
                         <img
-                          src={attachment.url}
+                          src={cdnService.getChatMediaUrl(attachment.url, { type: 'image', maxWidth: 800, quality: 'MEDIUM' })} // 🔧 PERFORMANCE FIX #39: Use CDN-optimized image URLs with responsive sizing
                           alt={attachment.filename}
                           className="max-w-full w-full object-cover cursor-pointer hover:scale-105 transition-transform duration-300"
                           onClick={() => window.open(attachment.url, '_blank')}
-                          loading="lazy"
+                          loading="lazy" // 🔧 PERFORMANCE FIX #39: Add lazy loading
                         />
                         <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-10 transition-opacity duration-200 flex items-center justify-center">
                           <div className="opacity-0 group-hover/attachment:opacity-100 transition-opacity duration-200 bg-white/90 dark:bg-gray-800/90 rounded-full p-2">

@@ -1,89 +1,51 @@
 /**
  * 🚀 MODERN STATE MANAGEMENT - ZUSTAND + REACT QUERY
  * Latest technologies for perfect 10/10 performance
+ * 
+ * DEPRECATED: Use useUnifiedStore instead
  */
 
-import { create } from 'zustand';
-import { devtools, subscribeWithSelector } from 'zustand/middleware';
-import { immer } from 'zustand/middleware/immer';
+import { useUnifiedStore } from './useUnifiedStore';
 
 // 🏪 Global App Store with Zustand (Latest)
-export const useAppStore = create()(
-  devtools(
-    subscribeWithSelector(
-      immer((set, get) => ({
-        // User state
-        user: null,
-        isAuthenticated: false,
-        theme: 'system',
-        
-        // UI state
-        sidebarOpen: false,
-        notifications: [],
-        loading: false,
-        
-        // Actions
-        setUser: (user) => set((state) => {
-          state.user = user;
-          state.isAuthenticated = !!user;
-        }),
-        
-        logout: () => set((state) => {
-          state.user = null;
-          state.isAuthenticated = false;
-          state.notifications = [];
-        }),
-        
-        setTheme: (theme) => set((state) => {
-          state.theme = theme;
-        }),
-        
-        toggleSidebar: () => set((state) => {
-          state.sidebarOpen = !state.sidebarOpen;
-        }),
-        
-        addNotification: (notification) => set((state) => {
-          state.notifications.push({
-            id: crypto.randomUUID(),
-            timestamp: Date.now(),
-            ...notification
-          });
-        }),
-        
-        removeNotification: (id) => set((state) => {
-          state.notifications = state.notifications.filter(n => n.id !== id);
-        }),
-        
-        setLoading: (loading) => set((state) => {
-          state.loading = loading;
-        }),
-      }))
-    ),
-    {
-      name: 'swaggo-app-store',
-      version: 1,
-    }
-  )
-);
+export const useAppStore = () => {
+  console.warn('useAppStore is deprecated. Use useUnifiedStore instead.');
+  return useUnifiedStore();
+};
 
-// 🎯 Performance selector hooks
-export const useUser = () => useAppStore((state) => state.user);
-export const useAuth = () => useAppStore((state) => ({
-  user: state.user,
-  isAuthenticated: state.isAuthenticated,
-  setUser: state.setUser,
-  logout: state.logout,
-}));
-export const useTheme = () => useAppStore((state) => ({
-  theme: state.theme,
-  setTheme: state.setTheme,
-}));
-export const useUI = () => useAppStore((state) => ({
-  sidebarOpen: state.sidebarOpen,
-  loading: state.loading,
-  notifications: state.notifications,
-  toggleSidebar: state.toggleSidebar,
-  setLoading: state.setLoading,
-  addNotification: state.addNotification,
-  removeNotification: state.removeNotification,
-}));
+// 🎯 Performance selector hooks (deprecated)
+export const useUser = () => {
+  console.warn('useUser is deprecated. Use useCurrentUser from useUnifiedStore instead.');
+  return useUnifiedStore((state) => state.auth.user);
+};
+
+export const useAuth = () => {
+  console.warn('useAuth is deprecated. Use useAuth from useUnifiedStore instead.');
+  return useUnifiedStore((state) => ({
+    user: state.auth.user,
+    isAuthenticated: state.auth.isAuthenticated,
+    setUser: state.login,
+    logout: state.logout,
+  }));
+};
+
+export const useTheme = () => {
+  console.warn('useTheme is deprecated. Use useTheme from useUnifiedStore instead.');
+  return useUnifiedStore((state) => ({
+    theme: state.ui.theme,
+    setTheme: state.setTheme,
+  }));
+};
+
+export const useUI = () => {
+  console.warn('useUI is deprecated. Use useUI from useUnifiedStore instead.');
+  return useUnifiedStore((state) => ({
+    sidebarOpen: !state.ui.sidebarCollapsed,
+    loading: Object.values(state.ui.loadingStates).some(loading => loading),
+    notifications: state.ui.notifications,
+    toggleSidebar: state.toggleSidebar,
+    setLoading: state.setLoading,
+    addNotification: state.addNotification,
+    removeNotification: state.removeNotification,
+  }));
+};

@@ -1,264 +1,258 @@
-'use client';
-
-// CRITICAL: Comment out problematic imports for now
-// import rateLimit from 'express-rate-limit';
-// import slowDown from 'express-slow-down';
-// import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import Redis from 'ioredis';
+import { createClient } from 'redis';
 
 /**
- * 🛡️ ULTIMATE SECURITY RATE LIMITING MIDDLEWARE - 10/10 SECURITY
+ * Rate limiting middleware for critical endpoints
  * 
- * CRITICAL SECURITY FIXES:
- * ✅ DoS attack prevention
- * ✅ Brute force protection
- * ✅ API abuse prevention
- * ✅ Bandwidth protection
- * ✅ Smart rate limiting
- * ✅ Dynamic rate adjustment
- * 
- * @version 1.0.0 SECURITY CRITICAL
+ * This middleware provides rate limiting functionality to prevent abuse
+ * of critical endpoints like file uploads, authentication, etc.
  */
 
-// 🔧 CRITICAL: Rate limiting configurations for different endpoints
-const RATE_LIMITS = {
-  // Authentication endpoints - stricter limits
-  auth: {
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 5, // 5 attempts per window
-    skipSuccessfulRequests: true,
-    message: {
-      error: 'Too many authentication attempts',
-      retryAfter: '15 minutes',
-      code: 'AUTH_RATE_LIMIT'
+// Create Redis client for distributed rate limiting
+let redisClient;
+try {
+  if (process.env.REDIS_URL) {
+    redisClient = new Redis(process.env.REDIS_URL);
+  } else if (process.env.REDIS_HOST) {
+    redisClient = new Redis({
+      host: process.env.REDIS_HOST,
+      port: process.env.REDIS_PORT || 6379,
+      password: process.env.REDIS_PASSWORD,
+      db: process.env.REDIS_DB || 0
+    });
+  }
+} catch (error) {
+  console.warn('⚠️ Redis connection failed for rate limiting, falling back to in-memory store:', error.message);
+  redisClient = null;
+}
+
+// Fallback in-memory store
+class InMemoryStore {
+  constructor() {
+    this.hits = new Map();
+    this.resetTime = new Map();
+    this.windowMs = 15 * 60 * 1000; // 15 minutes default
+  }
+
+  async increment(key, windowMs) {
+    const now = Date.now();
+    const resetTime = this.resetTime.get(key);
+    
+    // Reset if window has expired
+    if (!resetTime || now >= resetTime) {
+      this.hits.set(key, 1);
+      this.resetTime.set(key, now + windowMs);
+      return { totalHits: 1, resetTime: now + windowMs };
+    }
+    
+    // Increment within window
+    const currentHits = this.hits.get(key) || 0;
+    const newHits = currentHits + 1;
+    this.hits.set(key, newHits);
+    
+    return { totalHits: newHits, resetTime: resetTime };
+  }
+
+  async resetKey(key) {
+    this.hits.delete(key);
+    this.resetTime.delete(key);
+  }
+}
+
+const store = redisClient ? {
+  async increment(key, windowMs) {
+    try {
+      const [totalHits, resetTime] = await redisClient.multi()
+        .incr(key)
+        .pttl(key)
+        .exec();
+      
+      // If key is new, set expiration
+      if (resetTime[1] === -1) {
+        await redisClient.pexpire(key, windowMs);
+        return { totalHits: totalHits[1], resetTime: Date.now() + windowMs };
+      }
+      
+      return { totalHits: totalHits[1], resetTime: Date.now() + resetTime[1] };
+    } catch (error) {
+      console.error('Redis error in rate limiting:', error);
+      // Fallback to in-memory if Redis fails
+      return await inMemoryStore.increment(key, windowMs);
     }
   },
   
-  // API endpoints - moderate limits
-  api: {
-    windowMs: 10 * 60 * 1000, // 10 minutes
-    max: 100, // 100 requests per window
-    message: {
-      error: 'Too many API requests',
-      retryAfter: '10 minutes',
-      code: 'API_RATE_LIMIT'
-    }
-  },
-  
-  // GraphQL endpoints - specialized limits
-  graphql: {
-    windowMs: 5 * 60 * 1000, // 5 minutes
-    max: 50, // 50 queries per window
-    message: {
-      error: 'GraphQL query rate limit exceeded',
-      retryAfter: '5 minutes',
-      code: 'GRAPHQL_RATE_LIMIT'
-    }
-  },
-  
-  // File upload endpoints - bandwidth protection
-  upload: {
-    windowMs: 60 * 60 * 1000, // 1 hour
-    max: 10, // 10 uploads per hour
-    message: {
-      error: 'Upload limit exceeded',
-      retryAfter: '1 hour',
-      code: 'UPLOAD_RATE_LIMIT'
-    }
-  },
-  
-  // Password reset - critical protection
-  passwordReset: {
-    windowMs: 60 * 60 * 1000, // 1 hour
-    max: 3, // 3 attempts per hour
-    skipSuccessfulRequests: true,
-    message: {
-      error: 'Password reset attempts exceeded',
-      retryAfter: '1 hour',
-      code: 'PASSWORD_RESET_LIMIT'
-    }
-  },
-  
-  // General endpoints - basic protection
-  general: {
-    windowMs: 1 * 60 * 1000, // 1 minute
-    max: 60, // 60 requests per minute
-    message: {
-      error: 'Rate limit exceeded',
-      retryAfter: '1 minute',
-      code: 'GENERAL_RATE_LIMIT'
+  async resetKey(key) {
+    try {
+      await redisClient.del(key);
+    } catch (error) {
+      console.error('Redis error resetting key:', error);
+      // Fallback to in-memory if Redis fails
+      await inMemoryStore.resetKey(key);
     }
   }
-};
+} : new InMemoryStore();
 
-// 🔧 CRITICAL: Slow down configurations to prevent abuse
-const SLOW_DOWN_CONFIG = {
-  windowMs: 10 * 60 * 1000, // 10 minutes
-  delayAfter: 20, // Allow 20 requests per window at full speed
-  delayMs: 500, // Add 500ms delay per request after delayAfter
-  maxDelayMs: 10000, // Maximum delay of 10 seconds
-  skipFailedRequests: false,
-  skipSuccessfulRequests: false
-};
+const inMemoryStore = new InMemoryStore();
 
-// 🔧 CRITICAL: Enhanced IP extraction for accurate rate limiting
-const getTrustedIP = (req) => {
-  // Check various headers for real IP (in order of preference)
-  const forwardedFor = req.headers['x-forwarded-for'];
-  const realIP = req.headers['x-real-ip'];
-  const clientIP = req.headers['x-client-ip'];
-  const cfConnectingIP = req.headers['cf-connecting-ip']; // Cloudflare
-  const forwarded = req.headers['forwarded'];
-  
-  if (forwardedFor) {
-    // X-Forwarded-For can contain multiple IPs, get the first one
-    return forwardedFor.split(',')[0].trim();
-  }
-  
-  if (realIP) return realIP;
-  if (clientIP) return clientIP;
-  if (cfConnectingIP) return cfConnectingIP;
-  
-  if (forwarded) {
-    // Parse 'Forwarded' header (RFC 7239)
-    const forIP = forwarded.match(/for=([^;,]+)/i);
-    if (forIP) return forIP[1].replace(/^\"|\"$/g, '');
-  }
-  
-  // Fallback to connection remote address
-  return req.connection?.remoteAddress || 
-         req.socket?.remoteAddress || 
-         req.connection?.socket?.remoteAddress ||
-         req.ip ||
-         'unknown';
-};
+// Generic rate limiter factory
+const createRateLimiter = (options) => {
+  const {
+    windowMs = 15 * 60 * 1000, // 15 minutes
+    max = 100, // limit each IP to 100 requests per windowMs
+    message = 'Too many requests from this IP, please try again later.',
+    statusCode = 429,
+    standardHeaders = true,
+    legacyHeaders = false,
+    keyGenerator = (req) => req.ip,
+    handler = (req, res, next, options) => {
+      res.status(options.statusCode).json({
+        error: options.message,
+        retryAfter: Math.ceil((options.resetTime - Date.now()) / 1000)
+      });
+    },
+    skip = () => false
+  } = options;
 
-// 🔧 CRITICAL: Custom key generator for rate limiting
-const generateRateLimitKey = (req) => {
-  const ip = getTrustedIP(req);
-  const userAgent = req.headers['user-agent'] || 'unknown';
-  const endpoint = req.path || req.url || 'unknown';
-  
-  // Create a composite key that includes IP, endpoint, and user agent hash
-  const userAgentHash = require('crypto')
-    .createHash('md5')
-    .update(userAgent)
-    .digest('hex')
-    .substring(0, 8);
-  
-  return `${ip}:${endpoint}:${userAgentHash}`;
-};
+  return async (req, res, next) => {
+    // Skip rate limiting if configured to do so
+    if (skip(req, res)) {
+      return next();
+    }
 
-// 🔧 CRITICAL: Rate limit factory with enhanced security (simplified for now)
-const createRateLimit = (config, options = {}) => {
-  // Placeholder implementation - will be enhanced when packages are available
-  return (req, res, next) => {
-    console.log('🛡️ Rate limiting placeholder active for:', req.path);
-    next();
+    const key = keyGenerator(req);
+    if (!key) {
+      return next();
+    }
+
+    try {
+      const { totalHits, resetTime } = await store.increment(key, windowMs);
+      
+      // Add rate limit headers
+      if (standardHeaders) {
+        res.setHeader('RateLimit-Limit', max);
+        res.setHeader('RateLimit-Remaining', Math.max(0, max - totalHits));
+        res.setHeader('RateLimit-Reset', new Date(resetTime).toUTCString());
+      }
+
+      // Check if limit exceeded
+      if (totalHits > max) {
+        // Add retry-after header
+        const retryAfter = Math.ceil((resetTime - Date.now()) / 1000);
+        res.setHeader('Retry-After', retryAfter);
+        
+        // Call custom handler or use default
+        if (handler) {
+          return handler(req, res, next, { 
+            statusCode, 
+            message, 
+            resetTime,
+            retryAfter
+          });
+        }
+        
+        return res.status(statusCode).json({
+          error: message,
+          retryAfter
+        });
+      }
+
+      next();
+    } catch (error) {
+      console.error('Rate limiting error:', error);
+      // Continue without rate limiting on error
+      next();
+    }
   };
 };
 
-// 🔧 CRITICAL: Slow down middleware for progressive delays (simplified)
-export const createSlowDown = (config = {}) => {
-  return (req, res, next) => {
-    console.log('🐌 Slow down placeholder active for:', req.path);
-    next();
-  };
-};
-
-// 🛡️ CRITICAL: Export rate limiters for different endpoints
-export const authRateLimit = createRateLimit(RATE_LIMITS.auth, {
-  onRateLimitExceeded: (data) => {
-    console.error('🚨 CRITICAL: Authentication brute force detected:', data);
-    // Here you could integrate with security monitoring systems
+// Rate limiter for file uploads (stricter limits)
+export const uploadRateLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Limit each IP to 10 upload requests per window
+  message: 'Too many file upload attempts, please try again later.',
+  keyGenerator: (req) => {
+    // Use IP + user agent for more accurate limiting
+    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const userAgent = req.headers['user-agent'] || '';
+    return `upload_${ip}_${userAgent}`;
   }
 });
 
-export const apiRateLimit = createRateLimit(RATE_LIMITS.api);
-export const graphqlRateLimit = createRateLimit(RATE_LIMITS.graphql);
-export const uploadRateLimit = createRateLimit(RATE_LIMITS.upload);
-export const passwordResetRateLimit = createRateLimit(RATE_LIMITS.passwordReset);
-export const generalRateLimit = createRateLimit(RATE_LIMITS.general);
+// Rate limiter for authentication endpoints
+export const authRateLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 auth attempts per window
+  message: 'Too many authentication attempts, please try again later.',
+  keyGenerator: (req) => {
+    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const userAgent = req.headers['user-agent'] || '';
+    return `auth_${ip}_${userAgent}`;
+  }
+});
 
-// 🔧 CRITICAL: Smart rate limiter that adapts based on endpoint
-export const smartRateLimit = (req, res, next) => {
-  const path = req.path || req.url || '';
-  
-  // Route to appropriate rate limiter based on endpoint
-  if (path.includes('/auth/') || path.includes('/login') || path.includes('/register')) {
-    return authRateLimit(req, res, next);
+// Rate limiter for API endpoints
+export const apiRateLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 API requests per window
+  message: 'Too many API requests, please try again later.',
+  keyGenerator: (req) => {
+    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    return `api_${ip}`;
   }
-  
-  if (path.includes('/graphql')) {
-    return graphqlRateLimit(req, res, next);
+});
+
+// Rate limiter for GraphQL endpoints
+export const graphqlRateLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200, // Limit each IP to 200 GraphQL requests per window
+  message: 'Too many GraphQL requests, please try again later.',
+  keyGenerator: (req) => {
+    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    return `graphql_${ip}`;
   }
-  
-  if (path.includes('/upload') || path.includes('/file')) {
-    return uploadRateLimit(req, res, next);
+});
+
+// Rate limiter for debug endpoints
+export const debugRateLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 debug requests per window
+  message: 'Too many debug requests, please try again later.',
+  keyGenerator: (req) => {
+    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    return `debug_${ip}`;
   }
-  
-  if (path.includes('/password-reset') || path.includes('/forgot-password')) {
-    return passwordResetRateLimit(req, res, next);
+});
+
+// Rate limiter for admin endpoints
+export const adminRateLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 3, // Limit each IP to 3 admin requests per window
+  message: 'Too many admin requests, please try again later.',
+  keyGenerator: (req) => {
+    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    return `admin_${ip}`;
   }
-  
-  if (path.startsWith('/api/')) {
-    return apiRateLimit(req, res, next);
+});
+
+// Rate limiter for password reset endpoints
+export const passwordResetRateLimiter = createRateLimiter({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3, // Limit each IP to 3 password reset requests per hour
+  message: 'Too many password reset requests, please try again later.',
+  keyGenerator: (req) => {
+    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    return `password_reset_${ip}`;
   }
-  
-  // Default to general rate limiting
-  return generalRateLimit(req, res, next);
+});
+
+export default {
+  uploadRateLimiter,
+  authRateLimiter,
+  apiRateLimiter,
+  graphqlRateLimiter,
+  debugRateLimiter,
+  adminRateLimiter,
+  passwordResetRateLimiter,
+  createRateLimiter
 };
-
-// 🔧 CRITICAL: Enhanced security headers middleware (simplified)
-export const securityHeaders = (req, res, next) => {
-  // Basic security headers without helmet dependency
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
-  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  console.log('🛡️ Security headers applied to:', req.path);
-  next();
-};
-
-// 🔧 CRITICAL: DoS protection middleware combining multiple strategies
-export const dosProtection = [
-  securityHeaders,
-  createSlowDown(),
-  smartRateLimit
-];
-
-// 🔧 CRITICAL: Rate limit status checker
-export const getRateLimitStatus = (req, res) => {
-  const clientIP = getTrustedIP(req);
-  
-  // This would integrate with your rate limiting store (Redis, memory, etc.)
-  // For now, return basic status
-  res.json({
-    ip: clientIP,
-    timestamp: new Date().toISOString(),
-    limits: {
-      auth: `${RATE_LIMITS.auth.max} per ${RATE_LIMITS.auth.windowMs / 60000} minutes`,
-      api: `${RATE_LIMITS.api.max} per ${RATE_LIMITS.api.windowMs / 60000} minutes`,
-      graphql: `${RATE_LIMITS.graphql.max} per ${RATE_LIMITS.graphql.windowMs / 60000} minutes`
-    }
-  });
-};
-
-// 🔧 CRITICAL: Emergency rate limit bypass (admin only)
-export const emergencyBypass = (req, res, next) => {
-  const bypassToken = req.headers['x-emergency-bypass'];
-  const validToken = process.env.EMERGENCY_BYPASS_TOKEN;
-  
-  if (bypassToken && validToken && bypassToken === validToken) {
-    console.warn('🚨 EMERGENCY RATE LIMIT BYPASS USED:', {
-      ip: getTrustedIP(req),
-      endpoint: req.path || req.url,
-      timestamp: new Date().toISOString()
-    });
-    return next();
-  }
-  
-  return smartRateLimit(req, res, next);
-};
-
-console.log('🛡️ Ultimate Security Rate Limiting System Initialized');

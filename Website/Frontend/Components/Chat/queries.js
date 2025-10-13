@@ -9,11 +9,15 @@ export const GET_CHATS = gql`
       chatName
       chatAvatar
       lastMessageAt
+      // Issue #16: Fetch per-participant unread count
+      unreadCount
       participants {
         profileid
         username
         profilePic
         name
+        unreadCount
+        lastReadAt
       }
       lastMessage {
         messageid
@@ -79,56 +83,98 @@ export const GET_CHAT_BY_PARTICIPANTS = gql`
 `;
 
 export const GET_MESSAGES_BY_CHAT = gql`
-  query GetMessagesByChat($chatid: String!, $limit: Int, $offset: Int) {
-    getMessagesByChat(chatid: $chatid, limit: $limit, offset: $offset) {
-      messageid
-      messageType
-      content
-      attachments {
-        type
-        url
-        filename
-        size
-        mimetype
-      }
-      sender {
-        profileid
-        username
-        profilePic
-        name
-      }
-      replyTo {
+  query GetMessagesByChat($chatid: String!, $limit: Int, $cursor: String) {
+    getMessagesByChat(chatid: $chatid, limit: $limit, cursor: $cursor) {
+      messages {
         messageid
+        messageType
         content
-        sender {
-          username
+        attachments {
+          type
+          url
+          filename
+          size
+          mimetype
         }
-      }
-      mentions {
-        profileid
-        username
-      }
-      reactions {
-        profileid
-        profile {
+        sender {
+          profileid
           username
           profilePic
+          name
         }
-        emoji
-        createdAt
-      }
-      readBy {
-        profileid
-        profile {
+        replyTo {
+          messageid
+          content
+          sender {
+            username
+          }
+        }
+        mentions {
+          profileid
           username
         }
-        readAt
+        reactions {
+          profileid
+          profile {
+            username
+            profilePic
+          }
+          emoji
+          createdAt
+        }
+        readBy {
+          profileid
+          profile {
+            username
+          }
+          readAt
+        }
+        isEdited
+        isDeleted
+        messageStatus
+        createdAt
+        updatedAt
+        // Add media data fields for proper display of media messages
+        stickerData {
+          id
+          name
+          preview
+          url
+          category
+        }
+        gifData {
+          id
+          title
+          url
+          thumbnail
+          category
+          dimensions {
+            width
+            height
+          }
+        }
+        voiceData {
+          duration
+          size
+          mimeType
+          fileId
+          url
+        }
+        fileData {
+          fileId
+          name
+          size
+          mimeType
+          url
+        }
       }
-      isEdited
-      isDeleted
-      messageStatus
-      createdAt
-      updatedAt
+      pageInfo {
+        hasNextPage
+        hasPreviousPage
+        startCursor
+        endCursor
+      }
+      totalCount
     }
   }
 `;
@@ -156,6 +202,161 @@ export const GET_UNREAD_MESSAGE_COUNT = gql`
 export const GET_CHAT_UNREAD_COUNT = gql`
   query GetChatUnreadCount($chatid: String!, $profileid: String!) {
     getChatUnreadCount(chatid: $chatid, profileid: $profileid)
+  }
+`;
+
+// Call History Queries
+export const GET_CALL_HISTORY = gql`
+  query GetCallHistory($profileid: String!) {
+    getCallHistory(profileid: $profileid) {
+      callId
+      chatid
+      callerId
+      caller {
+        profileid
+        username
+        profilePic
+        name
+      }
+      receiverId
+      receiver {
+        profileid
+        username
+        profilePic
+        name
+      }
+      participants {
+        profileid
+        username
+        profilePic
+        name
+      }
+      callType
+      status
+      duration
+      startedAt
+      answeredAt
+      endedAt
+      endedBy
+      endReason
+      quality {
+        overall
+        audio
+        video
+        connection
+      }
+      techDetails {
+        iceConnectionState
+        connectionState
+        signalingState
+        bandwidth {
+          upload
+          download
+        }
+        codec {
+          audio
+          video
+        }
+        resolution {
+          width
+          height
+        }
+        frameRate
+        jitter
+        packetLoss
+        latency
+      }
+      isRecorded
+      recordingUrl
+      hadScreenShare
+      notificationStatus {
+        sent
+        delivered
+        read
+        sentAt
+        deliveredAt
+        readAt
+      }
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const GET_CALL_HISTORY_BY_CHAT = gql`
+  query GetCallHistoryByChat($chatid: String!) {
+    getCallHistoryByChat(chatid: $chatid) {
+      callId
+      chatid
+      callerId
+      caller {
+        profileid
+        username
+        profilePic
+        name
+      }
+      receiverId
+      receiver {
+        profileid
+        username
+        profilePic
+        name
+      }
+      participants {
+        profileid
+        username
+        profilePic
+        name
+      }
+      callType
+      status
+      duration
+      startedAt
+      answeredAt
+      endedAt
+      endedBy
+      endReason
+      quality {
+        overall
+        audio
+        video
+        connection
+      }
+      techDetails {
+        iceConnectionState
+        connectionState
+        signalingState
+        bandwidth {
+          upload
+          download
+        }
+        codec {
+          audio
+          video
+        }
+        resolution {
+          width
+          height
+        }
+        frameRate
+        jitter
+        packetLoss
+        latency
+      }
+      isRecorded
+      recordingUrl
+      hadScreenShare
+      notificationStatus {
+        sent
+        delivered
+        read
+        sentAt
+        deliveredAt
+        readAt
+      }
+      createdAt
+      updatedAt
+    }
   }
 `;
 

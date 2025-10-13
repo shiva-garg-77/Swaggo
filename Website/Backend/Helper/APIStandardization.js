@@ -1,64 +1,13 @@
 import { GraphQLError } from 'graphql';
+import UnifiedErrorHandling from './UnifiedErrorHandling.js';
 
 /**
  * API Response Standardization and Consistency
+ * Uses the unified error handling system
  */
 
-// Standard API response formats
-export const APIResponse = {
-    success: (data, message = 'Success', meta = null) => {
-        return {
-            success: true,
-            message,
-            data,
-            meta,
-            timestamp: new Date().toISOString()
-        };
-    },
-
-    error: (message, code = 'INTERNAL_ERROR', statusCode = 500, details = null) => {
-        return {
-            success: false,
-            error: {
-                message,
-                code,
-                statusCode,
-                details,
-                timestamp: new Date().toISOString()
-            }
-        };
-    },
-
-    validation: (errors, message = 'Validation failed') => {
-        return {
-            success: false,
-            error: {
-                message,
-                code: 'VALIDATION_ERROR',
-                statusCode: 400,
-                details: errors,
-                timestamp: new Date().toISOString()
-            }
-        };
-    },
-
-    pagination: (data, pagination, message = 'Success') => {
-        return {
-            success: true,
-            message,
-            data,
-            pagination: {
-                page: pagination.page || 1,
-                limit: pagination.limit || 20,
-                total: pagination.total || 0,
-                totalPages: Math.ceil((pagination.total || 0) / (pagination.limit || 20)),
-                hasNext: pagination.hasNext || false,
-                hasPrev: pagination.hasPrev || false
-            },
-            timestamp: new Date().toISOString()
-        };
-    }
-};
+// Export API response formats from unified system
+export const { APIResponse } = UnifiedErrorHandling;
 
 // GraphQL response standardization
 export const GraphQLResponse = {
@@ -99,60 +48,8 @@ export const GraphQLResponse = {
     }
 };
 
-// Standard HTTP status codes mapping
-export const StatusCodes = {
-    OK: 200,
-    CREATED: 201,
-    ACCEPTED: 202,
-    NO_CONTENT: 204,
-    BAD_REQUEST: 400,
-    UNAUTHORIZED: 401,
-    FORBIDDEN: 403,
-    NOT_FOUND: 404,
-    CONFLICT: 409,
-    UNPROCESSABLE_ENTITY: 422,
-    RATE_LIMITED: 429,
-    INTERNAL_ERROR: 500,
-    SERVICE_UNAVAILABLE: 503
-};
-
-// Standard error codes
-export const ErrorCodes = {
-    // Authentication & Authorization
-    UNAUTHENTICATED: 'UNAUTHENTICATED',
-    UNAUTHORIZED: 'UNAUTHORIZED', 
-    TOKEN_EXPIRED: 'TOKEN_EXPIRED',
-    INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
-
-    // Validation
-    VALIDATION_ERROR: 'VALIDATION_ERROR',
-    MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-    INVALID_FORMAT: 'INVALID_FORMAT',
-    INVALID_VALUE: 'INVALID_VALUE',
-
-    // Resources
-    NOT_FOUND: 'NOT_FOUND',
-    ALREADY_EXISTS: 'ALREADY_EXISTS',
-    RESOURCE_CONFLICT: 'RESOURCE_CONFLICT',
-
-    // Operations
-    OPERATION_FAILED: 'OPERATION_FAILED',
-    PERMISSION_DENIED: 'PERMISSION_DENIED',
-    QUOTA_EXCEEDED: 'QUOTA_EXCEEDED',
-
-    // Rate Limiting
-    RATE_LIMITED: 'RATE_LIMITED',
-    TOO_MANY_REQUESTS: 'TOO_MANY_REQUESTS',
-
-    // System
-    INTERNAL_ERROR: 'INTERNAL_ERROR',
-    SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
-    DATABASE_ERROR: 'DATABASE_ERROR',
-
-    // GraphQL specific
-    QUERY_TOO_DEEP: 'QUERY_TOO_DEEP',
-    QUERY_TOO_COMPLEX: 'QUERY_TOO_COMPLEX'
-};
+// Export standard HTTP status codes and error codes from unified system
+export const { HTTP_STATUS_CODES: StatusCodes, ERROR_CODES: ErrorCodes } = UnifiedErrorHandling;
 
 // Input validation schemas
 export const ValidationSchemas = {
@@ -326,14 +223,13 @@ export const validateInput = (input, schema) => {
     return errors;
 };
 
-// Consistent error handling middleware for Express
+// Consistent error handling middleware for Express using unified error handling
 export const errorHandler = (err, req, res, next) => {
-    console.error('API Error:', {
-        message: err.message,
-        stack: err.stack,
+    const unifiedError = UnifiedErrorHandling.handleUnifiedError(err, 'rest');
+    
+    UnifiedErrorHandling.logError(unifiedError, 'rest_api', {
         url: req.url,
-        method: req.method,
-        timestamp: new Date().toISOString()
+        method: req.method
     });
 
     // Handle different error types
@@ -362,24 +258,22 @@ export const errorHandler = (err, req, res, next) => {
     }
 
     // Default error response
-    const statusCode = err.statusCode || StatusCodes.INTERNAL_ERROR;
-    const code = err.code || ErrorCodes.INTERNAL_ERROR;
+    const statusCode = unifiedError.statusCode || StatusCodes.INTERNAL_ERROR;
+    const code = unifiedError.code || ErrorCodes.INTERNAL_ERROR;
     
     res.status(statusCode).json(
         APIResponse.error(
-            process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message,
+            process.env.NODE_ENV === 'production' ? 'Internal server error' : unifiedError.message,
             code,
             statusCode,
-            process.env.NODE_ENV === 'production' ? null : err.stack
+            process.env.NODE_ENV === 'production' ? null : unifiedError.stack
         )
     );
 };
 
-// Async handler wrapper for consistent error handling
+// Async handler wrapper for consistent error handling using unified system
 export const asyncHandler = (fn) => {
-    return (req, res, next) => {
-        Promise.resolve(fn(req, res, next)).catch(next);
-    };
+    return UnifiedErrorHandling.asyncHandler(fn, 'rest');
 };
 
 // Standard success response helper

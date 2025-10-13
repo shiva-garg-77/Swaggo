@@ -139,71 +139,123 @@ export const cacheMiddleware = (cacheName, keyGenerator, ttl = null) => {
 
 // Image optimization functions
 export const ImageOptimizer = {
-    // Optimize image with different quality levels
+    /**
+     * Optimize an image file using worker threads for CPU-intensive operations
+     * @param {string} inputPath - Path to input image
+     * @param {string} outputPath - Path to output image
+     * @param {Object} options - Optimization options
+     * @returns {Promise<Object>} - Optimization results
+     */
     async optimize(inputPath, outputPath, options = {}) {
         const {
-            quality = 85,
-            width = null,
-            height = null,
             format = 'jpeg',
+            quality = 85,
+            width,
+            height,
             progressive = true,
             removeMetadata = true
         } = options;
         
-        let pipeline = sharp(inputPath);
-        
-        // Remove metadata if requested
-        if (removeMetadata) {
-            pipeline = pipeline.rotate(); // Auto-rotate and remove EXIF
-        }
-        
-        // Resize if dimensions provided
-        if (width || height) {
-            pipeline = pipeline.resize(width, height, {
-                fit: 'inside',
-                withoutEnlargement: true
-            });
-        }
-        
-        // Apply format-specific optimizations
-        switch (format.toLowerCase()) {
-            case 'jpeg':
-            case 'jpg':
-                pipeline = pipeline.jpeg({ 
-                    quality, 
+        try {
+            // 🔧 WORKER THREADS #85: Use worker threads for CPU-intensive image processing
+            if (WorkerThreads.isMainThread()) {
+                // Read image file
+                const imageBuffer = await fs.promises.readFile(inputPath);
+                
+                // Process image in worker thread
+                const result = await WorkerThreads.processImage({
+                    inputBuffer: imageBuffer,
+                    outputPath,
+                    width,
+                    height,
+                    quality,
+                    format,
                     progressive,
-                    mozjpeg: true
+                    removeMetadata
                 });
-                break;
-            case 'png':
-                pipeline = pipeline.png({ 
-                    quality,
-                    compressionLevel: 9,
-                    progressive
-                });
-                break;
-            case 'webp':
-                pipeline = pipeline.webp({ 
-                    quality,
-                    effort: 6
-                });
-                break;
-            default:
-                throw new Error(`Unsupported format: ${format}`);
+                
+                if (!result.success) {
+                    throw new Error(result.error);
+                }
+                
+                // Write processed image to file
+                await fs.promises.writeFile(outputPath, result.buffer);
+                
+                // Get file size comparison
+                const originalStats = await fs.promises.stat(inputPath);
+                const optimizedStats = await fs.promises.stat(outputPath);
+                const originalSize = originalStats.size;
+                const optimizedSize = optimizedStats.size;
+                
+                return {
+                    originalSize,
+                    optimizedSize,
+                    savings: ((originalSize - optimizedSize) / originalSize * 100).toFixed(2) + '%',
+                    compressionRatio: (optimizedSize / originalSize).toFixed(2),
+                    info: result.info
+                };
+            } else {
+                // Fallback to direct processing if not in main thread
+                let pipeline = sharp(inputPath);
+                
+                // Remove metadata if requested
+                if (removeMetadata) {
+                    pipeline = pipeline.rotate(); // Auto-rotate and remove EXIF
+                }
+                
+                // Resize if dimensions provided
+                if (width || height) {
+                    pipeline = pipeline.resize(width, height, {
+                        fit: 'inside',
+                        withoutEnlargement: true
+                    });
+                }
+                
+                // Apply format-specific optimizations
+                switch (format.toLowerCase()) {
+                    case 'jpeg':
+                    case 'jpg':
+                        pipeline = pipeline.jpeg({ 
+                            quality, 
+                            progressive,
+                            mozjpeg: true
+                        });
+                        break;
+                    case 'png':
+                        pipeline = pipeline.png({ 
+                            quality,
+                            compressionLevel: 9,
+                            progressive
+                        });
+                        break;
+                    case 'webp':
+                        pipeline = pipeline.webp({ 
+                            quality,
+                            effort: 6
+                        });
+                        break;
+                    default:
+                        throw new Error(`Unsupported format: ${format}`);
+                }
+                
+                await pipeline.toFile(outputPath);
+                
+                // Get file size comparison
+                const originalStats = await fs.promises.stat(inputPath);
+                const optimizedStats = await fs.promises.stat(outputPath);
+                const originalSize = originalStats.size;
+                const optimizedSize = optimizedStats.size;
+                
+                return {
+                    originalSize,
+                    optimizedSize,
+                    savings: ((originalSize - optimizedSize) / originalSize * 100).toFixed(2) + '%',
+                    compressionRatio: (optimizedSize / originalSize).toFixed(2)
+                };
+            }
+        } catch (error) {
+            throw new Error(`Image optimization failed: ${error.message}`);
         }
-        
-        await pipeline.toFile(outputPath);
-        
-        // Get file size comparison
-        const originalSize = fs.statSync(inputPath).size;
-        const optimizedSize = fs.statSync(outputPath).size;
-        
-        return {
-            originalSize,
-            optimizedSize,
-            savings: ((originalSize - optimizedSize) / originalSize * 100).toFixed(2) + '%',
-            compressionRatio: (optimizedSize / originalSize).toFixed(2)
-        };
     },
     
     // Create multiple sizes (thumbnails)
@@ -241,11 +293,12 @@ export const ImageOptimizer = {
     async getMetadata(imagePath) {
         try {
             const metadata = await sharp(imagePath).metadata();
+            const stats = await fs.promises.stat(imagePath);
             return {
                 width: metadata.width,
                 height: metadata.height,
                 format: metadata.format,
-                size: fs.statSync(imagePath).size,
+                size: stats.size,
                 hasAlpha: metadata.hasAlpha,
                 channels: metadata.channels,
                 density: metadata.density,

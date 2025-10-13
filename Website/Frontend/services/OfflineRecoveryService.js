@@ -9,6 +9,7 @@ import authService from './AuthService';
 import errorHandlingService, { ERROR_TYPES } from './ErrorHandlingService';
 import notificationService from './NotificationService';
 import cacheService from './CacheService';
+import offlineModeService from './OfflineModeService';
 
 /**
  * Connection States
@@ -547,6 +548,9 @@ class OfflineRecoveryService extends EventEmitter {
       queueSize: this.offlineQueue.length
     });
     
+    // Notify offline mode service about queue processing
+    offlineModeService.emit('pending_data_sync_requested');
+    
     const operations = [...this.offlineQueue];
     this.offlineQueue = [];
     
@@ -585,6 +589,11 @@ class OfflineRecoveryService extends EventEmitter {
     if (this.config.offlineDataPersistence) {
       this.persistOfflineQueue();
     }
+    
+    // Notify offline mode service about completion
+    offlineModeService.emit('sync_completed', {
+      operationsSynced: operations.length
+    });
   }
 
   /**

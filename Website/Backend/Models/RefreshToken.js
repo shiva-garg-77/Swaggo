@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
+import AsyncCrypto from '../utils/AsyncCrypto.js'; // 🔧 CRYPTO #84: Import async crypto utilities
 
 /**
  * 🛡️ 10/10 SECURITY REFRESH TOKEN MODEL
@@ -306,25 +307,29 @@ RefreshTokenSchema.index({ status: 1, 'timestamps.createdAt': -1 });
 // === INSTANCE METHODS ===
 
 /**
- * Generate secure token hash from token value
+ * Generate secure token hash from token value using async crypto
  */
-RefreshTokenSchema.methods.hashToken = function(tokenValue) {
-  const salt = crypto.randomBytes(32).toString('hex');
-  this.security.salt = salt;
-  this.tokenHash = crypto.pbkdf2Sync(tokenValue, salt, 100000, 64, 'sha512').toString('hex');
-  this.security.algorithm = 'pbkdf2-sha512';
-  return this.tokenHash;
+RefreshTokenSchema.methods.hashToken = async function(tokenValue) {
+  try {
+    const { salt, hash, algorithm } = await AsyncCrypto.hashToken(tokenValue);
+    this.security.salt = salt;
+    this.tokenHash = hash;
+    this.security.algorithm = algorithm;
+    return this.tokenHash;
+  } catch (error) {
+    console.error('Token hashing error:', error);
+    throw error;
+  }
 };
 
 /**
- * Verify token against stored hash
+ * Verify token against stored hash using async crypto
  */
-RefreshTokenSchema.methods.verifyToken = function(tokenValue) {
+RefreshTokenSchema.methods.verifyToken = async function(tokenValue) {
   if (!this.security.salt) return false;
   
   try {
-    const hash = crypto.pbkdf2Sync(tokenValue, this.security.salt, 100000, 64, 'sha512').toString('hex');
-    return crypto.timingSafeEqual(Buffer.from(this.tokenHash), Buffer.from(hash));
+    return await AsyncCrypto.verifyToken(tokenValue, this.security.salt, this.tokenHash);
   } catch (error) {
     console.error('Token verification error:', error);
     return false;

@@ -3,6 +3,9 @@ const { connect, connection } = mongoose;
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 
+// 🔧 PERFORMANCE FIX #32: Import Winston logger
+import appLogger from '../utils/logger.js';
+
 dotenv.config({ path: '.env.local' });
 
 /**
@@ -40,7 +43,8 @@ class SecureDatabaseConnection {
   setupEventListeners() {
     // Connection successful
     connection.on('connected', () => {
-      console.log('🟢 MongoDB connected successfully');
+      // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+      appLogger.info('🟢 MongoDB connected successfully');
       this.isConnected = true;
       this.connectionAttempts = 0;
       this.connectionHealth.status = 'connected';
@@ -49,7 +53,8 @@ class SecureDatabaseConnection {
     
     // Connection error
     connection.on('error', (error) => {
-      console.error('🔴 MongoDB connection error:', error.message);
+      // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.error
+      appLogger.error('🔴 MongoDB connection error:', { error: error.message });
       this.isConnected = false;
       this.connectionHealth.status = 'error';
       this.logSecurityEvent('database_connection_error', { 
@@ -60,7 +65,8 @@ class SecureDatabaseConnection {
     
     // Connection disconnected
     connection.on('disconnected', () => {
-      console.log('🟡 MongoDB disconnected');
+      // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+      appLogger.info('🟡 MongoDB disconnected');
       this.isConnected = false;
       this.connectionHealth.status = 'disconnected';
       this.logSecurityEvent('database_disconnected', { timestamp: new Date() });
@@ -73,13 +79,15 @@ class SecureDatabaseConnection {
     
     // Process termination
     process.on('SIGINT', () => {
-      console.log('\n🔶 Received SIGINT, closing MongoDB connection...');
+      // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+      appLogger.info('🔶 Received SIGINT, closing MongoDB connection...');
       this.closeConnection();
       process.exit(0);
     });
     
     process.on('SIGTERM', () => {
-      console.log('\n🔶 Received SIGTERM, closing MongoDB connection...');
+      // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+      appLogger.info('🔶 Received SIGTERM, closing MongoDB connection...');
       this.closeConnection();
       process.exit(0);
     });
@@ -91,8 +99,8 @@ class SecureDatabaseConnection {
   getConnectionOptions() {
     const options = {
       // Connection pool settings - FIXED: Proper connection pool limits
-      maxPoolSize: process.env.MONGODB_MAX_POOL_SIZE ? parseInt(process.env.MONGODB_MAX_POOL_SIZE) : 10,
-      minPoolSize: process.env.MONGODB_MIN_POOL_SIZE ? parseInt(process.env.MONGODB_MIN_POOL_SIZE) : 1,
+      maxPoolSize: process.env.MONGODB_MAX_POOL_SIZE ? parseInt(process.env.MONGODB_MAX_POOL_SIZE) : 50,
+      minPoolSize: process.env.MONGODB_MIN_POOL_SIZE ? parseInt(process.env.MONGODB_MIN_POOL_SIZE) : 5,
       maxIdleTimeMS: process.env.MONGODB_MAX_IDLE_TIME_MS ? parseInt(process.env.MONGODB_MAX_IDLE_TIME_MS) : 30000,
       serverSelectionTimeoutMS: process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS ? parseInt(process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS) : 10000,
       socketTimeoutMS: process.env.MONGODB_SOCKET_TIMEOUT_MS ? parseInt(process.env.MONGODB_SOCKET_TIMEOUT_MS) : 45000,
@@ -107,14 +115,13 @@ class SecureDatabaseConnection {
       
       // Modern Mongoose connection settings
       bufferCommands: false, // Disable mongoose buffering
-      // bufferMaxEntries: 0, // REMOVED: Deprecated in Mongoose 8.x
       
       // Retry settings
       retryWrites: true,
       retryReads: true,
       
       // Read/Write concerns for data integrity
-      readPreference: 'primary',
+      readPreference: 'primaryPreferred',
       writeConcern: {
         w: 'majority',
         j: true, // Journal
@@ -165,7 +172,8 @@ class SecureDatabaseConnection {
    */
   async connect() {
     try {
-      console.log('🔄 Initializing secure MongoDB connection...');
+      // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+      appLogger.info('🔄 Initializing secure MongoDB connection...');
       
       const uri = this.getMongoURI();
       const options = this.getConnectionOptions();
@@ -186,8 +194,10 @@ class SecureDatabaseConnection {
       this.connectionHealth.latency = endTime - startTime;
       this.connectionHealth.lastCheck = new Date();
       
-      console.log(`✅ MongoDB connected successfully in ${this.connectionHealth.latency}ms`);
-      console.log(`📊 Connection pool stats: max=${options.maxPoolSize}, min=${options.minPoolSize}`);
+      // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+      appLogger.info(`✅ MongoDB connected successfully in ${this.connectionHealth.latency}ms`);
+      // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+      appLogger.info(`📊 Connection pool stats: max=${options.maxPoolSize}, min=${options.minPoolSize}`);
       
       // Start health monitoring
       this.startHealthMonitoring();
@@ -196,7 +206,8 @@ class SecureDatabaseConnection {
       
     } catch (error) {
       this.connectionAttempts++;
-      console.error(`❌ MongoDB connection failed (attempt ${this.connectionAttempts}/${this.maxRetries}):`, error.message);
+      // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.error
+      appLogger.error(`❌ MongoDB connection failed (attempt ${this.connectionAttempts}/${this.maxRetries}):`, { error: error.message });
       
       this.logSecurityEvent('database_connection_failed', {
         attempt: this.connectionAttempts,
@@ -206,7 +217,8 @@ class SecureDatabaseConnection {
       
       if (this.connectionAttempts < this.maxRetries) {
         const delay = this.retryDelay * Math.pow(2, this.connectionAttempts - 1);
-        console.log(`🔄 Retrying connection in ${delay}ms...`);
+        // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+        appLogger.info(`🔄 Retrying connection in ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         return this.connect();
       }
@@ -220,13 +232,15 @@ class SecureDatabaseConnection {
    */
   scheduleReconnection() {
     const delay = this.retryDelay * Math.pow(2, this.connectionAttempts);
-    console.log(`⏰ Scheduling reconnection in ${delay}ms...`);
+    // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+    appLogger.info(`⏰ Scheduling reconnection in ${delay}ms...`);
     
     setTimeout(async () => {
       try {
         await this.connect();
       } catch (error) {
-        console.error('🔴 Reconnection failed:', error.message);
+        // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.error
+        appLogger.error('🔴 Reconnection failed:', { error: error.message });
       }
     }, delay);
   }
@@ -253,16 +267,19 @@ class SecureDatabaseConnection {
         };
         
         if (this.connectionHealth.latency > 1000) {
-          console.warn(`⚠️ High database latency: ${this.connectionHealth.latency}ms`);
+          // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.warn
+          appLogger.warn(`⚠️ High database latency: ${this.connectionHealth.latency}ms`);
         }
         
         // Check for connection pool exhaustion
-        if (poolStats.poolSize >= (process.env.MONGODB_MAX_POOL_SIZE || 10) * 0.9) {
-          console.warn(`⚠️ Database connection pool nearly exhausted: ${poolStats.poolSize}/${process.env.MONGODB_MAX_POOL_SIZE || 10} connections`);
+        if (poolStats.poolSize >= (process.env.MONGODB_MAX_POOL_SIZE || 50) * 0.9) {
+          // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.warn
+          appLogger.warn(`⚠️ Database connection pool nearly exhausted: ${poolStats.poolSize}/${process.env.MONGODB_MAX_POOL_SIZE || 50} connections`);
         }
         
       } catch (error) {
-        console.error('🔴 Database health check failed:', error.message);
+        // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.error
+        appLogger.error('🔴 Database health check failed:', { error: error.message });
         this.connectionHealth.status = 'unhealthy';
       }
     }, 30000); // Check every 30 seconds
@@ -274,10 +291,12 @@ class SecureDatabaseConnection {
   async closeConnection() {
     try {
       await connection.close();
-      console.log('✅ MongoDB connection closed gracefully');
+      // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+      appLogger.info('✅ MongoDB connection closed gracefully');
       this.logSecurityEvent('database_disconnected_graceful', { timestamp: new Date() });
     } catch (error) {
-      console.error('❌ Error closing MongoDB connection:', error.message);
+      // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.error
+      appLogger.error('❌ Error closing MongoDB connection:', { error: error.message });
     }
   }
   
@@ -291,8 +310,8 @@ class SecureDatabaseConnection {
       readyState: connection.readyState,
       readyStateText: this.getReadyStateText(connection.readyState),
       poolStats: {
-        maxPoolSize: process.env.MONGODB_MAX_POOL_SIZE || 10,
-        minPoolSize: process.env.MONGODB_MIN_POOL_SIZE || 1,
+        maxPoolSize: process.env.MONGODB_MAX_POOL_SIZE || 50,
+        minPoolSize: process.env.MONGODB_MIN_POOL_SIZE || 5,
         currentPoolSize: connection.client?.topology?.s?.coreTopology?.s?.pool?.totalConnectionCount || 0,
         availableConnections: connection.client?.topology?.s?.coreTopology?.s?.pool?.availableConnectionCount || 0
       }
@@ -325,7 +344,8 @@ class SecureDatabaseConnection {
     
     // In production, this would integrate with SecurityMonitoringCore
     if (process.env.NODE_ENV === 'development') {
-      console.log(`🔐 Security Event [${eventType}]:`, JSON.stringify(event, null, 2));
+      // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+      appLogger.debug(`🔐 Security Event [${eventType}]:`, { event: JSON.stringify(event, null, 2) });
     }
     
     // Integrate with existing SecurityMonitoringCore if available

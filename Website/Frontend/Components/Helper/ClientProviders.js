@@ -9,6 +9,9 @@ import { PerformanceMonitoringProvider } from '../Performance/PerformanceMonitor
 // Import Accessibility Provider
 import { AccessibilityProvider } from '../Accessibility/AccessibilityFramework';
 
+// Import Error Boundary
+import { UnifiedStableErrorBoundary } from '../ErrorBoundary/UnifiedStableErrorBoundary';
+
 // Dynamically import providers that need to run on the client side
 // Using PerfectSocketProvider - consolidated, production-ready socket implementation
 const SocketProvider = dynamic(
@@ -45,18 +48,24 @@ export default function ClientProviders({ children }) {
   const devTools = process.env.NODE_ENV === 'development' ? <DevTools /> : null;
   
   return (
-    <AccessibilityProvider>
-      <PerformanceMonitoringProvider>
-        <GraphQLAuthProvider>
-          <SocketProvider>
-            <MemoizedChildren>
-              {children}
-            </MemoizedChildren>
-            {devTools}
-          </SocketProvider>
-        </GraphQLAuthProvider>
-      </PerformanceMonitoringProvider>
-    </AccessibilityProvider>
+    <UnifiedStableErrorBoundary 
+      enableAutoRecovery={true} 
+      maxRetries={3}
+      showErrorDetails={process.env.NODE_ENV === 'development'}
+    >
+      <AccessibilityProvider>
+        <PerformanceMonitoringProvider>
+          <GraphQLAuthProvider>
+            <SocketProvider>
+              <MemoizedChildren>
+                {children}
+              </MemoizedChildren>
+              {devTools}
+            </SocketProvider>
+          </GraphQLAuthProvider>
+        </PerformanceMonitoringProvider>
+      </AccessibilityProvider>
+    </UnifiedStableErrorBoundary>
   );
 }
 

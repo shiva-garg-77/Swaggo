@@ -5,23 +5,41 @@ import { v4 as uuidv4 } from 'uuid';
 const StoryResolvers = {
     // Story field resolvers
     Story: {
-        profile: async (parent) => {
+        profile: async (parent, args, context) => {
             try {
-                const profile = await Profile.findOne({ profileid: parent.profileid });
-                return profile;
+                // 🚀 PERFORMANCE FIX: Use DataLoader to prevent N+1 queries
+                if (context.dataloaders && parent.profileid) {
+                    // Use DataLoader for batch loading to prevent N+1 query problem
+                    return await context.dataloaders.profileById.load(parent.profileid);
+                } else {
+                    // Fallback to direct database query if DataLoader not available
+                    const profile = await Profile.findOne({ profileid: parent.profileid });
+                    return profile;
+                }
             } catch (error) {
                 console.error('Error fetching story profile:', error);
                 return null;
             }
         },
-        viewers: async (parent) => {
+        viewers: async (parent, args, context) => {
             try {
                 const profileIds = parent.viewers.map(viewer => viewer.profileid);
-                const profiles = await Profile.find({ profileid: { $in: profileIds } });
+                
+                // 🚀 PERFORMANCE FIX: Use DataLoader to prevent N+1 queries
+                let profiles;
+                if (context.dataloaders) {
+                    // Use DataLoader for batch loading to prevent N+1 query problem
+                    profiles = await Promise.all(
+                        profileIds.map(id => context.dataloaders.profileById.load(id))
+                    );
+                } else {
+                    // Fallback to direct database query if DataLoader not available
+                    profiles = await Profile.find({ profileid: { $in: profileIds } });
+                }
                 
                 return parent.viewers.map(viewer => ({
                     profileid: viewer.profileid,
-                    profile: profiles.find(p => p.profileid === viewer.profileid),
+                    profile: profiles.find(p => p && p.profileid === viewer.profileid),
                     viewedAt: viewer.viewedAt
                 }));
             } catch (error) {
@@ -40,10 +58,17 @@ const StoryResolvers = {
 
     // StoryViewer field resolvers
     StoryViewer: {
-        profile: async (parent) => {
+        profile: async (parent, args, context) => {
             try {
-                const profile = await Profile.findOne({ profileid: parent.profileid });
-                return profile;
+                // 🚀 PERFORMANCE FIX: Use DataLoader to prevent N+1 queries
+                if (context.dataloaders && parent.profileid) {
+                    // Use DataLoader for batch loading to prevent N+1 query problem
+                    return await context.dataloaders.profileById.load(parent.profileid);
+                } else {
+                    // Fallback to direct database query if DataLoader not available
+                    const profile = await Profile.findOne({ profileid: parent.profileid });
+                    return profile;
+                }
             } catch (error) {
                 console.error('Error fetching story viewer profile:', error);
                 return null;
@@ -151,11 +176,22 @@ const StoryResolvers = {
                 }
 
                 const profileIds = story.viewers.map(viewer => viewer.profileid);
-                const profiles = await Profile.find({ profileid: { $in: profileIds } });
+                
+                // 🚀 PERFORMANCE FIX: Use DataLoader to prevent N+1 queries
+                let profiles;
+                if (context.dataloaders) {
+                    // Use DataLoader for batch loading to prevent N+1 query problem
+                    profiles = await Promise.all(
+                        profileIds.map(id => context.dataloaders.profileById.load(id))
+                    );
+                } else {
+                    // Fallback to direct database query if DataLoader not available
+                    profiles = await Profile.find({ profileid: { $in: profileIds } });
+                }
                 
                 return story.viewers.map(viewer => ({
                     profileid: viewer.profileid,
-                    profile: profiles.find(p => p.profileid === viewer.profileid),
+                    profile: profiles.find(p => p && p.profileid === viewer.profileid),
                     viewedAt: viewer.viewedAt
                 }));
             } catch (error) {

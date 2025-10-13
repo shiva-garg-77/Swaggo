@@ -21,6 +21,19 @@ export default function SocketProvider({ children }) {
   const [connectionStatus, setConnectionStatus] = useState('disconnected'); // disconnected, connecting, connected, reconnecting
   const [messageQueue, setMessageQueue] = useState([]);
   const [pendingMessages, setPendingMessages] = useState(new Map());
+  
+  // ========================================
+  // CONNECTION QUALITY MONITORING
+  // ========================================
+  const [connectionQuality, setConnectionQuality] = useState({
+    latency: null,
+    bandwidth: 'unknown',
+    packetLoss: 0,
+    jitter: 0,
+    effectiveType: 'unknown'
+  });
+  const latencyHistory = useRef([]);
+  const messageDeduplicationCache = useRef(new Map()); // Track sent message IDs
   const auth = useFixedSecureAuth();
   const { isAuthenticated, user, isLoading, _debug } = auth;
   
@@ -45,6 +58,8 @@ export default function SocketProvider({ children }) {
   const reconnectTimeout = useRef(null);
   const initializationInProgress = useRef(false); // Prevent concurrent initializations
   const socketRef = useRef(null); // Keep a ref to the socket instance
+  const pingInterval = useRef(null);
+  const lastPingTime = useRef(null);
 
   // 🔄 CRITICAL FIX: Enhanced message queuing with overflow protection and size limits
   const queueMessage = useCallback((messageData) => {
@@ -103,7 +118,169 @@ export default function SocketProvider({ children }) {
     });
   }, []);
 
-  // 🔄 CRITICAL FIX: Enhanced message queue processing with cleanup and monitoring
+  // ========================================
+  // LATENCY & CONNECTION QUALITY MONITORING
+  // ========================================
+  
+  const measureLatency = useCallback(() => {
+    if (!socketRef.current || !socketRef.current.connected) return;
+    
+    const startTime = Date.now();
+    lastPingTime.current = startTime;
+    
+    socketRef.current.emit('ping', { timestamp: startTime }, (response) => {
+      const endTime = Date.now();
+      const latency = endTime - startTime;
+      
+      // Update latency history (keep last 10 measurements)
+      latencyHistory.current.push(latency);
+      if (latencyHistory.current.length > 10) {
+        latencyHistory.current.shift();
+      }
+      
+      // Calculate average latency
+      const avgLatency = latencyHistory.current.reduce((a, b) => a + b, 0) / latencyHistory.current.length;
+      
+      // Calculate jitter (variation in latency)
+      const jitter = latencyHistory.current.length > 1
+        ? Math.abs(latencyHistory.current[latencyHistory.current.length - 1] - latencyHistory.current[latencyHistory.current.length - 2])
+        : 0;
+      
+      setConnectionQuality(prev => ({
+        ...prev,
+        latency: Math.round(avgLatency),
+        jitter: Math.round(jitter)
+      }));
+    });
+  }, []);
+  
+  const updateNetworkInfo = useCallback(() => {
+    if (typeof navigator !== 'undefined' && 'connection' in navigator) {
+      const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      
+      setConnectionQuality(prev => ({
+        ...prev,
+        effectiveType: connection.effectiveType || 'unknown',
+        bandwidth: connection.downlink ? `${connection.downlink} Mbps` : 'unknown'
+      }));
+    }
+  }, []);
+  
+  // Start latency monitoring when connected
+  useEffect(() => {
+    if (isConnected && socketRef.current) {
+      // Initial measurement
+      measureLatency();
+      updateNetworkInfo();
+      
+      // Set up periodic latency checks (every 30 seconds)
+      pingInterval.current = setInterval(() => {
+        measureLatency();
+        updateNetworkInfo();
+      }, 30000);
+      
+      // Listen for network change events
+      if (typeof navigator !== 'undefined' && 'connection' in navigator) {
+        const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        connection.addEventListener('change', updateNetworkInfo);
+      }
+      
+      return () => {
+        if (pingInterval.current) {
+          clearInterval(pingInterval.current);
+          pingInterval.current = null;
+        }
+        
+        if (typeof navigator !== 'undefined' && 'connection' in navigator) {
+          const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+          connection.removeEventListener('change', updateNetworkInfo);
+        }
+      };
+    }
+  }, [isConnected, measureLatency, updateNetworkInfo]);
+  
+  // ========================================
+  // MESSAGE DEDUPLICATION
+  // ========================================
+  
+  const cleanDeduplicationCache = useCallback(() => {
+    const MAX_CACHE_SIZE = 1000;
+    const MAX_CACHE_AGE = 300000; // 5 minutes
+    const now = Date.now();
+    
+    const cache = messageDeduplicationCache.current;
+    const entries = Array.from(cache.entries());
+    
+    // Remove old entries
+    const cleaned = entries.filter(([_, timestamp]) => {
+      return now - timestamp < MAX_CACHE_AGE;
+    });
+    
+    // Keep only recent entries if cache is too large
+    if (cleaned.length > MAX_CACHE_SIZE) {
+      cleaned.sort((a, b) => b[1] - a[1]); // Sort by timestamp descending
+      cleaned.splice(MAX_CACHE_SIZE); // Keep only MAX_CACHE_SIZE most recent
+    }
+    
+    messageDeduplicationCache.current = new Map(cleaned);
+  }, []);
+  
+  const isDuplicateMessage = useCallback((clientMessageId) => {
+    if (!clientMessageId) return false;
+    
+    const cache = messageDeduplicationCache.current;
+    if (cache.has(clientMessageId)) {
+      console.warn(`⚠️ DEDUP: Duplicate message detected: ${clientMessageId}`);
+      return true;
+    }
+    
+    // Add to cache
+    cache.set(clientMessageId, Date.now());
+    
+    // Periodic cleanup
+    if (cache.size > 1000) {
+      cleanDeduplicationCache();
+    }
+    
+    return false;
+  }, [cleanDeduplicationCache]);
+  
+  // ========================================
+  // NETWORK ONLINE/OFFLINE MONITORING
+  // ========================================
+  
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log('🌐 Network: Back online');
+      setConnectionStatus('reconnecting');
+      
+      // Emit custom event for reconnection logic to handle
+      // This avoids circular dependency issues
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('network-online', {
+          detail: { timestamp: Date.now() }
+        }));
+      }
+    };
+    
+    const handleOffline = () => {
+      console.log('🌐 Network: Offline');
+      setConnectionStatus('Network offline');
+      setIsConnected(false);
+    };
+    
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+      
+      return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+      };
+    }
+  }, []);
+
+  // 🔄 CRITICAL FIX: Enhanced message queuing with overflow protection and size limits
   const processMessageQueue = useCallback((socketInstance) => {
     if (!socketInstance || messageQueue.length === 0) {
       console.log('📦 QUEUE: Nothing to process');
@@ -508,6 +685,34 @@ export default function SocketProvider({ children }) {
       });
     };
 
+    // User presence handlers for online/offline status
+    const handleUserOnline = (data) => {
+      console.log('🟢 User came online:', data);
+      setOnlineUsers(prev => new Set([...prev, data.profileid]));
+    };
+
+    const handleUserOffline = (data) => {
+      console.log('🔴 User went offline:', data);
+      setOnlineUsers(prev => {
+        const updated = new Set(prev);
+        updated.delete(data.profileid);
+        return updated;
+      });
+    };
+
+    const handleUserStatusChanged = (data) => {
+      console.log('🔄 User status changed:', data);
+      if (data.isOnline) {
+        setOnlineUsers(prev => new Set([...prev, data.profileid]));
+      } else {
+        setOnlineUsers(prev => {
+          const updated = new Set(prev);
+          updated.delete(data.profileid);
+          return updated;
+        });
+      }
+    };
+
     // Attach event listeners
     newSocket.on('connect', handleConnect);
     newSocket.on('disconnect', handleDisconnect);
@@ -515,6 +720,20 @@ export default function SocketProvider({ children }) {
     newSocket.on('message_ack', handleMessageAck);
     newSocket.on('user_joined', handleUserJoined);
     newSocket.on('user_left', handleUserLeft);
+    newSocket.on('user_online', handleUserOnline); // Handle deprecated user_online event
+    newSocket.on('user_offline', handleUserOffline); // Handle deprecated user_offline event
+    newSocket.on('user_status_changed', handleUserStatusChanged); // Handle new unified event
+    
+    // Request initial online users list when connected
+    newSocket.on('connect', () => {
+      console.log('🔌 Socket connected, requesting online users');
+      newSocket.emit('get_online_users', (users) => {
+        console.log('👥 Received online users list:', users);
+        if (Array.isArray(users)) {
+          setOnlineUsers(new Set(users));
+        }
+      });
+    });
     
     // Authentication success handler
     newSocket.on('auth_success', (data) => {
@@ -592,6 +811,15 @@ export default function SocketProvider({ children }) {
       }
     });
     
+    // Handle message edit (FIX EVENT CONTRACT MISMATCH)
+    newSocket.on('message_edited', (data) => {
+      console.log('✏️ Message edited:', data);
+      // Emit event for message service
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('message_edited', { detail: data }));
+      }
+    });
+    
     // Handle typing start (FIX EVENT CONTRACT MISMATCH)
     newSocket.on('typing_start', (data) => {
       console.log('⌨️ User typing:', data);
@@ -600,7 +828,25 @@ export default function SocketProvider({ children }) {
         window.dispatchEvent(new CustomEvent('user_typing', { detail: data }));
       }
     });
-    
+
+    // Handle message delete confirmation
+    newSocket.on('delete_confirmation', (data) => {
+      console.log('🗑️ Message delete confirmation:', data);
+      // Emit event for message service
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('message_deleted', { detail: data }));
+      }
+    });
+
+    // Handle message deleted by others
+    newSocket.on('message_deleted', (data) => {
+      console.log('🗑️ Message deleted by others:', data);
+      // Emit event for message service
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('message_deleted_by_others', { detail: data }));
+      }
+    });
+
     initializationInProgress.current = false; // Reset flag after socket is set
     return newSocket;
   }, [isAuthenticated, user, processMessageQueue, attemptReconnection]);
@@ -674,6 +920,19 @@ export default function SocketProvider({ children }) {
       hasAttemptedInit = false;
     };
     
+    const handleNetworkOnline = (event) => {
+      console.log('🌐 SOCKET: Network back online, attempting reconnection');
+      
+      // Only attempt reconnection if we have a disconnected socket and user is authenticated
+      if (socketRef.current && !socketRef.current.connected && isAuthenticated && user) {
+        console.log('🔄 SOCKET: Triggering reconnection after network recovery');
+        attemptReconnection('network');
+      } else if (!socketRef.current && isAuthenticated && user) {
+        console.log('🔄 SOCKET: Initializing new socket after network recovery');
+        initializeSocket();
+      }
+    };
+    
     // HMR support for socket persistence during development
     const handleHMRUpdate = () => {
       console.log('🔄 HMR: Preserving socket connection during hot reload');
@@ -687,10 +946,11 @@ export default function SocketProvider({ children }) {
       };
     };
     
-    // Listen for authentication events
+    // Listen for authentication and network events
     if (typeof window !== 'undefined') {
       window.addEventListener('auth-socket-ready', handleAuthReady);
       window.addEventListener('auth-failed', handleAuthFailed);
+      window.addEventListener('network-online', handleNetworkOnline);
       authReadyListener = handleAuthReady;
       authFailedListener = handleAuthFailed;
       
@@ -753,6 +1013,9 @@ export default function SocketProvider({ children }) {
       if (authFailedListener && typeof window !== 'undefined') {
         window.removeEventListener('auth-failed', authFailedListener);
       }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('network-online', handleNetworkOnline);
+      }
       
       // HMR cleanup
       if (hmrCleanup) {
@@ -789,6 +1052,14 @@ export default function SocketProvider({ children }) {
   }, []);
 
   const sendMessage = useCallback((messageData, callback) => {
+    // Check for duplicate message using clientMessageId
+    const clientMessageId = messageData.clientMessageId || messageData.id;
+    if (clientMessageId && isDuplicateMessage(clientMessageId)) {
+      console.warn(`⚠️ DEDUP: Skipping duplicate message send: ${clientMessageId}`);
+      if (callback) callback({ success: false, error: 'duplicate', messageId: clientMessageId });
+      return null;
+    }
+    
     if (!socketRef.current || !socketRef.current.connected) {
       console.warn('⚠️ SOCKET: Cannot send message - not connected');
       // Queue the message for later sending
@@ -800,7 +1071,7 @@ export default function SocketProvider({ children }) {
     // Send immediately if connected
     socketRef.current.emit('send_message', messageData, callback);
     return null; // Not queued
-  }, [queueMessage]);
+  }, [queueMessage, isDuplicateMessage]);
 
   const startTyping = useCallback((chatid) => {
     if (socketRef.current && socketRef.current.connected) {
@@ -814,6 +1085,20 @@ export default function SocketProvider({ children }) {
     }
   }, []);
 
+  // Add the missing reactToMessage function
+  const reactToMessage = useCallback((messageid, emoji, chatid) => {
+    if (socketRef.current && socketRef.current.connected) {
+      socketRef.current.emit('react_to_message', { messageid, emoji, chatid });
+    }
+  }, []);
+
+  // Add the missing markChatAsRead function
+  const markChatAsRead = useCallback((chatid) => {
+    if (socketRef.current && socketRef.current.connected) {
+      socketRef.current.emit('mark_chat_as_read', { chatid });
+    }
+  }, []);
+
   // ========================================
   // CONTEXT VALUE
   // ========================================
@@ -822,6 +1107,7 @@ export default function SocketProvider({ children }) {
     socket: socketRef.current,
     isConnected,
     connectionStatus,
+    connectionQuality, // Add connection quality metrics
     onlineUsers,
     messageQueue,
     pendingMessages,
@@ -829,7 +1115,9 @@ export default function SocketProvider({ children }) {
     leaveChat,
     sendMessage,
     startTyping,
-    stopTyping
+    stopTyping,
+    reactToMessage, // Add the new function to the context value
+    markChatAsRead // Add the markChatAsRead function to the context value
   };
 
   return (

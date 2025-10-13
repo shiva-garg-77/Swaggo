@@ -1,5 +1,48 @@
 import mongoose from "mongoose";
 
+/**
+ * Message types supported by the application
+ * @enum {string}
+ */
+const MESSAGE_TYPES = [
+  'text', 
+  'image', 
+  'video', 
+  'audio', 
+  'file', 
+  'document', 
+  'voice', 
+  'system', 
+  'sticker', 
+  'gif', 
+  'location', 
+  'contact', 
+  'poll'
+];
+
+/**
+ * Attachment types supported by the application
+ * @enum {string}
+ */
+const ATTACHMENT_TYPES = [
+  'image', 
+  'video', 
+  'audio', 
+  'file'
+];
+
+/**
+ * Message status types
+ * @enum {string}
+ */
+const MESSAGE_STATUS_TYPES = [
+  'sending', 
+  'sent', 
+  'delivered', 
+  'read', 
+  'failed'
+];
+
 const MessageSchema = new mongoose.Schema({
     messageid: { type: String, required: true, unique: true },
     clientMessageId: { 
@@ -15,14 +58,9 @@ const MessageSchema = new mongoose.Schema({
         required: true,
         ref: 'Profile'
     },
-    receiverId: { 
-        type: String, 
-        required: false,
-        ref: 'Profile'
-    },
     messageType: { 
         type: String, 
-        enum: ['text', 'image', 'video', 'audio', 'file', 'document', 'voice', 'system', 'sticker', 'gif', 'location', 'contact', 'poll'], 
+        enum: MESSAGE_TYPES, 
         default: 'text' 
     },
     content: {
@@ -34,7 +72,7 @@ const MessageSchema = new mongoose.Schema({
     attachments: [{
         type: {
             type: String,
-            enum: ['image', 'video', 'audio', 'file']
+            enum: ATTACHMENT_TYPES
         },
         url: String,
         filename: String,
@@ -91,9 +129,14 @@ const MessageSchema = new mongoose.Schema({
         ref: 'Profile'
     },
     deletedAt: Date,
+    isArchived: {
+        type: Boolean,
+        default: false
+    },
+    archivedAt: Date,
     messageStatus: {
         type: String,
-        enum: ['sending', 'sent', 'delivered', 'read', 'failed'],
+        enum: MESSAGE_STATUS_TYPES,
         default: 'sent'
     },
     deliveredTo: [{
@@ -119,10 +162,38 @@ const MessageSchema = new mongoose.Schema({
         type: String,
         ref: 'Message'
     }], // For threading support
+    threadId: {
+        type: String,
+        ref: 'MessageThread'
+    }, // Thread ID for this message
     forwardedFrom: {
         type: String,
         ref: 'Message'
     }, // For message forwarding
+    
+    // Encryption support for end-to-end encryption
+    isEncrypted: {
+        type: Boolean,
+        default: false
+    },
+    encryptionKey: {
+        type: String,
+        default: null
+    },
+    encryptedContent: {
+        type: String,
+        default: null
+    },
+    
+    // Markdown support
+    hasMarkdown: {
+        type: Boolean,
+        default: false
+    },
+    parsedContent: {
+        type: String,
+        default: null
+    },
     
     // Media data fields for different message types
     stickerData: {
@@ -149,25 +220,26 @@ const MessageSchema = new mongoose.Schema({
         duration: Number, // in seconds
         size: Number, // in bytes
         mimeType: String,
-        url: String, // Data URL or file URL
-        audioData: {
-            base64: String,
-            stored: { type: Boolean, default: false },
-            filePath: String
-        }
+        fileId: String, // Reference to File document
+        url: String // File URL
     },
     
     fileData: {
+        fileId: String, // Reference to File document
         name: String,
         size: Number, // in bytes
         mimeType: String,
-        url: String, // Data URL or file URL
-        fileContent: {
-            base64: String,
-            stored: { type: Boolean, default: false },
-            filePath: String
-        }
-    }
+        url: String // File URL
+    },
+    
+    // Link preview data for URLs in messages
+    linkPreviews: [{
+        url: String,
+        title: String,
+        description: String,
+        image: String,
+        siteName: String
+    }]
 }, {
     timestamps: true
 });
@@ -181,6 +253,26 @@ MessageSchema.index({ replyTo: 1 }); // For threading
 MessageSchema.index({ messageStatus: 1 }); // For status queries
 MessageSchema.index({ isPinned: 1, chatid: 1 }); // For pinned messages
 MessageSchema.index({ 'mentions': 1 }); // For mention queries
+// Add indexes for better query performance
+MessageSchema.index({ 'deliveredTo.profileid': 1 }); // For delivery tracking queries
+MessageSchema.index({ chatid: 1, createdAt: -1, isDeleted: 1 }); // For chat message queries with deletion filter
+MessageSchema.index({ senderid: 1, createdAt: -1 }); // For user message history
+
+// 🔧 NEW: Additional indexes for critical queries
+MessageSchema.index({ 'readBy.profileid': 1, isDeleted: 1 }); // For read status queries
+MessageSchema.index({ 'reactions.profileid': 1 }); // For reaction queries
+MessageSchema.index({ messageType: 1, createdAt: -1 }); // For message type filtering
+MessageSchema.index({ createdAt: -1 }); // For general time-based queries
+MessageSchema.index({ isDeleted: 1, createdAt: -1 }); // For cleanup/archival queries
+
+// 🔧 OPTIMIZATION #76: Add indexes on foreign keys
+MessageSchema.index({ 'chatid': 1, 'isDeleted': 1, 'createdAt': -1 }); // Optimized for chat message queries
+MessageSchema.index({ 'senderid': 1, 'isDeleted': 1, 'createdAt': -1 }); // Optimized for user message queries
+MessageSchema.index({ 'replyTo': 1, 'isDeleted': 1 }); // Optimized for thread queries
+MessageSchema.index({ 'readBy.profileid': 1, 'chatid': 1 }); // Optimized for read status queries by chat
+MessageSchema.index({ 'reactions.profileid': 1, 'createdAt': -1 }); // Optimized for reaction queries
+MessageSchema.index({ 'mentions': 1, 'isDeleted': 1 }); // Optimized for mention queries
+MessageSchema.index({ 'messageType': 1, 'isDeleted': 1, 'createdAt': -1 }); // Optimized for message type filtering
 
 // Instance Methods
 MessageSchema.methods.markAsRead = function(profileId) {
@@ -204,16 +296,119 @@ MessageSchema.methods.markAsDelivered = function(profileId) {
 };
 
 MessageSchema.methods.addReaction = function(profileId, emoji) {
-    // Remove existing reaction from this user
-    this.reactions = this.reactions.filter(r => r.profileid !== profileId);
-    // Add new reaction
-    this.reactions.push({ profileid: profileId, emoji, createdAt: new Date() });
+    // Check if user already reacted with this emoji
+    const existingReactionIndex = this.reactions.findIndex(
+        reaction => reaction.profileid === profileId && reaction.emoji === emoji
+    );
+    
+    if (existingReactionIndex > -1) {
+        // Remove existing reaction (toggle off)
+        this.reactions.splice(existingReactionIndex, 1);
+    } else {
+        // Add new reaction (allow multiple reactions per user)
+        this.reactions.push({ profileid: profileId, emoji, createdAt: new Date() });
+    }
     return this.save();
 };
 
-MessageSchema.methods.removeReaction = function(profileId) {
-    this.reactions = this.reactions.filter(r => r.profileid !== profileId);
+MessageSchema.methods.removeReaction = function(profileId, emoji) {
+    // Remove specific reaction
+    this.reactions = this.reactions.filter(
+        reaction => !(reaction.profileid === profileId && reaction.emoji === emoji)
+    );
     return this.save();
+};
+
+// Add a method to check if a message is a thread starter
+MessageSchema.methods.isThreadStarter = function() {
+    // A message is a thread starter if it has replies but no parent thread
+    return this.threadReplies && this.threadReplies.length > 0 && !this.replyTo;
+};
+
+// Add a method to get thread replies count
+MessageSchema.methods.getThreadRepliesCount = function() {
+    return this.threadReplies ? this.threadReplies.length : 0;
+};
+
+// Add a static method to create a threaded reply
+MessageSchema.statics.createThreadedReply = async function(parentMessageId, replyData) {
+    // Find the parent message
+    const parentMessage = await this.findById(parentMessageId);
+    if (!parentMessage) {
+        throw new Error('Parent message not found');
+    }
+    
+    // Create the reply message
+    const replyMessage = new this(replyData);
+    await replyMessage.save();
+    
+    // Add reply to parent's threadReplies
+    parentMessage.threadReplies.push(replyMessage._id);
+    await parentMessage.save();
+    
+    // If parent doesn't have a threadId, create a new thread
+    if (!parentMessage.threadId) {
+        const MessageThread = require('./MessageThread');
+        const thread = await MessageThread.createThread(parentMessage._id, parentMessage.chatid);
+        parentMessage.threadId = thread.threadId;
+        replyMessage.threadId = thread.threadId;
+        await parentMessage.save();
+        await replyMessage.save();
+    } else {
+        // Use existing threadId for the reply
+        replyMessage.threadId = parentMessage.threadId;
+        await replyMessage.save();
+    }
+    
+    return replyMessage;
+};
+
+
+
+/**
+ * Default limit for thread messages
+ * @type {number}
+ */
+const DEFAULT_THREAD_MESSAGE_LIMIT = 50;
+
+// Add a static method to get all messages in a thread
+MessageSchema.statics.getThreadMessages = async function(threadId, limit = DEFAULT_THREAD_MESSAGE_LIMIT) {
+    return await this.find({ threadId: threadId, isDeleted: false })
+        .populate('senderid', 'username profilePic')
+        .populate('replyTo')
+        .populate('reactions.profileid', 'username')
+        .sort({ createdAt: 1 }) // Chronological order for threads
+        .limit(limit);
+};
+
+// Add a static method to get thread starter message with all replies
+MessageSchema.statics.getThreadWithReplies = async function(messageId) {
+    // Find the thread starter (could be the message itself or its parent)
+    let threadStarter = await this.findById(messageId);
+    
+    // If this message is a reply, find its parent
+    if (threadStarter.replyTo) {
+        threadStarter = await this.findById(threadStarter.replyTo);
+    }
+    
+    if (!threadStarter) {
+        throw new Error('Thread not found');
+    }
+    
+    // Get all replies in the thread
+    const replies = await this.find({ 
+        threadId: threadStarter.threadId, 
+        _id: { $ne: threadStarter._id },
+        isDeleted: false 
+    })
+    .populate('senderid', 'username profilePic')
+    .populate('reactions.profileid', 'username')
+    .sort({ createdAt: 1 });
+    
+    return {
+        threadStarter,
+        replies
+    };
 };
 
 // Static Methods
@@ -221,7 +416,13 @@ MessageSchema.statics.findByClientMessageId = function(clientMessageId) {
     return this.findOne({ clientMessageId, isDeleted: false });
 };
 
-MessageSchema.statics.getChatMessages = function(chatId, limit = 50, before = null) {
+/**
+ * Default limit for chat messages
+ * @type {number}
+ */
+const DEFAULT_CHAT_MESSAGE_LIMIT = 50;
+
+MessageSchema.statics.getChatMessages = function(chatId, limit = DEFAULT_CHAT_MESSAGE_LIMIT, before = null) {
     const query = { chatid: chatId, isDeleted: false };
     if (before) {
         query.createdAt = { $lt: before };
@@ -244,3 +445,23 @@ MessageSchema.statics.getUnreadCount = function(chatId, profileId, lastReadAt) {
 };
 
 export default mongoose.models.Message || mongoose.model("Message", MessageSchema);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

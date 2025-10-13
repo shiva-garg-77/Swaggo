@@ -1,0 +1,133 @@
+# Post-related GraphQL schema definitions
+
+extend type Query {
+  # Post queries
+  getPostsByUser(profileid: String!, limit: Int, offset: Int): [Post!]
+  getFeed(limit: Int, offset: Int): [Post!]
+  searchPosts(query: String!, limit: Int): [Post!]
+  getLikedPosts(profileid: String!, limit: Int, offset: Int): [Post!]
+  getSavedPosts(profileid: String!, limit: Int, offset: Int): [Post!]
+  
+  # Comment queries
+  getCommentsByPost(postid: String!, limit: Int, offset: Int): [Comment!]
+  getCommentReplies(commentid: String!, limit: Int, offset: Int): [Comment!]
+  
+  # Like queries
+  getLikesByPost(postid: String!, limit: Int, offset: Int): [Like!]
+  getLikesByComment(commentid: String!, limit: Int, offset: Int): [Like!]
+  
+  # Draft queries
+  getDraftsByUser(profileid: String!, limit: Int, offset: Int): [Draft!]
+  
+  # Memory queries
+  getMemoriesByUser(profileid: String!, limit: Int, offset: Int): [Memory!]
+}
+
+extend type Mutation {
+  # Post mutations
+  createPostWithMedia(input: CreatePostInput!): Post
+  updatePostContent(postid: String!, input: UpdatePostInput!): Post
+  deletePostWithMedia(postid: String!): Response
+  likePost(profileid: String!, postid: String!): Like
+  unlikePost(profileid: String!, postid: String!): Response
+  savePost(profileid: String!, postid: String!): Post
+  unsavePost(profileid: String!, postid: String!): Post
+  sharePost(postid: String!, profileid: String!): Post
+  
+  # Comment mutations
+  createCommentWithMentions(input: CreateCommentInput!): Comment
+  updateCommentContent(commentid: String!, content: String!): Comment
+  deleteCommentWithReplies(commentid: String!): Response
+  likeComment(profileid: String!, commentid: String!): Like
+  unlikeComment(profileid: String!, commentid: String!): Response
+  
+  # Draft mutations
+  createDraftWithMedia(input: CreateDraftInput!): Draft
+  updateDraftContent(draftid: String!, input: UpdateDraftInput!): Draft
+  deleteDraftWithMedia(draftid: String!): Response
+  publishDraftToPost(draftid: String!): Post
+  
+  # Memory mutations
+  createMemoryWithStories(input: CreateMemoryInput!): Memory
+  updateMemoryContent(memoryid: String!, input: UpdateMemoryInput!): Memory
+  deleteMemoryWithStories(memoryid: String!): Response
+  addStoryToMemory(memoryid: String!, storyid: String!): Memory
+  removeStoryFromMemory(memoryid: String!, storyid: String!): Memory
+}
+
+# Input types for post mutations
+
+input CreatePostInput {
+  profileid: String!
+  postUrl: URL!
+  title: String
+  description: String
+  postType: String!
+  location: String
+  taggedPeople: [String!]
+  tags: [String!]
+  allowComments: Boolean
+  hideLikeCount: Boolean
+  autoPlay: Boolean
+  isCloseFriendOnly: Boolean
+}
+
+input UpdatePostInput {
+  title: String
+  description: String
+  location: String
+  taggedPeople: [String!]
+  tags: [String!]
+  allowComments: Boolean
+  hideLikeCount: Boolean
+  autoPlay: Boolean
+  isCloseFriendOnly: Boolean
+}
+
+input CreateCommentInput {
+  postid: String!
+  profileid: String!
+  usertoid: String
+  commenttoid: String
+  comment: String!
+}
+
+input CreateDraftInput {
+  profileid: String!
+  postUrl: URL
+  postType: String
+  title: String
+  caption: String
+  location: String
+  taggedPeople: [String!]
+  tags: [String!]
+  allowComments: Boolean
+  hideLikeCount: Boolean
+  autoPlay: Boolean
+}
+
+input UpdateDraftInput {
+  postUrl: URL
+  postType: String
+  title: String
+  caption: String
+  location: String
+  taggedPeople: [String!]
+  tags: [String!]
+  allowComments: Boolean
+  hideLikeCount: Boolean
+  autoPlay: Boolean
+}
+
+input CreateMemoryInput {
+  profileid: String!
+  title: String!
+  coverImage: URL
+  postUrl: URL
+}
+
+input UpdateMemoryInput {
+  title: String
+  coverImage: URL
+  postUrl: URL
+}

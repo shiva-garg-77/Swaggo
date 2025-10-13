@@ -500,11 +500,22 @@ class PersonalizationEngine:
         return recommendations[:num_recommendations]
 
 class SmartNotificationEngine:
-    """AI-powered smart notification system"""
+    """AI-powered smart notification system with keyword-based notifications"""
     
     def __init__(self):
         self.notification_preferences = {}
         self.optimal_times = {}  # User optimal notification times
+        self.keyword_alerts = {}  # User-defined keyword alerts
+        self.mention_patterns = {
+            'direct': r'@(\w+)',  # Direct mentions like @username
+            'indirect': r'(\w+)\s+mentioned',  # Indirect mentions
+        }
+        self.urgency_keywords = {
+            'critical': ['urgent', 'emergency', 'asap', 'critical', 'important'],
+            'high': ['meeting', 'deadline', 'project', 'task', 'reminder'],
+            'medium': ['update', 'status', 'progress', 'review'],
+            'low': ['info', 'general', 'news', 'update']
+        }
         
     def should_send_notification(self, user_id: str, notification_type: str, content_priority: str = 'medium') -> Tuple[bool, str]:
         """Determine if and when to send a notification"""
@@ -540,6 +551,148 @@ class SmartNotificationEngine:
                 return True, "Peak engagement hours"
         
         return False, "Low priority outside peak hours"
+    
+    def add_keyword_alert(self, user_id: str, keyword: str, priority: str = 'medium', 
+                         case_sensitive: bool = False, whole_word: bool = True):
+        """Add a keyword alert for a user"""
+        if user_id not in self.keyword_alerts:
+            self.keyword_alerts[user_id] = []
+        
+        alert = {
+            'keyword': keyword,
+            'priority': priority,
+            'case_sensitive': case_sensitive,
+            'whole_word': whole_word,
+            'created_at': datetime.now(),
+            'active': True
+        }
+        
+        self.keyword_alerts[user_id].append(alert)
+        return True
+    
+    def remove_keyword_alert(self, user_id: str, keyword: str):
+        """Remove a keyword alert for a user"""
+        if user_id in self.keyword_alerts:
+            self.keyword_alerts[user_id] = [
+                alert for alert in self.keyword_alerts[user_id] 
+                if alert['keyword'] != keyword
+            ]
+        return True
+    
+    def get_keyword_alerts(self, user_id: str):
+        """Get all keyword alerts for a user"""
+        return self.keyword_alerts.get(user_id, [])
+    
+    def analyze_message_for_keywords(self, message_content: str, user_id: str) -> Dict:
+        """Analyze message content for keyword matches and mentions"""
+        import re
+        
+        results = {
+            'keyword_matches': [],
+            'mentions': [],
+            'urgency_level': 'low',
+            'should_notify': False,
+            'notification_reason': ''
+        }
+        
+        if not message_content or user_id not in self.keyword_alerts:
+            return results
+        
+        content_lower = message_content.lower()
+        
+        # Check for keyword matches
+        for alert in self.keyword_alerts[user_id]:
+            if not alert['active']:
+                continue
+                
+            keyword = alert['keyword']
+            search_content = content_lower if not alert['case_sensitive'] else message_content
+            
+            if alert['whole_word']:
+                # Whole word matching
+                pattern = r'\b' + re.escape(keyword) + r'\b'
+                if re.search(pattern, search_content, re.IGNORECASE if not alert['case_sensitive'] else 0):
+                    results['keyword_matches'].append({
+                        'keyword': keyword,
+                        'priority': alert['priority'],
+                        'match_type': 'whole_word'
+                    })
+            else:
+                # Partial matching
+                if keyword.lower() in search_content.lower():
+                    results['keyword_matches'].append({
+                        'keyword': keyword,
+                        'priority': alert['priority'],
+                        'match_type': 'partial'
+                    })
+        
+        # Check for mentions
+        for pattern_name, pattern in self.mention_patterns.items():
+            matches = re.findall(pattern, message_content, re.IGNORECASE)
+            for match in matches:
+                results['mentions'].append({
+                    'mentioned_user': match,
+                    'pattern_type': pattern_name
+                })
+        
+        # Determine urgency level based on content
+        for urgency_level, keywords in self.urgency_keywords.items():
+            if any(keyword in content_lower for keyword in keywords):
+                results['urgency_level'] = urgency_level
+                break
+        
+        # Determine if notification should be sent
+        if results['keyword_matches'] or results['mentions']:
+            results['should_notify'] = True
+            if results['keyword_matches']:
+                results['notification_reason'] = f"Keyword match: {', '.join([m['keyword'] for m in results['keyword_matches']])}"
+            if results['mentions']:
+                results['notification_reason'] += f" | Mentions: {', '.join([m['mentioned_user'] for m in results['mentions']])}"
+        
+        return results
+    
+    def get_smart_notification_content(self, message_content: str, sender_name: str, 
+                                     keyword_analysis: Dict) -> Dict:
+        """Generate smart notification content based on analysis"""
+        notification = {
+            'title': '',
+            'body': '',
+            'priority': 'medium',
+            'actions': [],
+            'sound': 'default'
+        }
+        
+        # Generate title based on context
+        if keyword_analysis['mentions']:
+            notification['title'] = f"@{sender_name} mentioned you"
+            notification['priority'] = 'high'
+            notification['sound'] = 'mention'
+        elif keyword_analysis['keyword_matches']:
+            notification['title'] = f"@{sender_name} - Keyword Alert"
+            notification['priority'] = keyword_analysis['keyword_matches'][0]['priority']
+        else:
+            notification['title'] = f"New message from {sender_name}"
+        
+        # Generate body with smart truncation
+        max_body_length = 100
+        if len(message_content) > max_body_length:
+            notification['body'] = message_content[:max_body_length-3] + "..."
+        else:
+            notification['body'] = message_content
+        
+        # Add context based on urgency
+        if keyword_analysis['urgency_level'] in ['critical', 'high']:
+            notification['priority'] = keyword_analysis['urgency_level']
+            notification['sound'] = 'urgent'
+        
+        # Add quick actions
+        notification['actions'] = [
+            {'id': 'reply', 'title': 'Reply'},
+            {'id': 'view', 'title': 'View Message'},
+            {'id': 'mark_read', 'title': 'Mark as Read'}
+        ]
+        
+        return notification
 
 # Global instances
 _moderation_engine = None

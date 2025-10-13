@@ -12,9 +12,11 @@ import ChatList from '../../../Components/Chat/ChatList';
 import MessageArea from '../../../Components/Chat/MessageArea';
 import ComprehensiveChatInterface from '../../../Components/Chat/ComprehensiveChatInterface';
 import NotificationAccessTaker from '../../../Components/Chat/NotificationAccessTaker';
+import KeyboardShortcutIntegration from '../../../Components/Chat/KeyboardShortcutIntegration';
+import VoiceCommandIntegration from '../../../Components/Chat/VoiceCommandIntegration';
 import notificationService from '../../../services/UnifiedNotificationService.js';
 import webRTCService from '../../../services/WebRTCService';
-// import ServiceDebug from '../../../Components/Debug/ServiceDebug';
+import ErrorBoundary from '../../../Components/Common/ErrorBoundary';
 
 function MessagePageContent() {
   const { user, isLoading: authLoading } = useSecureAuth();
@@ -31,7 +33,6 @@ function MessagePageContent() {
   const [callType, setCallType] = useState(null); // 'voice' or 'video'
   const [incomingCall, setIncomingCall] = useState(null);
   const [callParticipants, setCallParticipants] = useState([]);
-  const [callHistory, setCallHistory] = useState([]);
   const [isCallMuted, setIsCallMuted] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [localVideoRef, setLocalVideoRef] = useState(null);
@@ -40,12 +41,6 @@ function MessagePageContent() {
   // Check if we should open a specific chat (from profile navigation)
   const targetUserId = searchParams.get('userId');
   const targetUsername = searchParams.get('user');
-  
-  // CRITICAL FIX: Enhanced user validation and debug logging
-  const getUserId = (user) => {
-    // Try multiple possible user ID properties
-    return user?.profileid || user?.id || user?.userId || user?.profile?.id || user?._id;
-  };
   
   const currentUserId = getUserId(user);
   
@@ -250,6 +245,7 @@ function MessagePageContent() {
             profileid: p?.profileid,
             id: p?.id,
             userId: p?.userId,
+            _id: p?._id,
             username: p?.username
           }))
         );
@@ -386,7 +382,7 @@ function MessagePageContent() {
     }
     
     // 🔄 CRITICAL FIX: Use standardized user ID for joining personal room
-    const userIdentifier = user?.profileid || user?.id;
+    const userIdentifier = getUserId(user);
     if (userIdentifier) {
       console.log('📱 SOCKET: Joining personal room for user:', userIdentifier);
       socket.emit('join_user', userIdentifier);
@@ -427,6 +423,51 @@ function MessagePageContent() {
       });
     };
 
+    // Handle chat joined - Issue #16: Reset unread count when user opens chat
+    const handleChatJoined = (data) => {
+      console.log('Chat joined:', data);
+      
+      // Update chats list to reset unread count
+      setChats(prevChats => {
+        return prevChats.map(chat => {
+          if (chat.chatid === data.chatid) {
+            return {
+              ...chat,
+              unreadCount: 0
+            };
+          }
+          return chat;
+        });
+      });
+    };
+
+    // Handle user status changes - Issue #17: Update status in real-time
+    const handleUserStatusChanged = (data) => {
+      console.log('User status changed:', data);
+      
+      // Update chats list with new user status
+      setChats(prevChats => {
+        return prevChats.map(chat => {
+          // Update participant status in this chat
+          const updatedParticipants = chat.participants.map(participant => {
+            if (participant.profileid === data.profileid) {
+              return {
+                ...participant,
+                isOnline: data.isOnline,
+                lastSeen: data.lastSeen
+              };
+            }
+            return participant;
+          });
+          
+          return {
+            ...chat,
+            participants: updatedParticipants
+          };
+        });
+      });
+    };
+
     // Handle message notifications
     const handleMessageNotification = (data) => {
       console.log('Message notification:', data);
@@ -438,17 +479,33 @@ function MessagePageContent() {
     };
     
     // Handle incoming calls
-    const handleIncomingCall = (data) => {
+    const handleIncomingCall = async (data) => {
       console.log('📞 Incoming call:', data);
       setIncomingCall(data);
       
-      // Show call notification
-      notificationService.showCallNotification(
-        data.caller, 
-        data.callType, 
-        data.chatid, 
-        data.callId
-      );
+      // Show browser notification with ringtone
+      if (notificationService) {
+        const callerName = data.caller?.username || 'Unknown';
+        const callType = data.callType === 'video' ? 'Video' : 'Voice';
+        
+        await notificationService.showCallNotification(
+          `${callerName} is calling`,
+          {
+            body: `${callType} call from ${callerName}`,
+            icon: data.caller?.profilePic || '/default-avatar.png',
+            tag: `incoming-call-${data.callId}`,
+            ringtone: '/ringtones/call-ringtone.mp3', // Add ringtone file
+            onClick: () => {
+              // Focus the window and potentially answer the call
+              window.focus();
+            },
+            onClose: () => {
+              // Stop ringtone when notification is closed
+              notificationService.stopRingtone();
+            }
+          }
+        );
+      }
     };
     
     // Handle call response
@@ -472,19 +529,8 @@ function MessagePageContent() {
       setCallType(null);
       setIncomingCall(null);
       
-      // Add to call history
-      if (selectedChat) {
-        const callRecord = {
-          id: Date.now(),
-          type: callType || 'voice',
-          duration: data.duration || 0,
-          timestamp: new Date(),
-          participants: callParticipants,
-          chatId: selectedChat.chatid,
-          status: 'completed'
-        };
-        setCallHistory(prev => [callRecord, ...prev]);
-      }
+      // We no longer need to manually update callHistory since it's fetched from backend
+      // The call will be automatically added to the database and will appear in the next fetch
     };
 
     // WebRTC event handlers
@@ -515,24 +561,14 @@ function MessagePageContent() {
       setCallType(null);
       setIncomingCall(null);
       
-      // Add to call history with stats
-      if (selectedChat) {
-        const callRecord = {
-          id: Date.now(),
-          type: stats.callType || callType || 'voice',
-          duration: stats.duration || 0,
-          timestamp: new Date(),
-          participants: callParticipants,
-          chatId: selectedChat.chatid,
-          status: 'completed',
-          quality: stats.quality
-        };
-        setCallHistory(prev => [callRecord, ...prev]);
-      }
+      // We no longer need to manually update callHistory since it's fetched from backend
+      // The call will be automatically added to the database and will appear in the next fetch
     };
 
     // Socket event listeners
     socket.on('new_message', handleNewMessage);
+    socket.on('chat_joined', handleChatJoined); // Issue #16: Add chat_joined listener
+    socket.on('user_status_changed', handleUserStatusChanged); // Issue #17: Add user_status_changed listener
     socket.on('message_notification', handleMessageNotification);
     socket.on('user_typing', handleUserTyping);
     socket.on('incoming_call', handleIncomingCall);
@@ -549,6 +585,8 @@ function MessagePageContent() {
     return () => {
       // Socket cleanup
       socket.off('new_message', handleNewMessage);
+      socket.off('chat_joined', handleChatJoined); // Issue #16: Remove chat_joined listener
+      socket.off('user_status_changed', handleUserStatusChanged); // Issue #17: Remove user_status_changed listener
       socket.off('message_notification', handleMessageNotification);
       socket.off('user_typing', handleUserTyping);
       socket.off('incoming_call', handleIncomingCall);
@@ -639,37 +677,16 @@ function MessagePageContent() {
       } else {
         // Decline the call
         await webRTCService.answerCall(callData, false);
-        
-        // Add to call history as missed
-        const callRecord = {
-          id: Date.now(),
-          type: callData.callType,
-          duration: 0,
-          timestamp: new Date(),
-          participants: [callData.caller],
-          chatId: callData.chatid,
-          status: 'missed',
-          missed: true
-        };
-        setCallHistory(prev => [callRecord, ...prev]);
-        
-        // Show missed call notification
-        notificationService.showMissedCallNotification(
-          callData.caller,
-          callData.callType,
-          callData.chatid
-        );
+          
+          // We no longer need to manually update callHistory since it's fetched from backend
+          // The call will be automatically added to the database and will appear in the next fetch
+        }
+      } catch (error) {
+        console.error('❌ Error answering call:', error);
+        alert('Failed to answer call: ' + error.message);
       }
-      
-      setIncomingCall(null);
-      
-    } catch (error) {
-      console.error('❌ Failed to answer call:', error);
-      alert('Failed to answer call: ' + error.message);
-      setIncomingCall(null);
-    }
-  };
-
+    };
+  
   const handleEndCall = async () => {
     console.log('📞 Ending call');
     
@@ -752,51 +769,85 @@ function MessagePageContent() {
         <div className={`h-full flex overflow-hidden ${
           theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'
         } transition-colors duration-300`}>
-          {/* Middle Panel - Chat List */}
-          <div className={`w-80 border-r flex flex-col transition-colors duration-300 ${
-            theme === 'dark' 
-              ? 'bg-gray-800 border-gray-700' 
-              : 'bg-white border-gray-200'
+          {/* Left Panel - Chat Sidebar with Chat List */}
+          <div className={`w-80 border-r transition-colors duration-300 ${
+            theme === 'dark' ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'
           }`}>
-            <ChatList
-              chats={chats}
-              selectedChat={selectedChat}
-              onChatSelect={handleChatSelect}
-              onNewChat={handleNewChat}
-              loading={chatsLoading}
-              isConnected={isConnected}
-              user={user}
-              notificationContext={notificationContext}
-            />
+            <ErrorBoundary 
+              onError={(error, errorInfo) => {
+                console.error('ChatSidebar Error:', error, errorInfo);
+                if (typeof window !== 'undefined' && window.__SECURITY_MONITOR__) {
+                  window.__SECURITY_MONITOR__.reportEvent({
+                    type: 'component_error',
+                    severity: 'high',
+                    component: 'ChatSidebar',
+                    error: error.message,
+                    stack: error.stack
+                  });
+                }
+              }}
+              showDetails={process.env.NODE_ENV === 'development'}
+            >
+              <ChatSidebar 
+                chats={chats} 
+                selectedChat={selectedChat} 
+                onSelectChat={handleSelectChat}
+                onCreateChat={handleCreateChat}
+                onSearch={handleSearch}
+                theme={theme}
+                unreadCount={unreadCount}
+              />
+            </ErrorBoundary>
           </div>
 
           {/* Right Panel - Comprehensive Chat Interface */}
           <div className={`flex-1 flex flex-col transition-colors duration-300 ${
             theme === 'dark' ? 'bg-gray-900' : 'bg-white'
           }`}>
-            <ComprehensiveChatInterface
-              selectedChat={selectedChat}
-              user={user}
-              socket={socket}
-              isConnected={isConnected}
-              onStartCall={handleStartCall}
-              isCallActive={isCallActive}
-              callType={callType}
-              onEndCall={handleEndCall}
-              incomingCall={incomingCall}
-              onAnswerCall={handleAnswerCall}
-              callHistory={callHistory}
-              isCallMuted={isCallMuted}
-              isVideoEnabled={isVideoEnabled}
-              onToggleMute={handleToggleMute}
-              onToggleVideo={handleToggleVideo}
-              onSwitchCamera={handleSwitchCamera}
-              localVideoRef={localVideoRef}
-              remoteVideoRef={remoteVideoRef}
-              webRTCService={webRTCService}
-              notificationService={notificationService}
-              notificationContext={notificationContext}
-            />
+            <ErrorBoundary 
+              onError={(error, errorInfo) => {
+                console.error('ComprehensiveChatInterface Error:', error, errorInfo);
+                // Log to monitoring service if available
+                if (typeof window !== 'undefined' && window.__SECURITY_MONITOR__) {
+                  window.__SECURITY_MONITOR__.reportEvent({
+                    type: 'component_error',
+                    severity: 'high',
+                    component: 'ComprehensiveChatInterface',
+                    error: error.message,
+                    stack: error.stack
+                  });
+                }
+              }}
+              onRetry={() => {
+                console.log('Retrying ComprehensiveChatInterface');
+                // Optionally reload the component or reset state
+              }}
+              showDetails={process.env.NODE_ENV === 'development'}
+            >
+              <ComprehensiveChatInterface
+                selectedChat={selectedChat}
+                user={user}
+                socket={socket}
+                isConnected={isConnected}
+                onStartCall={handleStartCall}
+                isCallActive={isCallActive}
+                callType={callType}
+                onEndCall={handleEndCall}
+                incomingCall={incomingCall}
+                onAnswerCall={handleAnswerCall}
+                callHistory={callHistory}
+                isCallMuted={isCallMuted}
+                isVideoEnabled={isVideoEnabled}
+                onToggleMute={handleToggleMute}
+                onToggleVideo={handleToggleVideo}
+                onSwitchCamera={handleSwitchCamera}
+                localVideoRef={localVideoRef}
+                remoteVideoRef={remoteVideoRef}
+                webRTCService={webRTCService}
+                notificationService={notificationService}
+                notificationContext={notificationContext}
+              />
+            </ErrorBoundary>
           </div>
           
           {/* Debug Panel - Only in development */}
@@ -851,6 +902,12 @@ function MessagePageContent() {
           )}
         </div>
       )}
+      
+      {/* Keyboard Shortcuts Integration */}
+      <KeyboardShortcutIntegration />
+      
+      {/* Voice Command Integration */}
+      <VoiceCommandIntegration />
       
       {/* Debug Panel - Remove in production */}
       {/* <ServiceDebug /> */}

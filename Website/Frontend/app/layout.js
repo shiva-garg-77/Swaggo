@@ -1,78 +1,34 @@
 import { Inter } from 'next/font/google'
-import './globals.css'
-import dynamic from 'next/dynamic'
+import './globals.css';
+import { registerServiceWorker } from '../utils/serviceWorkerRegistration';
+import { FixedSecureAuthProvider } from '../context/FixedSecureAuthContext';
 
-// Import startup optimizations
-import '../lib/startup-optimization';
-
-// Lazy load heavy providers with optimized settings
-const SecureAuthProvider = dynamic(
-  () => import('../context/FixedSecureAuthContext').then(mod => ({ default: mod.FixedSecureAuthProvider })),
-  { 
-    ssr: true,
-    loading: () => null
-  }
-)
-
-const ThemeProvider = dynamic(
-  () => import('../Components/Helper/ThemeProvider'),
-  { 
-    ssr: true,
-    loading: () => null
-  }
-)
-
-// Import the Client Component wrapper for client-side providers
-const LayoutClientWrapper = dynamic(
-  () => import('../Components/Helper/LayoutClientWrapper'),
-  { 
-    loading: () => null
-  }
-)
-
-// Optimized font loading
-const inter = Inter({ 
-  subsets: ['latin'],
-  display: 'swap',
-  preload: true,
-  fallback: ['system-ui', 'arial']
-})
+// Register service worker when the app loads
+if (typeof window !== 'undefined') {
+  registerServiceWorker();
+}
 
 export const metadata = {
-  title: 'Swaggo - Social Media Platform',
-  description: 'Connect with friends and share your moments',
+  title: 'Swaggo - Secure Messaging',
+  description: '10/10 Secure Authentication System',
   manifest: '/manifest.json',
-  icons: {
-    icon: '/favicon.ico',
-    apple: '/apple-touch-icon.png',
-  }
-}
+};
 
-export const viewport = {
-  width: 'device-width',
-  initialScale: 1,
-  maximumScale: 1,
-  themeColor: '#ef4444'
-}
-
-// Optimized root layout
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en">
       <head>
-        <link rel="preconnect" href="http://localhost:45799" />
-        {/* Preload critical resources */}
-        <link rel="preload" href="/fonts/inter-var.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="theme-color" content="#dc2626" />
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+        <link rel="icon" href="/favicon.ico" />
       </head>
-      <body className={inter.className} suppressHydrationWarning>
-        <SecureAuthProvider>
-          <ThemeProvider>
-            <LayoutClientWrapper>
-              {children}
-            </LayoutClientWrapper>
-          </ThemeProvider>
-        </SecureAuthProvider>
+      <body>
+        <FixedSecureAuthProvider>
+          {children}
+        </FixedSecureAuthProvider>
       </body>
     </html>
-  )
+  );
 }

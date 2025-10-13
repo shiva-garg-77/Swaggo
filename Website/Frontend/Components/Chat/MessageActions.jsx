@@ -6,6 +6,7 @@ import {
   Reply, Forward, Copy, Trash2, MoreVertical, Heart, 
   Pin, Star, Flag, Edit3, Download, Share2, Timer
 } from 'lucide-react';
+import CustomEmojiPicker from './CustomEmojiPicker';
 
 /**
  * PERFORMANCE OPTIMIZATION: Extracted MessageActions component
@@ -263,51 +264,21 @@ const MessageActions = memo(({
       {/* Reactions Modal */}
       <AnimatePresence>
         {showReactions && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.1 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50"
-            onClick={() => setShowReactions(false)}
-          >
+          <div className="fixed inset-0 z-50">
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 20 }}
-              className={`p-4 rounded-lg shadow-lg ${
-                theme === 'dark' ? 'bg-gray-800' : 'bg-white'
-              }`}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h3 className={`text-sm font-medium mb-3 ${
-                theme === 'dark' ? 'text-white' : 'text-gray-900'
-              }`}>
-                Choose a reaction
-              </h3>
-              <div className="grid grid-cols-8 gap-2">
-                {[
-                  '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣',
-                  '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰',
-                  '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜',
-                  '🤪', '🤨', '🧐', '🤓', '😎', '🤩', '🥳', '😏',
-                  '👍', '👎', '👌', '🤞', '🤟', '🤘', '👊', '✊',
-                  '🙌', '👏', '🤝', '🙏', '❤️', '🧡', '💛', '💚',
-                  '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕',
-                  '🔥', '💯', '💢', '💨', '💤', '👀', '💀', '☠️'
-                ].map((emoji, index) => (
-                  <button
-                    key={index}
-                    onClick={() => handleReaction(emoji)}
-                    className="p-2 text-xl hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors duration-150"
-                    title={`React with ${emoji}`}
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          </motion.div>
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black bg-opacity-50"
+              onClick={() => setShowReactions(false)}
+            />
+            <CustomEmojiPicker
+              isOpen={showReactions}
+              onClose={() => setShowReactions(false)}
+              onEmojiSelect={handleReaction}
+              theme={theme}
+            />
+          </div>
         )}
       </AnimatePresence>
     </div>
