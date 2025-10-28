@@ -1,5 +1,7 @@
 import ScheduledMessage from "../../Models/FeedModels/ScheduledMessage.js";
-import ScheduledMessageService from "../../Services/ScheduledMessageService.js";
+import ScheduledMessageService from "../../Services/Messaging/ScheduledMessageService.js";
+// 🔐 ENHANCED GRAPHQL SECURITY: Import enhanced GraphQL security service
+import enhancedGraphQLSecurityService from '../services/EnhancedGraphQLSecurityService.js';
 
 // Custom error classes
 class AuthenticationError extends Error {

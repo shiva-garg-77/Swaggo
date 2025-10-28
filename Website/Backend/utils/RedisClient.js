@@ -33,13 +33,17 @@ class RedisClient {
       const redisConfig = {
         host: process.env.REDIS_HOST || 'localhost',
         port: parseInt(process.env.REDIS_PORT) || 6379,
-        password: process.env.REDIS_PASSWORD || undefined,
         db: parseInt(process.env.REDIS_DB) || 0,
         retryDelayOnFailover: 1000,
         maxRetriesPerRequest: 3,
         connectTimeout: 10000,
         lazyConnect: true
       };
+      
+      // Only add password if it's explicitly set
+      if (process.env.REDIS_PASSWORD && process.env.REDIS_PASSWORD.trim() !== '') {
+        redisConfig.password = process.env.REDIS_PASSWORD;
+      }
 
       // Use Redis URL if provided
       if (process.env.REDIS_URL) {
@@ -96,7 +100,7 @@ class RedisClient {
   /**
    * Check if Redis is connected
    */
-  isConnected() {
+  checkConnection() {
     return this.isConnected && this.client && this.client.status === 'ready';
   }
 

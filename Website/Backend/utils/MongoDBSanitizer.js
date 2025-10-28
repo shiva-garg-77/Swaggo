@@ -52,17 +52,35 @@ class MongoDBSanitizer {
   }
 
   /**
-   * Validates and sanitizes a MongoDB ObjectId
+   * Validates if a string is a valid UUID
+   * @param {string} id - The ID to validate
+   * @returns {boolean} - True if valid UUID, false otherwise
+   */
+  static isValidUUID(id) {
+    if (!id || typeof id !== 'string') return false;
+    
+    // UUID format: 8-4-4-4-12 hex characters
+    const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+    return uuidRegex.test(id);
+  }
+
+  /**
+   * Validates and sanitizes a MongoDB ObjectId or UUID
    * @param {string} id - The ID to validate and sanitize
    * @returns {string|null} - The sanitized ID or null if invalid
    */
   static sanitizeObjectId(id) {
     if (!id || typeof id !== 'string') return null;
     
+    // First check if it's a valid UUID (used by this app)
+    if (this.isValidUUID(id)) {
+      return id;
+    }
+    
     // Remove any non-hex characters
     const sanitized = id.replace(/[^0-9a-fA-F]/g, '');
     
-    // Check if it's a valid ObjectId format
+    // Check if it's a valid ObjectId format (24 hex characters)
     if (sanitized.length === 24) {
       return sanitized;
     }

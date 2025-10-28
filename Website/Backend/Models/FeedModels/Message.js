@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import XSSSanitizer from '../../Utils/XSSSanitizer.js';
 
 /**
  * Message types supported by the application
@@ -244,6 +245,40 @@ const MessageSchema = new mongoose.Schema({
     timestamps: true
 });
 
+// Pre-save middleware to sanitize message content and prevent XSS attacks
+MessageSchema.pre('save', function(next) {
+  // Sanitize text content
+  if (this.content && typeof this.content === 'string') {
+    if (this.messageType === 'system') {
+      this.content = XSSSanitizer.sanitizeSystemMessage(this.content);
+    } else {
+      this.content = XSSSanitizer.sanitizeMessageContent(this.content);
+    }
+  }
+  
+  // Sanitize media metadata
+  if (this.stickerData && this.stickerData.name) {
+    this.stickerData.name = XSSSanitizer.sanitizeMediaMetadata(this.stickerData.name);
+  }
+  
+  if (this.gifData && this.gifData.title) {
+    this.gifData.title = XSSSanitizer.sanitizeMediaMetadata(this.gifData.title);
+  }
+  
+  if (this.fileData && this.fileData.name) {
+    this.fileData.name = XSSSanitizer.sanitizeMediaMetadata(this.fileData.name);
+  }
+  
+  // Sanitize mentions
+  if (Array.isArray(this.mentions)) {
+    this.mentions = this.mentions.map(mention => 
+      typeof mention === 'string' ? XSSSanitizer.sanitizeText(mention) : mention
+    );
+  }
+  
+  next();
+});
+
 // Indexes for better performance
 MessageSchema.index({ chatid: 1, createdAt: -1 }); // Primary query pattern
 MessageSchema.index({ senderid: 1 });
@@ -263,11 +298,9 @@ MessageSchema.index({ 'readBy.profileid': 1, isDeleted: 1 }); // For read status
 MessageSchema.index({ 'reactions.profileid': 1 }); // For reaction queries
 MessageSchema.index({ messageType: 1, createdAt: -1 }); // For message type filtering
 MessageSchema.index({ createdAt: -1 }); // For general time-based queries
-MessageSchema.index({ isDeleted: 1, createdAt: -1 }); // For cleanup/archival queries
-
-// 🔧 OPTIMIZATION #76: Add indexes on foreign keys
-MessageSchema.index({ 'chatid': 1, 'isDeleted': 1, 'createdAt': -1 }); // Optimized for chat message queries
-MessageSchema.index({ 'senderid': 1, 'isDeleted': 1, 'createdAt': -1 }); // Optimized for user message queries
+// 🔧 OPTIMIZATION #76: Add optimized compound indexes (removing duplicates)
+MessageSchema.index({ 'chatid': 1, 'isDeleted': 1, 'createdAt': -1 }); // Optimized for chat message queries (covers isDeleted+createdAt and chatid+isDeleted)
+MessageSchema.index({ 'senderid': 1, 'isDeleted': 1, 'createdAt': -1 }); // Optimized for user message queries (covers senderid+isDeleted)
 MessageSchema.index({ 'replyTo': 1, 'isDeleted': 1 }); // Optimized for thread queries
 MessageSchema.index({ 'readBy.profileid': 1, 'chatid': 1 }); // Optimized for read status queries by chat
 MessageSchema.index({ 'reactions.profileid': 1, 'createdAt': -1 }); // Optimized for reaction queries
@@ -446,22 +479,92 @@ MessageSchema.statics.getUnreadCount = function(chatId, profileId, lastReadAt) {
 
 export default mongoose.models.Message || mongoose.model("Message", MessageSchema);
 
+// 🔧 MODEL RELATIONSHIPS #117: Add virtual populate fields for easier relationship access
+// Virtual populate for sender profile
+MessageSchema.virtual('sender', {
+  ref: 'Profile',
+  localField: 'senderid',
+  foreignField: 'profileid',
+  justOne: true
+});
 
+// Virtual populate for chat
+MessageSchema.virtual('chat', {
+  ref: 'Chat',
+  localField: 'chatid',
+  foreignField: 'chatid',
+  justOne: true
+});
 
+// Virtual populate for replyTo message
+MessageSchema.virtual('replyMessage', {
+  ref: 'Message',
+  localField: 'replyTo',
+  foreignField: 'messageid',
+  justOne: true
+});
 
+// Virtual populate for forwardedFrom message
+MessageSchema.virtual('forwardedMessage', {
+  ref: 'Message',
+  localField: 'forwardedFrom',
+  foreignField: 'messageid',
+  justOne: true
+});
 
+// Virtual populate for thread replies
+MessageSchema.virtual('threadRepliesMessages', {
+  ref: 'Message',
+  localField: 'threadReplies',
+  foreignField: 'messageid'
+});
 
+// Virtual populate for mentions
+MessageSchema.virtual('mentionedProfiles', {
+  ref: 'Profile',
+  localField: 'mentions',
+  foreignField: 'profileid'
+});
 
+// Virtual populate for reactions
+MessageSchema.virtual('reactionProfiles', {
+  ref: 'Profile',
+  localField: 'reactions.profileid',
+  foreignField: 'profileid'
+});
 
+// Virtual populate for readBy profiles
+MessageSchema.virtual('readByProfiles', {
+  ref: 'Profile',
+  localField: 'readBy.profileid',
+  foreignField: 'profileid'
+});
 
+// Virtual populate for deliveredTo profiles
+MessageSchema.virtual('deliveredToProfiles', {
+  ref: 'Profile',
+  localField: 'deliveredTo.profileid',
+  foreignField: 'profileid'
+});
 
+// Virtual populate for pinnedBy profile
+MessageSchema.virtual('pinnedByProfile', {
+  ref: 'Profile',
+  localField: 'pinnedBy',
+  foreignField: 'profileid',
+  justOne: true
+});
 
+// Virtual populate for deletedBy profile
+MessageSchema.virtual('deletedByProfile', {
+  ref: 'Profile',
+  localField: 'deletedBy',
+  foreignField: 'profileid',
+  justOne: true
+});
 
-
-
-
-
-
-
+// Ensure virtual fields are serialized
+MessageSchema.set('toJSON', { virtuals: true });
+MessageSchema.set('toObject', { virtuals: true });
 
 

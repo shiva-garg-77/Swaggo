@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import XSSSanitizer from '../../Utils/XSSSanitizer.js';
 
 const HighlightStorySchema = new mongoose.Schema({
     storyid: {

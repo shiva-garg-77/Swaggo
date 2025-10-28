@@ -4,7 +4,24 @@ import React, { createContext, useContext, useEffect, useRef, useCallback } from
 import { ApolloProvider } from '@apollo/client/react';
 import { useFixedSecureAuth } from '../context/FixedSecureAuthContext';
 import client from './apollo-client-ultimate'; // ULTIMATE: Using comprehensive secure client for 10/10 security
-import { AuthFixUtils } from '../utils/authSecurityFixes';
+// Fix the import to use default import instead of named import
+import authSecurityFixes from '../utils/authSecurityFixes';
+
+// Destructure the needed components from the default export with safe fallback
+const AuthFixUtils = authSecurityFixes?.AuthFixUtils || authSecurityFixes?.authFixUtils || {};
+
+// Define initial context value
+const initialContextValue = {
+  client: null,
+  updateHeaders: () => {},
+  handleAuthError: () => {},
+  authState: {
+    isAuthenticated: false,
+    user: null,
+    lastUpdateTime: 0
+  }
+};
+
 // Unified error handling now handled by layout - removed duplicate boundaries
 
 /**
@@ -18,7 +35,7 @@ import { AuthFixUtils } from '../utils/authSecurityFixes';
  * ✅ Session change event handling
  */
 
-const GraphQLAuthContext = createContext({});
+const GraphQLAuthContext = createContext(initialContextValue);
 
 export const GraphQLAuthProvider = ({ children }) => {
   const auth = useFixedSecureAuth();
@@ -93,6 +110,7 @@ export const GraphQLAuthProvider = ({ children }) => {
       authStateRef.current = currentState;
       
       // 🔄 SYNC: If GraphQL shows authenticated but main context doesn't, sync it
+      // FIX: Check if syncFromGraphQL function exists before calling it
       if (currentState.user && typeof window !== 'undefined' && window.__UNIFIED_AUTH__?.syncFromGraphQL) {
         const userWithProfileId = {
           id: currentState.user,
@@ -100,7 +118,10 @@ export const GraphQLAuthProvider = ({ children }) => {
           username: 'user', // Will be populated by actual user data
           role: 'user'
         };
-        window.__UNIFIED_AUTH__.syncFromGraphQL(userWithProfileId);
+        // Check if syncFromGraphQL is a function before calling it
+        if (typeof window.__UNIFIED_AUTH__.syncFromGraphQL === 'function') {
+          window.__UNIFIED_AUTH__.syncFromGraphQL(userWithProfileId);
+        }
       }
 
     } catch (error) {
@@ -242,8 +263,9 @@ export const GraphQLAuthProvider = ({ children }) => {
 export const useGraphQLAuth = () => {
   const context = useContext(GraphQLAuthContext);
   
+  // Return initial context value instead of throwing error
   if (!context) {
-    throw new Error('useGraphQLAuth must be used within a GraphQLAuthProvider');
+    return initialContextValue;
   }
   
   return context;

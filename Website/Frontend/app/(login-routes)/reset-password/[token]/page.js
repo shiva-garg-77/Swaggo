@@ -4,7 +4,8 @@ import { useParams } from "next/navigation";
 
 export default function ResetPassPage() {
   const params = useParams();
-  const token = params.token
+  // Safely extract token to avoid read-only property issues
+  const token = params?.token ? String(params.token) : undefined;
   return (
     <main>
       <Resetpass token={token} />

@@ -1,4 +1,4 @@
-import { GraphQLError } from 'graphql';
+import { GraphQLError } from '../utils/GraphQLInstance.js';
 import UnifiedErrorHandling from './UnifiedErrorHandling.js';
 
 /**

@@ -11,7 +11,7 @@ import MemoryViewer from './MemoryViewer';
 // Simple memory queries (using your existing backend structure)
 const GET_MEMORIES = gql`
   query GetMemories($profileid: String!) {
-    getMemories(profileid: $profileid) {
+    memories(profileid: $profileid) {
       memoryid
       title
       coverImage
@@ -71,7 +71,7 @@ export default function MemoriesSection({ profileid, isCurrentUser = false }) {
   const [createMemory] = useMutation(CREATE_MEMORY);
   const [addStoryToMemory] = useMutation(ADD_STORY_TO_MEMORY);
 
-  const memories = data?.getMemories || [];
+  const memories = data?.memories || [];
 
   // Handle create memory
   const handleCreateMemory = useCallback(async () => {

@@ -96,6 +96,22 @@ class LightweightPerformanceCollector {
       // Silent error handling
     }
   }
+
+  // Generate performance report
+  generateReport() {
+    if (!this.isEnabled) {
+      return {
+        recommendations: []
+      };
+    }
+
+    // In a real implementation, you would gather actual metrics
+    // For now, we'll create a sample report with no recommendations
+    return {
+      timestamp: new Date().toISOString(),
+      recommendations: []
+    };
+  }
 }
 
 // Create singleton instance
@@ -133,10 +149,16 @@ export const usePerformanceMonitor = () => {
   const measureAsync = useCallback(async (operationName, asyncFn) => {
     return await performanceCollector.measureAsync(operationName, asyncFn);
   }, []);
+
+  // Get performance report
+  const getReport = useCallback(() => {
+    return performanceCollector.generateReport();
+  }, []);
   
   return {
     measureRender,
-    measureAsync
+    measureAsync,
+    getReport
   };
 };
 
@@ -147,7 +169,7 @@ export const PerformanceDebugger = ({ enabled = false }) => {
 
     const interval = setInterval(() => {
       const report = performanceCollector.generateReport();
-      if (report && report.recommendations.length > 0) {
+      if (report && report.recommendations && report.recommendations.length > 0) {
         console.group('🚨 Performance Recommendations');
         report.recommendations.forEach(rec => {
           console.warn(`${rec.type}: ${rec.issue}`);

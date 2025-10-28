@@ -1,7 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation } from '@apollo/client/react';
-import { useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from '../../Helper/ThemeProvider';
 import { useFixedSecureAuth } from '../../../context/FixedSecureAuthContext';
@@ -38,10 +37,12 @@ import { BLOCK_USER, RESTRICT_USER } from '../../../lib/graphql/profileQueries';
 const MomentsContent = () => {
   const { theme } = useTheme();
   const { user } = useFixedSecureAuth();
-  const searchParams = useSearchParams();
-  
   // Get initial moment index from URL parameter
-  const initialMomentIndex = searchParams?.get('moment') ? parseInt(searchParams.get('moment')) : 0;
+  const initialMomentIndex = typeof window !== 'undefined' && window.location.search ? 
+    (() => {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('moment') ? parseInt(params.get('moment')) : 0;
+    })() : 0;
   const [currentIndex, setCurrentIndex] = useState(initialMomentIndex);
   const [showComments, setShowComments] = useState(false);
   const [showShare, setShowShare] = useState(false);

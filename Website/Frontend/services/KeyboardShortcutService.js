@@ -103,8 +103,10 @@ class KeyboardShortcutService {
       }
     };
     
-    // Initialize with default shortcuts
-    this.initializeDefaultShortcuts();
+    // Only initialize default shortcuts in browser environment
+    if (typeof window !== 'undefined') {
+      this.initializeDefaultShortcuts();
+    }
   }
 
   /**
@@ -261,6 +263,9 @@ class KeyboardShortcutService {
    * Start listening for keyboard events
    */
   startListening() {
+    // Only start listening in browser environment
+    if (typeof document === 'undefined') return;
+    
     if (this.isListening) return;
     
     this.isListening = true;
@@ -357,5 +362,30 @@ class KeyboardShortcutService {
   }
 }
 
-// Export singleton instance
-export default new KeyboardShortcutService();
+// Lazy singleton instance
+let instance = null;
+
+function getInstance() {
+  if (typeof window === 'undefined') {
+    // Return a mock instance for SSR
+    return {
+      registerShortcut: () => {},
+      unregisterShortcut: () => {},
+      setActiveContext: () => {},
+      getActiveContext: () => 'global',
+      getContexts: () => new Set(),
+      getShortcutsForContext: () => new Map(),
+      getAllShortcuts: () => new Map(),
+      getHelpInfo: () => [],
+      startListening: () => {},
+      stopListening: () => {}
+    };
+  }
+  
+  if (!instance) {
+    instance = new KeyboardShortcutService();
+  }
+  return instance;
+}
+
+export default getInstance;

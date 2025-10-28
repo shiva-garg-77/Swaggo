@@ -304,8 +304,48 @@ class EnvironmentValidator {
     if (refreshExpiry && !this.isValidJWTExpiry(refreshExpiry)) {
       this.errors.push('Invalid JWT_REFRESH_EXPIRES_IN format');
     }
+    
+    // Validate JWT secrets
+    this.validateJWTSecrets();
   }
 
+  /**
+   * Validate JWT secrets
+   */
+  validateJWTSecrets() {
+    const jwtSecret = process.env.JWT_SECRET;
+    const refreshTokenSecret = process.env.REFRESH_TOKEN_SECRET;
+    
+    // In production, JWT secrets are required
+    if (process.env.NODE_ENV === 'production') {
+      if (!jwtSecret) {
+        this.errors.push('JWT_SECRET is required in production');
+      }
+      
+      if (!refreshTokenSecret) {
+        this.errors.push('REFRESH_TOKEN_SECRET is required in production');
+      }
+      
+      // Check for weak secrets
+      if (jwtSecret && (jwtSecret.includes('default') || jwtSecret.includes('REPLACE_WITH') || jwtSecret.length < 32)) {
+        this.errors.push('JWT_SECRET is weak or contains placeholder value');
+      }
+      
+      if (refreshTokenSecret && (refreshTokenSecret.includes('default') || refreshTokenSecret.includes('REPLACE_WITH') || refreshTokenSecret.length < 32)) {
+        this.errors.push('REFRESH_TOKEN_SECRET is weak or contains placeholder value');
+      }
+    }
+    
+    // Even in development, warn about weak secrets
+    if (jwtSecret && jwtSecret.includes('default')) {
+      this.warnings.push('JWT_SECRET contains default value - use a strong secret in production');
+    }
+    
+    if (refreshTokenSecret && refreshTokenSecret.includes('default')) {
+      this.warnings.push('REFRESH_TOKEN_SECRET contains default value - use a strong secret in production');
+    }
+  }
+  
   /**
    * Validate CORS configuration
    */

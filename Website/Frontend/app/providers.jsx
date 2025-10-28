@@ -1,10 +1,36 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { FixedSecureAuthProvider as AuthProvider } from '../context/FixedSecureAuthContext';
+import { FixedSecureAuthProvider } from '../context/FixedSecureAuthContext';
 import { Toaster } from 'react-hot-toast';
-import ErrorBoundary from '../Components/ErrorBoundary';
 import { isProduction, isDevelopment } from '../config/environment';
+import dynamic from 'next/dynamic';
+
+// Import all the providers that were in the original layout
+import { I18nProvider } from '../context/I18nContext';
+import { UnifiedThemeProvider } from '../context/UnifiedThemeProvider';
+import { FeatureFlagProvider } from '../context/FeatureFlagContext';
+import { GraphQLAuthProvider } from '../lib/GraphQLAuthProvider';
+import PerfectSocketProvider from '../Components/Helper/PerfectSocketProvider';
+import { AccessibilityProvider } from '../Components/Accessibility';
+import SecurityMonitor from '../Components/Helper/SecurityMonitor';
+
+// Import ErrorBoundary - Using default export from index
+import ErrorBoundary from '../Components/ErrorBoundary';
+
+// Providers are properly imported and ready
+
+// Dev tools - only load in development
+const DevTools = dynamic(
+  () => import('../Components/Debug/DevToolsWrapper').catch(() => {
+    // Fallback component in case of import error
+    return () => null;
+  }),
+  {
+    loading: () => null,
+    ssr: false // Ensure it's client-side only
+  }
+);
 
 /**
  * 🔒 SECURE ROOT PROVIDERS COMPONENT
@@ -100,113 +126,126 @@ const getToastConfig = () => ({
   }
 });
 
-// Security monitoring component
-const SecurityMonitor = ({ children }) => {
-  const [securityEvents, setSecurityEvents] = useState([]);
-  
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    
-    // Initialize security monitoring
-    window.__SECURITY_MONITOR__ = {
-      reportEvent: (event) => {
-        setSecurityEvents(prev => [...prev.slice(-49), { // Keep last 50 events
-          ...event,
-          timestamp: Date.now(),
-          id: Math.random().toString(36).substring(2)
-        }]);
-        
-        // Log security events in development
-        if (isDevelopment()) {
-          console.warn('🚨 Security Event:', event);
-        }
-      },
-      getEvents: () => securityEvents
-    };
-    
-    // Monitor for suspicious activity
-    const monitorDevTools = () => {
-      const threshold = 160;
-      setInterval(() => {
-        if (window.outerHeight - window.innerHeight > threshold ||
-            window.outerWidth - window.innerWidth > threshold) {
-          window.__SECURITY_MONITOR__?.reportEvent({
-            type: 'dev_tools_detected',
-            severity: 'low',
-            details: { 
-              outerDimensions: { width: window.outerWidth, height: window.outerHeight },
-              innerDimensions: { width: window.innerWidth, height: window.innerHeight }
-            }
-          });
-        }
-      }, 5000);
-    };
-    
-    // Monitor for right-click context menu (mild security indicator)
-    const handleContextMenu = (e) => {
-      if (isProduction()) {
-        window.__SECURITY_MONITOR__?.reportEvent({
-          type: 'context_menu_accessed',
-          severity: 'low',
-          details: { target: e.target.tagName, location: window.location.pathname }
-        });
-      }
-    };
-    
-    // Monitor for suspicious key combinations
-    const handleKeyDown = (e) => {
-      const suspiciousKeys = [
-        { keys: ['F12'], name: 'F12_dev_tools' },
-        { keys: ['Control', 'Shift', 'I'], name: 'ctrl_shift_i' },
-        { keys: ['Control', 'Shift', 'J'], name: 'ctrl_shift_j' },
-        { keys: ['Control', 'U'], name: 'view_source' }
-      ];
-      
-      suspiciousKeys.forEach(({ keys, name }) => {
-        const isPressed = keys.every(key => {
-          if (key === 'Control') return e.ctrlKey;
-          if (key === 'Shift') return e.shiftKey;
-          if (key === 'Alt') return e.altKey;
-          return e.key === key;
-        });
-        
-        if (isPressed && isProduction()) {
-          window.__SECURITY_MONITOR__?.reportEvent({
-            type: 'suspicious_key_combination',
-            severity: 'low',
-            details: { combination: name, location: window.location.pathname }
-          });
-        }
-      });
-    };
-    
-    // Only enable monitoring in production
-    if (isProduction()) {
-      monitorDevTools();
-      document.addEventListener('contextmenu', handleContextMenu);
-      document.addEventListener('keydown', handleKeyDown);
-      
-      return () => {
-        document.removeEventListener('contextmenu', handleContextMenu);
-        document.removeEventListener('keydown', handleKeyDown);
-      };
+// SecurityMonitor now imported from separate file
+
+// Create a safe provider wrapper to prevent errors from breaking the entire tree
+const SafeProviderWrapper = ({ children, provider: Provider, providerName }) => {
+  // Handle case where provider is null or undefined
+  if (!Provider) {
+    // Only log in development mode
+    if (process.env.NODE_ENV === 'development') {
+      console.warn(`Provider ${providerName} is not available, rendering children directly`);
     }
-  }, [securityEvents]);
-  
-  return children;
+    return children;
+  }
+
+  try {
+    // Check if Provider is a valid React component
+    if (typeof Provider !== 'function' && typeof Provider !== 'object') {
+      // Only log in development mode
+      if (process.env.NODE_ENV === 'development') {
+        console.warn(`Provider ${providerName} is not a valid React component, rendering children directly`);
+      }
+      return children;
+    }
+
+    // Additional check to ensure Provider is callable
+    if (typeof Provider !== 'function' && (!Provider || typeof Provider.type !== 'function')) {
+      // Only log in development mode
+      if (process.env.NODE_ENV === 'development') {
+        console.warn(`Provider ${providerName} is not a callable React component, rendering children directly`);
+      }
+      return children;
+    }
+
+    // Create the provider element
+    let providerElement;
+    try {
+      providerElement = <Provider>{children}</Provider>;
+    } catch (createElementError) {
+      // Only log in development mode
+      if (process.env.NODE_ENV === 'development') {
+        console.error(`Error creating provider element ${providerName}:`, createElementError);
+      }
+      return children;
+    }
+
+    // Check if the provider element is valid
+    if (providerElement === undefined || providerElement === null) {
+      // Only log in development mode
+      if (process.env.NODE_ENV === 'development') {
+        console.warn(`Provider ${providerName} returned undefined/null, rendering children directly`);
+      }
+      return children;
+    }
+
+    return providerElement;
+  } catch (error) {
+    // Only log in development mode
+    if (process.env.NODE_ENV === 'development') {
+      console.error(`Error rendering provider ${providerName}:`, error);
+    }
+    // Render children even if provider fails
+    return children;
+  }
 };
 
 const Providers = ({ children }) => {
+
+  // Define providers in order of dependency - filter out undefined ones
+  const providers = [
+    { provider: FeatureFlagProvider, name: 'FeatureFlagProvider' },
+    { provider: UnifiedThemeProvider, name: 'UnifiedThemeProvider' },
+    { provider: I18nProvider, name: 'I18nProvider' },
+    { provider: AccessibilityProvider, name: 'AccessibilityProvider' },
+    { provider: GraphQLAuthProvider, name: 'GraphQLAuthProvider' },
+    { provider: PerfectSocketProvider, name: 'PerfectSocketProvider' }
+  ].filter(({ provider, name }) => {
+    if (!provider) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error(`❌ Provider ${name} is undefined!`);
+      }
+      return false;
+    }
+    // Accept both functions and objects (React.memo returns objects)
+    const providerType = typeof provider;
+    const isValid = providerType === 'function' || providerType === 'object';
+    
+    if (!isValid && process.env.NODE_ENV === 'development') {
+      console.error(`❌ Provider ${name} has invalid type: ${providerType}`);
+      return false;
+    }
+    
+    return isValid;
+  });
+
+  // Render providers in a more robust way
+  const renderProviders = (children, providerList) => {
+    return providerList.reduceRight((acc, { provider, name }) => {
+      return <SafeProviderWrapper provider={provider} providerName={name}>{acc}</SafeProviderWrapper>;
+    }, children);
+  };
+
   return (
-    <ErrorBoundary maxRetries={3}>
+    <ErrorBoundary maxRetries={3} showErrorDetails={process.env.NODE_ENV === 'development'}>
       <SecurityMonitor>
-        {/* Global Authentication Provider */}
-        <AuthProvider>
-          {children}
-          
-          {/* Enhanced Toast Notifications with Security */}
-          <Toaster {...getToastConfig()} />
-        </AuthProvider>
+        <FeatureFlagProvider>
+          <UnifiedThemeProvider>
+            <I18nProvider>
+              <AccessibilityProvider>
+                <FixedSecureAuthProvider>
+                  <GraphQLAuthProvider>
+                    <PerfectSocketProvider>
+                      {children}
+                      {process.env.NODE_ENV === 'development' && <DevTools />}
+                      <Toaster {...getToastConfig()} />
+                    </PerfectSocketProvider>
+                  </GraphQLAuthProvider>
+                </FixedSecureAuthProvider>
+              </AccessibilityProvider>
+            </I18nProvider>
+          </UnifiedThemeProvider>
+        </FeatureFlagProvider>
       </SecurityMonitor>
     </ErrorBoundary>
   );

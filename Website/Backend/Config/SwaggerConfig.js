@@ -8,6 +8,7 @@
  * - Authentication schemas
  * - Request/response examples
  * - Security specifications
+ * - Multi-version API support (v1, v2)
  */
 
 import swaggerJsdoc from 'swagger-jsdoc';
@@ -26,11 +27,15 @@ const swaggerOptions = {
     openapi: '3.0.0',
     info: {
       title: 'Swaggo Backend API',
-      version: '1.0.0',
+      version: '2.0.0',
       description: `
         🚀 **Swaggo Backend API Documentation**
         
         A comprehensive, secure, and scalable backend API with enterprise-grade authentication.
+        
+        ## API Versions
+        - **v1**: Stable API version (recommended for production)
+        - **v2**: Latest API version with new features (beta)
         
         ## Features
         - 🔐 **Enterprise Security**: JWT, 2FA, WebAuthn, device fingerprinting
@@ -40,8 +45,8 @@ const swaggerOptions = {
         - 🔒 **Zero Trust**: Comprehensive session management and authorization
         
         ## Getting Started
-        1. Register a new account using \`POST /api/auth/register\`
-        2. Login to get access tokens using \`POST /api/auth/login\`
+        1. Register a new account using \`POST /api/v1/auth/signup\`
+        2. Login to get access tokens using \`POST /api/v1/auth/login\`
         3. Use the access token in Authorization header: \`Bearer <token>\`
         4. Explore protected endpoints with your authenticated session
         
@@ -65,8 +70,12 @@ const swaggerOptions = {
     },
     servers: [
       {
-        url: 'http://localhost:3001',
+        url: 'http://localhost:45799',
         description: 'Development server'
+      },
+      {
+        url: 'http://localhost:3001',
+        description: 'Development server (legacy)'
       },
       {
         url: 'https://api-dev.swaggo.com',
@@ -167,8 +176,8 @@ const swaggerOptions = {
             },
             password: {
               type: 'string',
-              minLength: 8,
-              description: 'Strong password (min 8 chars, uppercase, lowercase, number, special char)'
+              minLength: 6,
+              description: 'Strong password (min 6 chars, uppercase, lowercase, number, special char)'
             },
             displayName: {
               type: 'string',
@@ -296,6 +305,47 @@ const swaggerOptions = {
             }
           },
           required: ['status', 'message', 'timestamp']
+        },
+        Role: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              description: 'Role identifier'
+            },
+            name: {
+              type: 'string',
+              description: 'Role name'
+            },
+            description: {
+              type: 'string',
+              description: 'Role description'
+            },
+            permissions: {
+              type: 'array',
+              items: {
+                type: 'string'
+              },
+              description: 'List of permissions associated with this role'
+            }
+          }
+        },
+        Permission: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              description: 'Permission identifier'
+            },
+            name: {
+              type: 'string',
+              description: 'Permission name'
+            },
+            description: {
+              type: 'string',
+              description: 'Permission description'
+            }
+          }
         }
       },
       responses: {
@@ -430,6 +480,15 @@ const swaggerOptions = {
             default: 'asc'
           },
           description: 'Sort order'
+        },
+        ApiVersion: {
+          in: 'path',
+          name: 'version',
+          schema: {
+            type: 'string',
+            enum: ['v1', 'v2']
+          },
+          description: 'API version'
         }
       }
     },
@@ -458,13 +517,27 @@ const swaggerOptions = {
       {
         name: 'System',
         description: 'System health and monitoring endpoints'
+      },
+      {
+        name: 'Storage',
+        description: 'Cloud storage and file management'
+      },
+      {
+        name: 'Messaging',
+        description: 'Messaging and communication features'
+      },
+      {
+        name: 'Analytics',
+        description: 'Analytics and reporting endpoints'
       }
     ]
   },
   apis: [
-    './Routes/*.js',
+    './Routes/api/v1/*.js',
+    './Routes/api/v2/*.js',
     './Controllers/*.js',
     './Middleware/*.js',
+    './Models/FeedModels/*.js',
     './main.js'
   ]
 };
@@ -485,7 +558,21 @@ const swaggerUiOptions = {
     filter: true,
     showExtensions: true,
     showCommonExtensions: true,
-    tryItOutEnabled: true
+    tryItOutEnabled: true,
+    urls: [
+      {
+        url: '/api-docs.json',
+        name: 'Full API Documentation'
+      },
+      {
+        url: '/api/v1/api-docs.json',
+        name: 'API v1'
+      },
+      {
+        url: '/api/v2/api-docs.json',
+        name: 'API v2'
+      }
+    ]
   },
   customCss: `
     .swagger-ui .topbar { display: none }
@@ -501,6 +588,12 @@ const swaggerUiOptions = {
       font-size: 36px;
       font-weight: 700;
     }
+    .swagger-ui .opblock-tag {
+      background: rgba(102, 126, 234, 0.1);
+      border-radius: 4px;
+      padding: 10px;
+      margin: 10px 0;
+    }
   `,
   customSiteTitle: 'Swaggo API Documentation',
   customfavIcon: '/favicon.ico'
@@ -514,6 +607,45 @@ export function setupSwagger(app) {
   app.get('/api-docs.json', (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.send(swaggerSpec);
+  });
+  
+  // Serve version-specific swagger specifications
+  app.get('/api/v1/api-docs.json', (req, res) => {
+    // Create a copy of the spec with v1-specific paths
+    const v1Spec = JSON.parse(JSON.stringify(swaggerSpec));
+    v1Spec.info.version = '1.0.0';
+    v1Spec.info.description = v1Spec.info.description.replace('API Versions', 'API Version v1');
+    
+    // Filter paths to only include v1 endpoints
+    const v1Paths = {};
+    for (const [path, methods] of Object.entries(v1Spec.paths)) {
+      if (path.startsWith('/api/v1/') || path.startsWith('/health')) {
+        v1Paths[path] = methods;
+      }
+    }
+    v1Spec.paths = v1Paths;
+    
+    res.setHeader('Content-Type', 'application/json');
+    res.send(v1Spec);
+  });
+  
+  app.get('/api/v2/api-docs.json', (req, res) => {
+    // Create a copy of the spec with v2-specific paths
+    const v2Spec = JSON.parse(JSON.stringify(swaggerSpec));
+    v2Spec.info.version = '2.0.0';
+    v2Spec.info.description = v2Spec.info.description.replace('API Versions', 'API Version v2');
+    
+    // Filter paths to only include v2 endpoints
+    const v2Paths = {};
+    for (const [path, methods] of Object.entries(v2Spec.paths)) {
+      if (path.startsWith('/api/v2/')) {
+        v2Paths[path] = methods;
+      }
+    }
+    v2Spec.paths = v2Paths;
+    
+    res.setHeader('Content-Type', 'application/json');
+    res.send(v2Spec);
   });
   
   // Serve swagger UI
@@ -543,9 +675,11 @@ export function setupSwagger(app) {
   
   // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
   appLogger.info('📚 Swagger documentation available at:');
-  appLogger.info('   • Swagger UI: http://localhost:3001/api-docs');
-  appLogger.info('   • ReDoc: http://localhost:3001/api-docs/redoc');
-  appLogger.info('   • JSON Spec: http://localhost:3001/api-docs.json');
+  appLogger.info('   • Swagger UI: http://localhost:45799/api-docs');
+  appLogger.info('   • ReDoc: http://localhost:45799/api-docs/redoc');
+  appLogger.info('   • JSON Spec: http://localhost:45799/api-docs.json');
+  appLogger.info('   • API v1 Spec: http://localhost:45799/api/v1/api-docs.json');
+  appLogger.info('   • API v2 Spec: http://localhost:45799/api/v2/api-docs.json');
 }
 
 export { swaggerSpec, swaggerUiOptions };

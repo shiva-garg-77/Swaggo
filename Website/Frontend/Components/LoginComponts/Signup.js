@@ -1,9 +1,9 @@
 "use client";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from '../Helper/ThemeProvider';
 import { useFixedSecureAuth } from '../../context/FixedSecureAuthContext';
-import Link from 'next/link';
+import OptimizedLink from '../Helper/OptimizedLink';
 
 export default function Signup() {
   const { theme } = useTheme();
@@ -18,10 +18,22 @@ export default function Signup() {
     email: '',
     username: '',
     password: '',
-    dateOfBirth: ''
+    dateOfBirth: '',
+    acceptTerms: false,
+    gdprConsent: false
   });
   const [fieldErrors, setFieldErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isClient, setIsClient] = useState(false); // Track if we're on the client
+  
+  // Add a ref to track if we've hydrated on the client
+  const hydratedRef = useRef(false);
+  
+  // Set isClient to true after mounting
+  useEffect(() => {
+    setIsClient(true);
+    hydratedRef.current = true;
+  }, []);
 
   // Redirect to home if already authenticated
   useEffect(() => {
@@ -40,10 +52,10 @@ export default function Signup() {
   }, [error, clearError]);
 
   const handleInputChange = (e) => {
-    const { name, value } = e.target;
+    const { name, value, type, checked } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      [name]: type === 'checkbox' ? checked : value
     }));
     
     // Clear field error when user starts typing
@@ -84,8 +96,8 @@ export default function Signup() {
     
     if (!formData.password) {
       errors.password = 'Password is required';
-    } else if (formData.password.length < 8) {
-      errors.password = 'Password must be at least 8 characters long';
+    } else if (formData.password.length < 6) {
+      errors.password = 'Password must be at least 6 characters long';
     } else if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/.test(formData.password)) {
       errors.password = 'Password must contain at least one uppercase letter, lowercase letter, number, and special character';
     }
@@ -101,6 +113,14 @@ export default function Signup() {
       }
     }
     
+    if (!formData.acceptTerms) {
+      errors.acceptTerms = 'You must accept the terms and conditions';
+    }
+    
+    if (!formData.gdprConsent) {
+      errors.gdprConsent = 'You must consent to data processing';
+    }
+    
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       setIsSubmitting(false);
@@ -108,8 +128,15 @@ export default function Signup() {
     }
 
     try {
+      // Prepare data for submission - convert boolean values to strings as expected by backend
+      const submissionData = {
+        ...formData,
+        acceptTerms: formData.acceptTerms ? 'true' : 'false',
+        gdprConsent: formData.gdprConsent ? 'true' : 'false'
+      };
+      
       // Use the secure signup method
-      const result = await signup(formData);
+      const result = await signup(submissionData);
 
       if (result.success) {
         // Reset form
@@ -117,7 +144,9 @@ export default function Signup() {
           email: '',
           username: '',
           password: '',
-          dateOfBirth: ''
+          dateOfBirth: '',
+          acceptTerms: false,
+          gdprConsent: false
         });
         
         // Redirect to home page
@@ -130,6 +159,25 @@ export default function Signup() {
     }
   };
 
+  // Only render form elements after hydration to prevent attribute mismatches
+  if (!isClient) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-900 dark:to-gray-800 flex flex-col items-center justify-center p-5 gap-5 flex-wrap transition-all duration-300">
+        <div className="bg-white/90 dark:bg-white/5 backdrop-blur-xl rounded-2xl px-10 w-full max-w-md text-center shadow-2xl border border-white/20 dark:border-white/10 animate-pulse">
+          <div className="py-8">
+            <div className="w-32 h-16 mx-auto mb-8 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
+            <div className="space-y-6">
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="h-12 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
+              ))}
+              <div className="h-12 bg-red-200 dark:bg-red-900 rounded-3xl mt-4"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-900 dark:to-gray-800 flex flex-col items-center justify-center p-5 gap-5 flex-wrap transition-all duration-300">
 
@@ -140,11 +188,14 @@ export default function Signup() {
         <div className=" py-1">
           {/* Fixed consistent dimensions for both light and dark logos */}
           <div className="w-32 h-16 mx-auto mb-4 flex items-center justify-center">
-            <img
-              src={theme === 'light' ? '/logo_light.png' : '/Logo_dark1.png'}
-              alt="Swaggo Logo"
-              className="max-w-full max-h-full object-contain"
-            />
+            {/* Only render logo on client to prevent hydration mismatch */}
+            {isClient && (
+              <img
+                src={theme === 'light' ? '/logo_light.png' : '/Logo_dark1.png'}
+                alt="Swaggo Logo"
+                className="max-w-full max-h-full object-contain"
+              />
+            )}
           </div>
         </div>
 
@@ -166,6 +217,10 @@ export default function Signup() {
               className="w-full px-4 py-2 bg-[#F7F4F4] dark:bg-white/10 border-[1px] border-black dark:border-white/20 rounded-xl text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-white/50 focus:border-red-500 focus:ring-0 focus:outline-none focus:bg-white dark:focus:bg-white/15 transition-all duration-300"
               placeholder="Enter your email"
               required
+              // Prevent browser extensions from adding attributes that cause hydration errors
+              data-1p-ignore
+              data-lpignore
+              data-form-type="other"
             />
             {fieldErrors.email && (
               <p className="text-red-500 text-xs mt-1">{fieldErrors.email}</p>
@@ -185,6 +240,10 @@ export default function Signup() {
               className="w-full px-4 py-2 bg-[#F7F4F4] dark:bg-white/10 border-[1px] border-black dark:border-white/20 rounded-xl text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-white/50 focus:border-red-500 focus:ring-0 focus:outline-none focus:bg-white dark:focus:bg-white/15 transition-all duration-300"
               placeholder="Enter your Username"
               required
+              // Prevent browser extensions from adding attributes that cause hydration errors
+              data-1p-ignore
+              data-lpignore
+              data-form-type="other"
             />
             {fieldErrors.username && (
               <p className="text-red-500 text-xs mt-1">{fieldErrors.username}</p>
@@ -204,6 +263,10 @@ export default function Signup() {
               className="w-full py-2 px-4  bg-[#F7F4F4] dark:bg-white/10 border-[1px] border-black dark:border-white/20 rounded-xl text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-white/50 focus:border-red-500 focus:ring-0 focus:outline-none focus:bg-white dark:focus:bg-white/15 transition-all duration-300"
               placeholder="Enter your password"
               required
+              // Prevent browser extensions from adding attributes that cause hydration errors
+              data-1p-ignore
+              data-lpignore
+              data-form-type="other"
             />
             {fieldErrors.password && (
               <p className="text-red-500 text-xs mt-1">{fieldErrors.password}</p>
@@ -223,9 +286,59 @@ export default function Signup() {
               onChange={handleInputChange}
               className="w-full px-4 py-2 bg-[#F7F4F4] dark:bg-white/10 border-[1px] border-black dark:border-white/20 rounded-xl text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-white/50 focus:border-red-500 focus:ring-0 focus:outline-none focus:bg-white dark:focus:bg-white/15 transition-all duration-300"
               required
+              // Prevent browser extensions from adding attributes that cause hydration errors
+              data-1p-ignore
+              data-lpignore
+              data-form-type="other"
             />
             {fieldErrors.dateOfBirth && (
               <p className="text-red-500 text-xs mt-1">{fieldErrors.dateOfBirth}</p>
+            )}
+          </div>
+
+          {/* Terms and Conditions Checkbox */}
+          <div className="mb-3 text-left">
+            <label className="flex items-start cursor-pointer">
+              <input
+                type="checkbox"
+                name="acceptTerms"
+                checked={formData.acceptTerms}
+                onChange={handleInputChange}
+                className="mt-1 mr-2 h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded"
+                // Prevent browser extensions from adding attributes that cause hydration errors
+                data-1p-ignore
+                data-lpignore
+                data-form-type="other"
+              />
+              <span className="text-gray-700 dark:text-gray-200 text-sm">
+                I accept the <a href="/terms" target="_blank" className="text-red-500 hover:underline">Terms and Conditions</a>
+              </span>
+            </label>
+            {fieldErrors.acceptTerms && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.acceptTerms}</p>
+            )}
+          </div>
+
+          {/* GDPR Consent Checkbox */}
+          <div className="mb-3 text-left">
+            <label className="flex items-start cursor-pointer">
+              <input
+                type="checkbox"
+                name="gdprConsent"
+                checked={formData.gdprConsent}
+                onChange={handleInputChange}
+                className="mt-1 mr-2 h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded"
+                // Prevent browser extensions from adding attributes that cause hydration errors
+                data-1p-ignore
+                data-lpignore
+                data-form-type="other"
+              />
+              <span className="text-gray-700 dark:text-gray-200 text-sm">
+                I consent to the processing of my personal data in accordance with the <a href="/privacy" target="_blank" className="text-red-500 hover:underline">Privacy Policy</a>
+              </span>
+            </label>
+            {fieldErrors.gdprConsent && (
+              <p className="text-red-500 text-xs mt-1">{fieldErrors.gdprConsent}</p>
             )}
           </div>
 
@@ -251,9 +364,9 @@ export default function Signup() {
         <span className="text-gray-600 dark:text-gray-300 text-sm">
           Already have an account?
         </span>
-        <Link href={"/"} className="text-blue-500 hover:text-blue-600 text-sm font-medium ml-1 hover:underline hover:scale-105 transition-all duration-300">
+        <OptimizedLink href={"/"} className="text-blue-500 hover:text-blue-600 text-sm font-medium ml-1 hover:underline hover:scale-105 transition-all duration-300" prefetch={true}>
           Login
-        </Link>
+        </OptimizedLink>
       </div>
 
     </div>

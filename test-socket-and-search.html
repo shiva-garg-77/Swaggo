@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Socket & Search Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 4px; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
+        button:hover { background: #0056b3; }
+        input { padding: 8px; width: 300px; margin: 5px; border: 1px solid #ddd; border-radius: 4px; }
+        #results { margin-top: 10px; max-height: 300px; overflow-y: auto; }
+        .user-result { padding: 10px; margin: 5px 0; background: #f8f9fa; border-radius: 4px; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 Socket & Search Diagnostic Tool</h1>
+        
+        <!-- Socket Status -->
+        <div class="test-section">
+            <h2>Socket Connection Status</h2>
+            <div id="socketStatus" class="status disconnected">⚫ Disconnected</div>
+            <button onclick="connectSocket()">Connect Socket</button>
+            <button onclick="disconnectSocket()">Disconnect Socket</button>
+            <div id="socketLogs" style="margin-top: 10px;"></div>
+        </div>
+        
+        <!-- Authentication Check -->
+        <div class="test-section">
+            <h2>Authentication Status</h2>
+            <button onclick="checkAuth()">Check Auth</button>
+            <pre id="authInfo">Click "Check Auth" to see authentication status</pre>
+        </div>
+        
+        <!-- User Search Test -->
+        <div class="test-section">
+            <h2>User Search Test (GraphQL)</h2>
+            <input type="text" id="searchInput" placeholder="Enter username to search..." />
+            <button onclick="searchUsers()">Search Users</button>
+            <div id="results"></div>
+        </div>
+        
+        <!-- Backend Health -->
+        <div class="test-section">
+            <h2>Backend Health Check</h2>
+            <button onclick="checkHealth()">Check Backend Health</button>
+            <pre id="healthInfo">Click "Check Backend Health"</pre>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script>
+        const SERVER_URL = 'http://localhost:45799';
+        let socket = null;
+
+        function log(message, type = 'info') {
+            const logsDiv = document.getElementById('socketLogs');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.style.padding = '5px';
+            logEntry.style.margin = '2px 0';
+            logEntry.style.background = type === 'error' ? '#f8d7da' : '#d1ecf1';
+            logEntry.style.borderRadius = '4px';
+            logEntry.style.fontSize = '12px';
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            logsDiv.appendChild(logEntry);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+
+        function connectSocket() {
+            if (socket && socket.connected) {
+                log('Socket already connected');
+                return;
+            }
+
+            log('Attempting to connect to ' + SERVER_URL);
+            
+            socket = io(SERVER_URL, {
+                withCredentials: true,
+                transports: ['polling', 'websocket'],
+                timeout: 10000
+            });
+
+            socket.on('connect', () => {
+                document.getElementById('socketStatus').className = 'status connected';
+                document.getElementById('socketStatus').textContent = '🟢 Connected (ID: ' + socket.id + ')';
+                log('Connected successfully!', 'success');
+            });
+
+            socket.on('disconnect', (reason) => {
+                document.getElementById('socketStatus').className = 'status disconnected';
+                document.getElementById('socketStatus').textContent = '⚫ Disconnected: ' + reason;
+                log('Disconnected: ' + reason, 'error');
+            });
+
+            socket.on('connect_error', (error) => {
+                log('Connection error: ' + error.message, 'error');
+            });
+
+            socket.on('authenticated', (data) => {
+                log('Authentication successful: ' + JSON.stringify(data), 'success');
+            });
+        }
+
+        function disconnectSocket() {
+            if (socket) {
+                socket.disconnect();
+                socket = null;
+                log('Manually disconnected');
+            }
+        }
+
+        async function checkAuth() {
+            try {
+                const response = await fetch(SERVER_URL + '/api/v1/auth/session-status', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                document.getElementById('authInfo').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('authInfo').textContent = 'Error: ' + error.message;
+            }
+        }
+
+        async function searchUsers() {
+            const query = document.getElementById('searchInput').value.trim();
+            if (!query) {
+                alert('Please enter a search term');
+                return;
+            }
+
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<p>Searching...</p>';
+
+            try {
+                const response = await fetch(SERVER_URL + '/graphql', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query: `
+                            query SearchUsers($query: String!, $limit: Int) {
+                                searchUsers(query: $query, limit: $limit) {
+                                    profileid
+                                    username
+                                    name
+                                    profilePic
+                                    isVerified
+                                }
+                            }
+                        `,
+                        variables: { query: query, limit: 10 }
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.errors) {
+                    resultsDiv.innerHTML = '<pre style="color: red;">' + JSON.stringify(data.errors, null, 2) + '</pre>';
+                } else if (data.data && data.data.searchUsers) {
+                    const users = data.data.searchUsers;
+                    if (users.length === 0) {
+                        resultsDiv.innerHTML = '<p>No users found</p>';
+                    } else {
+                        resultsDiv.innerHTML = '<h3>Found ' + users.length + ' users:</h3>';
+                        users.forEach(user => {
+                            const userDiv = document.createElement('div');
+                            userDiv.className = 'user-result';
+                            userDiv.innerHTML = `
+                                <strong>${user.username}</strong> ${user.isVerified ? '✓' : ''}<br>
+                                <small>${user.name || 'No name'} | ID: ${user.profileid}</small>
+                            `;
+                            resultsDiv.appendChild(userDiv);
+                        });
+                    }
+                } else {
+                    resultsDiv.innerHTML = '<p>Unexpected response format</p>';
+                }
+            } catch (error) {
+                resultsDiv.innerHTML = '<p style="color: red;">Error: ' + error.message + '</p>';
+            }
+        }
+
+        async function checkHealth() {
+            try {
+                const response = await fetch(SERVER_URL + '/health');
+                const data = await response.json();
+                document.getElementById('healthInfo').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('healthInfo').textContent = 'Error: ' + error.message;
+            }
+        }
+
+        // Auto-connect on page load
+        window.addEventListener('load', () => {
+            checkHealth();
+            setTimeout(checkAuth, 500);
+        });
+    </script>
+</body>
+</html>

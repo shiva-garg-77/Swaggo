@@ -4,7 +4,9 @@ import { useRouter } from 'next/navigation';
 import { useFixedSecureAuth } from '../../context/FixedSecureAuthContext';
 
 export default function ProtectedRoute({ children }) {
-  const { isAuthenticated, isLoading } = useFixedSecureAuth();
+  const auth = useFixedSecureAuth();
+  // Add safety checks for destructuring
+  const { isAuthenticated = false, isLoading = true } = auth || {};
   const router = useRouter();
   const initialized = !isLoading;
 

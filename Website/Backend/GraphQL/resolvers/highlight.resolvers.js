@@ -2,6 +2,8 @@ import Highlight from '../../Models/FeedModels/Highlight.js';
 import Story from '../../Models/FeedModels/Story.js';
 import Profile from '../../Models/FeedModels/Profile.js';
 import { v4 as uuidv4 } from 'uuid';
+// 🔐 ENHANCED GRAPHQL SECURITY: Import enhanced GraphQL security service
+import enhancedGraphQLSecurityService from '../services/EnhancedGraphQLSecurityService.js';
 
 const HighlightResolvers = {
     // Highlight field resolvers

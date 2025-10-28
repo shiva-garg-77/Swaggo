@@ -100,7 +100,7 @@ const ProtectedRoute = ({
     setAccessGranted(true);
     setAccessError(null);
     
-  ], [
+  }, [
     isAuthenticated,
     isLoading,
     permissions,

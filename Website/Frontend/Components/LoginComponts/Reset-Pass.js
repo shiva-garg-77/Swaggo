@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useTheme } from '../Helper/ThemeProvider';
 import { useSecureAuth } from '../../context/FixedSecureAuthContext';
 import { useRouter } from 'next/navigation';
+import OptimizedLink from '../Helper/OptimizedLink';
 
 const Resetpass = ({ token }) => {
   const router = useRouter();
@@ -172,6 +173,14 @@ const Resetpass = ({ token }) => {
             Reset Password
           </button>
         </form>
+        
+        <div className='h-[0.5px] w-full bg-cyan-900'></div>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 mt-6 transition-colors duration-300">
+          Remember your password?{' '}
+          <OptimizedLink href="/" className="text-blue-500 hover:underline" prefetch={true}>
+            Back to Login
+          </OptimizedLink>
+        </p>
       </div>
     </div>
   )

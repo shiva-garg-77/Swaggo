@@ -1,5 +1,5 @@
 import { useEffect, useCallback } from 'react';
-import KeyboardShortcutService from '../services/KeyboardShortcutService';
+import getKeyboardShortcutService from '../services/KeyboardShortcutService';
 
 /**
  * ⌨️ Keyboard Shortcuts Hook
@@ -22,7 +22,13 @@ export const useKeyboardShortcuts = (context = 'global') => {
    * @param {function} callback - Callback function to execute
    */
   const registerShortcut = useCallback((keyCombo, action, description, callback) => {
-    KeyboardShortcutService.registerShortcut(context, keyCombo, action, description, callback);
+    // Only register shortcuts in browser environment
+    if (typeof window !== 'undefined') {
+      const service = getKeyboardShortcutService();
+      if (service && typeof service.registerShortcut === 'function') {
+        service.registerShortcut(context, keyCombo, action, description, callback);
+      }
+    }
   }, [context]);
 
   /**
@@ -30,7 +36,13 @@ export const useKeyboardShortcuts = (context = 'global') => {
    * @param {string} keyCombo - Key combination
    */
   const unregisterShortcut = useCallback((keyCombo) => {
-    KeyboardShortcutService.unregisterShortcut(context, keyCombo);
+    // Only unregister shortcuts in browser environment
+    if (typeof window !== 'undefined') {
+      const service = getKeyboardShortcutService();
+      if (service && typeof service.unregisterShortcut === 'function') {
+        service.unregisterShortcut(context, keyCombo);
+      }
+    }
   }, [context]);
 
   /**
@@ -38,7 +50,13 @@ export const useKeyboardShortcuts = (context = 'global') => {
    * @param {string} newContext - New context
    */
   const setActiveContext = useCallback((newContext) => {
-    KeyboardShortcutService.setActiveContext(newContext);
+    // Only set active context in browser environment
+    if (typeof window !== 'undefined') {
+      const service = getKeyboardShortcutService();
+      if (service && typeof service.setActiveContext === 'function') {
+        service.setActiveContext(newContext);
+      }
+    }
   }, []);
 
   /**
@@ -46,7 +64,14 @@ export const useKeyboardShortcuts = (context = 'global') => {
    * @returns {Map} Map of shortcuts
    */
   const getShortcuts = useCallback(() => {
-    return KeyboardShortcutService.getShortcutsForContext(context);
+    // Only get shortcuts in browser environment
+    if (typeof window !== 'undefined') {
+      const service = getKeyboardShortcutService();
+      if (service && typeof service.getShortcutsForContext === 'function') {
+        return service.getShortcutsForContext(context);
+      }
+    }
+    return new Map();
   }, [context]);
 
   /**
@@ -54,12 +79,25 @@ export const useKeyboardShortcuts = (context = 'global') => {
    * @returns {Array} Array of shortcut help information
    */
   const getHelpInfo = useCallback(() => {
-    return KeyboardShortcutService.getHelpInfo();
+    // Only get help info in browser environment
+    if (typeof window !== 'undefined') {
+      const service = getKeyboardShortcutService();
+      if (service && typeof service.getHelpInfo === 'function') {
+        return service.getHelpInfo();
+      }
+    }
+    return [];
   }, []);
 
   // Set active context on mount
   useEffect(() => {
-    KeyboardShortcutService.setActiveContext(context);
+    // Only set active context in browser environment
+    if (typeof window !== 'undefined') {
+      const service = getKeyboardShortcutService();
+      if (service && typeof service.setActiveContext === 'function') {
+        service.setActiveContext(context);
+      }
+    }
   }, [context]);
 
   return {

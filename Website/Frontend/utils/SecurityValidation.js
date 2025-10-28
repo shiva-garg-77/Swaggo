@@ -283,9 +283,9 @@ export class SecurityValidator {
     }
 
     // Length check
-    if (password.length < 8) {
+    if (password.length < 6) {
       result.isValid = false;
-      result.errors.push('Password must be at least 8 characters long');
+      result.errors.push('Password must be at least 6 characters long');
     }
 
     if (password.length > 128) {
@@ -576,7 +576,7 @@ export const useSecureValidation = () => {
 export const VALIDATION_RULES = {
   EMAIL: { type: 'email', required: true, maxLength: 254 },
   USERNAME: { type: 'username', required: true, minLength: 3, maxLength: 20 },
-  PASSWORD: { type: 'password', required: true, minLength: 8, maxLength: 128 },
+  PASSWORD: { type: 'password', required: true, minLength: 6, maxLength: 128 },
   NAME: { type: 'name', required: true, minLength: 2, maxLength: 50 },
   URL: { type: 'url', maxLength: 2048 },
   PHONE: { type: 'phone', maxLength: 20 },

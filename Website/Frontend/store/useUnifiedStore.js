@@ -13,12 +13,15 @@ import { devtools, subscribeWithSelector, persist } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
 import { getConfig } from '../config/environment.js';
 
-// 🏪 Unified Store with Zustand (Latest)
-export const useUnifiedStore = create()(
+// ✅ FIX #7: Conditional persistence - dev vs prod
+const isPersistEnabled = process.env.NODE_ENV === 'production';
+
+// Create the store with middleware
+const useUnifiedStore = create(
   devtools(
     subscribeWithSelector(
-      persist(
-        immer((set, get) => ({
+      immer(
+        (set, get) => ({
           // ===== AUTH STATE =====
           auth: {
             user: null,
@@ -659,23 +662,8 @@ export const useUnifiedStore = create()(
             // Merge initial state with current state
             Object.assign(state, initialState);
           })
-        })),
-        {
-          name: 'swaggo-unified-store',
-          version: 1,
-          partialize: (state) => {
-            // Only persist auth, settings, and UI theme
-            return {
-              auth: state.auth,
-              settings: state.settings,
-              ui: {
-                theme: state.ui.theme,
-                sidebarCollapsed: state.ui.sidebarCollapsed
-              }
-            };
-          }
-        }
-      ),
+        })
+      )
     ),
     {
       name: 'SwagGo Unified Store',

@@ -10,6 +10,8 @@ import InstagramPostModal from '../Post/InstagramPostModal';
 import InstagramPost from '../Post/InstagramPost';
 import UserSearch from '../../Search/UserSearch';
 import SuggestedMoments from './SuggestedReels';
+import StoriesBar from '../Story/StoriesBar';
+import StoryUploadModal from '../Story/StoryUploadModal';
 import WindowsNetworkDiagnostic from '../../Debug/WindowsNetworkDiagnostic';
 import NetworkConnectivityHelper from '../../Debug/NetworkConnectivityHelper';
 // CRITICAL MEMORY LEAK FIXES
@@ -25,6 +27,8 @@ export default function HomeContent() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
   const [showUserRecommendations, setShowUserRecommendations] = useState(true);
+  const [isStoryUploadOpen, setIsStoryUploadOpen] = useState(false);
+  const [selectedStories, setSelectedStories] = useState(null);
   
   // 🔧 CRITICAL: Initialize comprehensive memory leak prevention
   const cleanup = useComprehensiveCleanup();
@@ -62,7 +66,7 @@ export default function HomeContent() {
   
 
   // FIXED: Handle actual GraphQL response structure
-  const rawPosts = data?.getPosts || data?.posts || (data ? Object.values(data)[0] : []) || [];
+  const rawPosts = data?.posts || data?.getPosts || (data ? Object.values(data)[0] : []) || [];
   
   // Simple filter - only remove posts with truly empty URLs
   const posts = rawPosts.filter(post => {
@@ -127,8 +131,8 @@ export default function HomeContent() {
             // Read current posts data
             const existingData = cache.readQuery({ query: GET_ALL_POSTS });
             
-            if (existingData?.getPosts) {
-              const updatedPosts = existingData.getPosts.map(post => {
+            if (existingData?.posts) {
+              const updatedPosts = existingData.posts.map(post => {
                 if ((post.id || post.postid) === postId) {
                   const currentLiked = post.isLikedByUser;
                   const currentLikeCount = post.likeCount || post.likes || 0;
@@ -147,7 +151,7 @@ export default function HomeContent() {
                 query: GET_ALL_POSTS,
                 data: {
                   ...existingData,
-                  getPosts: updatedPosts
+                  posts: updatedPosts
                 }
               });
             }
@@ -183,8 +187,8 @@ export default function HomeContent() {
           try {
             const existingData = cache.readQuery({ query: GET_ALL_POSTS });
             
-            if (existingData?.getPosts) {
-              const updatedPosts = existingData.getPosts.map(post => {
+            if (existingData?.posts) {
+              const updatedPosts = existingData.posts.map(post => {
                 if ((post.id || post.postid) === postId) {
                   return {
                     ...post,
@@ -198,7 +202,7 @@ export default function HomeContent() {
                 query: GET_ALL_POSTS,
                 data: {
                   ...existingData,
-                  getPosts: updatedPosts
+                  posts: updatedPosts
                 }
               });
             }
@@ -238,6 +242,22 @@ export default function HomeContent() {
   const clearSearch = () => {
     setSelectedUser(null);
     setShowUserRecommendations(true);
+  };
+  
+  // Story handlers
+  const handleCreateStory = () => {
+    setIsStoryUploadOpen(true);
+  };
+  
+  const handleStoryClick = (stories) => {
+    setSelectedStories(stories);
+    // TODO: Open story viewer modal with these stories
+    console.log('View stories:', stories);
+  };
+  
+  const handleStoryCreated = (story) => {
+    console.log('Story created:', story);
+    // Optionally refetch or update cache
   };
   
   // IMPROVED: Show loading only on initial load, not on every refetch
@@ -299,6 +319,12 @@ export default function HomeContent() {
   return (
     <>
       <div className="space-y-4 lg:space-y-6">
+        {/* Stories Bar */}
+        <StoriesBar 
+          onCreateStory={handleCreateStory}
+          onStoryClick={handleStoryClick}
+        />
+        
         <div className="mb-6">
           <UserSearch
             onUserSelect={handleUserSelect}
@@ -440,6 +466,12 @@ export default function HomeContent() {
         onClose={closePostModal}
       />
       
+      {/* Story Upload Modal */}
+      <StoryUploadModal 
+        isOpen={isStoryUploadOpen}
+        onClose={() => setIsStoryUploadOpen(false)}
+        onStoryCreated={handleStoryCreated}
+      />
       
       {/* Windows Network Diagnostic */}
       <WindowsNetworkDiagnostic />
@@ -453,11 +485,40 @@ export default function HomeContent() {
   );
 }
 
+// Video Error Display Component
+function VideoErrorDisplay({ onRetry, theme }) {
+  return (
+    <div className={`absolute inset-0 flex items-center justify-center ${
+      theme === 'dark' ? 'bg-gray-800' : 'bg-gray-100'
+    }`}>
+      <div className="text-center p-4">
+        <svg className={`w-12 h-12 mx-auto mb-2 ${
+          theme === 'dark' ? 'text-gray-500' : 'text-gray-400'
+        }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+        </svg>
+        <p className={`text-sm ${
+          theme === 'dark' ? 'text-gray-300' : 'text-gray-600'
+        }`}>
+          Video failed to load
+        </p>
+        <button 
+          onClick={onRetry}
+          className="mt-2 px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+        >
+          Try Again
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // Post Card Component
 function PostCard({ post, theme, user, onImageClick, onLike, onSave }) {
   // Handle both real posts from database and fallback posts
   const isRealPost = !!post.postid;
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const [showVideoError, setShowVideoError] = useState(false);
   // Simple state from server data
   const likeCount = post.likeCount || post.likes || 0;
   const isLiked = post.isLikedByUser || false;

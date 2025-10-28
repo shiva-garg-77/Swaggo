@@ -1,248 +1,138 @@
-import { useState, useCallback, useEffect } from 'react';
-import MessageTemplateService from '../services/MessageTemplateService';
-
 /**
- * 📋 Message Templates Hook
+ * useMessageTemplates - Custom hook for managing message templates
  * 
- * Provides functionality for managing message templates
- * 
- * Features:
- * - Create, read, update, delete templates
- * - Search templates
- * - Category management
- * - Error handling
+ * This hook provides state management and API interactions for message templates.
  */
+
+import { useState, useEffect, useCallback } from 'react';
+import MessageTemplateService from '../services/MessageTemplateService';
 
 export const useMessageTemplates = () => {
   const [templates, setTemplates] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   /**
-   * Create a new message template
-   * @param {object} templateData - Template data
-   * @returns {Promise<object>} Created template
+   * Load all user templates
+   */
+  const loadTemplates = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const userTemplates = await MessageTemplateService.getUserTemplates();
+      setTemplates(userTemplates);
+    } catch (err) {
+      setError(err.message);
+      console.error('Failed to load templates:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
+   * Load user categories
+   */
+  const loadCategories = useCallback(async () => {
+    try {
+      const userCategories = await MessageTemplateService.getUserCategories();
+      setCategories(userCategories);
+    } catch (err) {
+      console.error('Failed to load categories:', err);
+    }
+  }, []);
+
+  /**
+   * Create a new template
    */
   const createTemplate = useCallback(async (templateData) => {
     try {
-      setIsLoading(true);
-      setError(null);
-      
-      const result = await MessageTemplateService.createTemplate(templateData);
-      
-      // Add to local templates list
-      setTemplates(prev => [result.data, ...prev]);
-      
-      // Refresh categories
-      await getUserCategories();
-      
-      return result;
-    } catch (error) {
-      console.error('Create template error:', error);
-      setError(error.message || 'Failed to create template');
-      throw error;
-    } finally {
-      setIsLoading(false);
+      const newTemplate = await MessageTemplateService.createTemplate(templateData);
+      setTemplates(prev => [...prev, newTemplate]);
+      await loadCategories(); // Refresh categories
+      return newTemplate;
+    } catch (err) {
+      setError(err.message);
+      throw err;
     }
-  }, []);
+  }, [loadCategories]);
 
   /**
-   * Get all templates for the current user
-   * @returns {Promise<Array>} Array of templates
-   */
-  const getUserTemplates = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      const result = await MessageTemplateService.getUserTemplates();
-      
-      setTemplates(result.data);
-      
-      return result.data;
-    } catch (error) {
-      console.error('Get user templates error:', error);
-      setError(error.message || 'Failed to get templates');
-      return [];
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  /**
-   * Get a specific template by ID
-   * @param {string} templateId - Template ID
-   * @returns {Promise<object>} Template object
-   */
-  const getTemplateById = useCallback(async (templateId) => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      const result = await MessageTemplateService.getTemplateById(templateId);
-      
-      return result.data;
-    } catch (error) {
-      console.error('Get template error:', error);
-      setError(error.message || 'Failed to get template');
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  /**
-   * Update a template
-   * @param {string} templateId - Template ID
-   * @param {object} updateData - Update data
-   * @returns {Promise<object>} Updated template
+   * Update an existing template
    */
   const updateTemplate = useCallback(async (templateId, updateData) => {
     try {
-      setIsLoading(true);
-      setError(null);
-      
-      const result = await MessageTemplateService.updateTemplate(templateId, updateData);
-      
-      // Update in local templates list
+      const updatedTemplate = await MessageTemplateService.updateTemplate(templateId, updateData);
       setTemplates(prev => 
         prev.map(template => 
-          template.id === templateId ? { ...template, ...updateData, updatedAt: new Date().toISOString() } : template
+          template.id === templateId ? updatedTemplate : template
         )
       );
-      
-      // Refresh categories if category was updated
-      if (updateData.category) {
-        await getUserCategories();
-      }
-      
-      return result.data;
-    } catch (error) {
-      console.error('Update template error:', error);
-      setError(error.message || 'Failed to update template');
-      throw error;
-    } finally {
-      setIsLoading(false);
+      await loadCategories(); // Refresh categories
+      return updatedTemplate;
+    } catch (err) {
+      setError(err.message);
+      throw err;
     }
   }, []);
 
   /**
    * Delete a template
-   * @param {string} templateId - Template ID
-   * @returns {Promise<object>} Deletion result
    */
   const deleteTemplate = useCallback(async (templateId) => {
     try {
-      setIsLoading(true);
-      setError(null);
-      
-      const result = await MessageTemplateService.deleteTemplate(templateId);
-      
-      // Remove from local templates list
+      await MessageTemplateService.deleteTemplate(templateId);
       setTemplates(prev => prev.filter(template => template.id !== templateId));
-      
-      return result;
-    } catch (error) {
-      console.error('Delete template error:', error);
-      setError(error.message || 'Failed to delete template');
-      throw error;
-    } finally {
-      setIsLoading(false);
+      await loadCategories(); // Refresh categories
+    } catch (err) {
+      setError(err.message);
+      throw err;
     }
   }, []);
 
   /**
-   * Search templates by query
-   * @param {string} query - Search query
-   * @returns {Promise<Array>} Array of matching templates
+   * Search templates
    */
   const searchTemplates = useCallback(async (query) => {
     try {
-      setIsLoading(true);
-      setError(null);
-      
-      const result = await MessageTemplateService.searchTemplates(query);
-      
-      return result.data;
-    } catch (error) {
-      console.error('Search templates error:', error);
-      setError(error.message || 'Failed to search templates');
-      return [];
-    } finally {
-      setIsLoading(false);
+      const results = await MessageTemplateService.searchTemplates(query);
+      return results;
+    } catch (err) {
+      setError(err.message);
+      throw err;
     }
   }, []);
 
   /**
    * Get templates by category
-   * @param {string} category - Category name
-   * @returns {Promise<Array>} Array of templates in category
    */
   const getTemplatesByCategory = useCallback(async (category) => {
     try {
-      setIsLoading(true);
-      setError(null);
-      
-      const result = await MessageTemplateService.getTemplatesByCategory(category);
-      
-      return result.data;
-    } catch (error) {
-      console.error('Get templates by category error:', error);
-      setError(error.message || 'Failed to get templates by category');
-      return [];
-    } finally {
-      setIsLoading(false);
+      const results = await MessageTemplateService.getTemplatesByCategory(category);
+      return results;
+    } catch (err) {
+      setError(err.message);
+      throw err;
     }
   }, []);
 
-  /**
-   * Get all categories for the current user
-   * @returns {Promise<Array>} Array of categories
-   */
-  const getUserCategories = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      const result = await MessageTemplateService.getUserCategories();
-      
-      setCategories(result.data);
-      
-      return result.data;
-    } catch (error) {
-      console.error('Get user categories error:', error);
-      setError(error.message || 'Failed to get categories');
-      return [];
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  /**
-   * Initialize templates and categories
-   */
+  // Load templates and categories on mount
   useEffect(() => {
-    getUserTemplates();
-    getUserCategories();
-  }, [getUserTemplates, getUserCategories]);
+    loadTemplates();
+    loadCategories();
+  }, [loadTemplates, loadCategories]);
 
   return {
-    // State
     templates,
     categories,
-    isLoading,
+    loading,
     error,
-    
-    // Functions
+    loadTemplates,
     createTemplate,
-    getUserTemplates,
-    getTemplateById,
     updateTemplate,
     deleteTemplate,
     searchTemplates,
-    getTemplatesByCategory,
-    getUserCategories
+    getTemplatesByCategory
   };
 };
 

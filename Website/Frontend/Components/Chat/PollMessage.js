@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import PollService from '../../services/PollService';
 
 export default function PollMessage({ poll, onVote }) {
   const [selected, setSelected] = useState(null);
@@ -10,15 +11,11 @@ export default function PollMessage({ poll, onVote }) {
     if (submitting) return;
     setSubmitting(true);
     try {
-      const res = await fetch('/api/polls/vote', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pollId: poll.id, optionId })
-      });
-      if (res.ok) {
-        setSelected(optionId);
-        onVote && onVote(optionId);
-      }
+      const updatedPoll = await PollService.vote(poll.id, [optionId]);
+      setSelected(optionId);
+      onVote && onVote(optionId);
+    } catch (error) {
+      console.error('Error voting in poll:', error);
     } finally {
       setSubmitting(false);
     }

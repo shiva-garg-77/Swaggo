@@ -51,23 +51,27 @@ export default function AuthTest() {
     }
   };
 
+  // Add safety checks for the auth object
+  const safeAuth = auth || {};
+  const { isAuthenticated = false, isLoading = true, user = null, error = null } = safeAuth;
+
   return (
     <div className="fixed top-4 left-4 bg-white/95 border border-gray-200 rounded-lg p-4 max-w-md z-[10000] shadow-lg">
       <h3 className="font-bold text-lg mb-4">🧪 Auth Test Panel</h3>
       
       <div className="space-y-2 mb-4">
         <div className="text-sm">
-          <strong>Status:</strong> {auth.isAuthenticated ? '✅ Authenticated' : '❌ Not Authenticated'}
+          <strong>Status:</strong> {isAuthenticated ? '✅ Authenticated' : '❌ Not Authenticated'}
         </div>
         <div className="text-sm">
-          <strong>Loading:</strong> {auth.isLoading ? '⏳ Yes' : '✅ No'}
+          <strong>Loading:</strong> {isLoading ? '⏳ Yes' : '✅ No'}
         </div>
         <div className="text-sm">
-          <strong>User:</strong> {auth.user ? auth.user.username : 'None'}
+          <strong>User:</strong> {user ? user.username : 'None'}
         </div>
-        {auth.error && (
+        {error && (
           <div className="text-sm text-red-600">
-            <strong>Error:</strong> {typeof auth.error === 'string' ? auth.error : JSON.stringify(auth.error)}
+            <strong>Error:</strong> {typeof error === 'string' ? error : JSON.stringify(error)}
           </div>
         )}
       </div>

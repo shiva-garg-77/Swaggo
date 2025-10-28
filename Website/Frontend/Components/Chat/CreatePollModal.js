@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Plus, Trash2, Calendar, Users, Eye, EyeOff } from 'lucide-react';
+import PollService from '../../services/PollService';
 
 const CreatePollModal = ({ isOpen, onClose, onCreate, initialData = null }) => {
   const [question, setQuestion] = useState(initialData?.question || '');
@@ -114,10 +115,12 @@ const CreatePollModal = ({ isOpen, onClose, onCreate, initialData = null }) => {
       
       if (initialData) {
         // This is an edit operation
+        // For editing, we would need an update method in PollService
         await onCreate({ ...pollData, pollId: initialData.pollId }, true);
       } else {
         // This is a create operation
-        await onCreate(pollData);
+        const createdPoll = await PollService.createPoll(pollData);
+        await onCreate(createdPoll);
       }
       
       // Reset form

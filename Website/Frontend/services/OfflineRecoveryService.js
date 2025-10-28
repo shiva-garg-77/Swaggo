@@ -928,7 +928,7 @@ class OfflineRecoveryService extends EventEmitter {
    */
   async performHealthCheck() {
     try {
-      const response = await fetch('/health', {
+      const response = await fetch('/api/health', {
         timeout: 5000,
         headers: {
           'Authorization': `Bearer ${authService.getCurrentToken()}`

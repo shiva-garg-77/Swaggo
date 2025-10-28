@@ -16,7 +16,9 @@ const OPERATIONS = {
   IMAGE_PROCESSING: 'image_processing',
   ENCRYPTION: 'encryption',
   COMPRESSION: 'compression',
-  HASHING: 'hashing'
+  HASHING: 'hashing',
+  CONTENT_ANALYSIS: 'content_analysis',
+  VIRUS_SCAN: 'virus_scan'
 };
 
 class WorkerThreads {
@@ -61,7 +63,35 @@ class WorkerThreads {
   }
 
   /**
-   * Execute operation in a worker thread
+   * Execute content analysis in a worker thread
+   * @param {string} content - Content to analyze
+   * @param {Array} patterns - Patterns to check
+   * @returns {Promise<Object>} Analysis result
+   */
+  static async analyzeContent(content, patterns = []) {
+    return this.executeWorker(OPERATIONS.CONTENT_ANALYSIS, { content, patterns });
+  }
+
+  /**
+   * Execute virus scan in a worker thread
+   * @param {string} filePath - Path to file
+   * @param {string} scanner - Scanner to use
+   * @returns {Promise<Object>} Scan result
+   */
+  static async scanForVirus(filePath, scanner) {
+    return this.executeWorker(OPERATIONS.VIRUS_SCAN, { filePath, scanner });
+  }
+
+  /**
+   * Check if we're in the main thread
+   * @returns {boolean} Whether we're in the main thread
+   */
+  static isMainThread() {
+    return isMainThread;
+  }
+
+  /**
+   * Execute custom operation in a worker thread
    * @param {string} operation - Operation type
    * @param {Object} data - Data to process
    * @returns {Promise<Object>} Result
@@ -93,14 +123,6 @@ class WorkerThreads {
         }
       });
     });
-  }
-
-  /**
-   * Check if we're in the main thread
-   * @returns {boolean} Whether we're in the main thread
-   */
-  static isMainThread() {
-    return isMainThread;
   }
 }
 

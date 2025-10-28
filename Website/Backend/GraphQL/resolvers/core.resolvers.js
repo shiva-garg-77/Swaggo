@@ -4,7 +4,7 @@
  * @version 1.0.0
  * @author Swaggo Development Team
  * @since 1.0.0
- * 
+ *
  * @description
  * Implements core GraphQL resolvers for the stitched schema:
  * - Root query resolvers
@@ -13,45 +13,120 @@
  * - Interface resolvers
  */
 
-import { GraphQLDateTime, GraphQLDate } from 'graphql-scalars';
-import { PubSub } from 'graphql-subscriptions';
-// Import models
-import Profile from '../../Models/FeedModels/Profile.js';
-import Post from '../../Models/FeedModels/Post.js';
-import Draft from '../../Models/FeedModels/Draft.js';
-import Followers from '../../Models/FeedModels/Followers.js';
-import Following from '../../Models/FeedModels/Following.js';
-import LikedPost from '../../Models/FeedModels/LikedPost.js';
-import SavedPost from '../../Models/FeedModels/SavedPost.js';
-import Memory from '../../Models/FeedModels/Memory.js';
-import BlockedAccount from '../../Models/FeedModels/BlockedAccounts.js';
-import RestrictedAccount from '../../Models/FeedModels/RestrictedAccounts.js';
-import CloseFriends from '../../Models/FeedModels/CloseFriends.js';
-import Mentions from '../../Models/FeedModels/Mentions.js';
-import UserSettings from '../../Models/FeedModels/UserSettings.js';
-import Comment from '../../Models/FeedModels/Comments.js';
-import Likes from '../../Models/FeedModels/Likes.js';
-import Chat from '../../Models/FeedModels/Chat.js';
-import Message from '../../Models/FeedModels/Message.js';
-import Story from '../../Models/FeedModels/Story.js';
-import Highlight from '../../Models/FeedModels/Highlight.js';
-import CallLog from '../../Models/FeedModels/CallLog.js';
-import ScheduledMessage from '../../Models/FeedModels/ScheduledMessage.js';
-import User from '../../Models/User.js';
+// 🔒 CRITICAL FIX #1: Import centralized GraphQL instance to prevent realm collision
+console.log("🔍 [TRACKING] core.resolvers.js: Importing GraphQL instance...");
+import graphqlInstance, {
+  GraphQLScalarType,
+  Kind,
+} from "../../utils/GraphQLInstance.js";
+console.log(
+  "✅ [TRACKING] core.resolvers.js: GraphQL instance imported successfully",
+);
 
-// Initialize PubSub for subscriptions
-const pubsub = new PubSub();
+// Define custom scalars to avoid realm issues
+const GraphQLDate = new GraphQLScalarType({
+  name: "Date",
+  description: "Date custom scalar type",
+  serialize(value) {
+    return value instanceof Date ? value.toISOString().split("T")[0] : value;
+  },
+  parseValue(value) {
+    return new Date(value);
+  },
+  parseLiteral(ast) {
+    if (ast.kind === Kind.STRING) {
+      return new Date(ast.value);
+    }
+    return null;
+  },
+});
+
+const GraphQLDateTime = new GraphQLScalarType({
+  name: "DateTime",
+  description: "DateTime custom scalar type",
+  serialize(value) {
+    return value instanceof Date ? value.toISOString() : value;
+  },
+  parseValue(value) {
+    return new Date(value);
+  },
+  parseLiteral(ast) {
+    if (ast.kind === Kind.STRING) {
+      return new Date(ast.value);
+    }
+    return null;
+  },
+});
+
+const GraphQLJSON = new GraphQLScalarType({
+  name: "JSON",
+  description: "JSON custom scalar type",
+  serialize(value) {
+    return value;
+  },
+  parseValue(value) {
+    return value;
+  },
+  parseLiteral(ast) {
+    if (ast.kind === Kind.OBJECT) {
+      return JSON.parse(JSON.stringify(ast));
+    }
+    return null;
+  },
+});
+
+const GraphQLURL = new GraphQLScalarType({
+  name: "URL",
+  description: "URL custom scalar type",
+  serialize(value) {
+    return value;
+  },
+  parseValue(value) {
+    return value;
+  },
+  parseLiteral(ast) {
+    if (ast.kind === Kind.STRING) {
+      return ast.value;
+    }
+    return null;
+  },
+});
+// 🔐 ENHANCED GRAPHQL SECURITY: Import enhanced GraphQL security service
+import enhancedGraphQLSecurityService from "../services/EnhancedGraphQLSecurityService.js";
+// Import models
+import Profile from "../../Models/FeedModels/Profile.js";
+import Post from "../../Models/FeedModels/Post.js";
+import Draft from "../../Models/FeedModels/Draft.js";
+import Followers from "../../Models/FeedModels/Followers.js";
+import Following from "../../Models/FeedModels/Following.js";
+import LikedPost from "../../Models/FeedModels/LikedPost.js";
+import SavedPost from "../../Models/FeedModels/SavedPost.js";
+import Memory from "../../Models/FeedModels/Memory.js";
+import BlockedAccount from "../../Models/FeedModels/BlockedAccounts.js";
+import RestrictedAccount from "../../Models/FeedModels/RestrictedAccounts.js";
+import CloseFriends from "../../Models/FeedModels/CloseFriends.js";
+import Mentions from "../../Models/FeedModels/Mentions.js";
+import UserSettings from "../../Models/FeedModels/UserSettings.js";
+import Comment from "../../Models/FeedModels/Comments.js";
+import Likes from "../../Models/FeedModels/Likes.js";
+import Chat from "../../Models/FeedModels/Chat.js";
+import Message from "../../Models/FeedModels/Message.js";
+import Story from "../../Models/FeedModels/Story.js";
+import Highlight from "../../Models/FeedModels/Highlight.js";
+import CallLog from "../../Models/FeedModels/CallLog.js";
+import ScheduledMessage from "../../Models/FeedModels/ScheduledMessage.js";
+import User from "../../Models/User.js";
 
 // Constants for subscription events
-const MESSAGE_ADDED = 'MESSAGE_ADDED';
-const MESSAGE_UPDATED = 'MESSAGE_UPDATED';
-const MESSAGE_DELETED = 'MESSAGE_DELETED';
-const CHAT_UPDATED = 'CHAT_UPDATED';
-const CHAT_DELETED = 'CHAT_DELETED';
-const USER_UPDATED = 'USER_UPDATED';
-const POST_ADDED = 'POST_ADDED';
-const POST_UPDATED = 'POST_UPDATED';
-const POST_DELETED = 'POST_DELETED';
+const MESSAGE_ADDED = "MESSAGE_ADDED";
+const MESSAGE_UPDATED = "MESSAGE_UPDATED";
+const MESSAGE_DELETED = "MESSAGE_DELETED";
+const CHAT_UPDATED = "CHAT_UPDATED";
+const CHAT_DELETED = "CHAT_DELETED";
+const USER_UPDATED = "USER_UPDATED";
+const POST_ADDED = "POST_ADDED";
+const POST_UPDATED = "POST_UPDATED";
+const POST_DELETED = "POST_DELETED";
 
 /**
  * Scalar resolvers
@@ -59,16 +134,8 @@ const POST_DELETED = 'POST_DELETED';
 const scalarResolvers = {
   Date: GraphQLDate,
   DateTime: GraphQLDateTime,
-  JSON: {
-    __serialize: (value) => value,
-    __parseValue: (value) => value,
-    __parseLiteral: (ast) => ast.value
-  },
-  URL: {
-    __serialize: (value) => value,
-    __parseValue: (value) => value,
-    __parseLiteral: (ast) => ast.value
-  }
+  JSON: GraphQLJSON,
+  URL: GraphQLURL,
 };
 
 /**
@@ -77,48 +144,48 @@ const scalarResolvers = {
 const interfaceResolvers = {
   Node: {
     __resolveType(obj) {
-      if (obj.username) return 'User';
-      if (obj.profileid) return 'Profile';
-      if (obj.postid) return 'Post';
-      if (obj.commentid) return 'Comment';
-      if (obj.profileid && obj.postid && !obj.commentid) return 'Like';
-      if (obj.draftid) return 'Draft';
-      if (obj.memoryid) return 'Memory';
-      if (obj.blockid) return 'BlockedAccount';
-      if (obj.restrictid) return 'RestrictedAccount';
-      if (obj.closefriendid) return 'CloseFriend';
-      if (obj.mentionid) return 'Mention';
-      if (obj.storyid) return 'Story';
-      if (obj.highlightid) return 'Highlight';
-      if (obj.chatid) return 'Chat';
-      if (obj.messageid) return 'Message';
-      if (obj.callId) return 'CallLog';
-      if (obj.scheduledMessageId) return 'ScheduledMessage';
+      if (obj.username) return "User";
+      if (obj.profileid) return "Profile";
+      if (obj.postid) return "Post";
+      if (obj.commentid) return "Comment";
+      if (obj.profileid && obj.postid && !obj.commentid) return "Like";
+      if (obj.draftid) return "Draft";
+      if (obj.memoryid) return "Memory";
+      if (obj.blockid) return "BlockedAccount";
+      if (obj.restrictid) return "RestrictedAccount";
+      if (obj.closefriendid) return "CloseFriend";
+      if (obj.mentionid) return "Mention";
+      if (obj.storyid) return "Story";
+      if (obj.highlightid) return "Highlight";
+      if (obj.chatid) return "Chat";
+      if (obj.messageid) return "Message";
+      if (obj.callId) return "CallLog";
+      if (obj.scheduledMessageId) return "ScheduledMessage";
       return null;
-    }
+    },
   },
   Timestamped: {
     __resolveType(obj) {
-      if (obj.username) return 'User';
-      if (obj.profileid) return 'Profile';
-      if (obj.postid) return 'Post';
-      if (obj.commentid) return 'Comment';
-      if (obj.profileid && obj.postid && !obj.commentid) return 'Like';
-      if (obj.draftid) return 'Draft';
-      if (obj.memoryid) return 'Memory';
-      if (obj.blockid) return 'BlockedAccount';
-      if (obj.restrictid) return 'RestrictedAccount';
-      if (obj.closefriendid) return 'CloseFriend';
-      if (obj.mentionid) return 'Mention';
-      if (obj.storyid) return 'Story';
-      if (obj.highlightid) return 'Highlight';
-      if (obj.chatid) return 'Chat';
-      if (obj.messageid) return 'Message';
-      if (obj.callId) return 'CallLog';
-      if (obj.scheduledMessageId) return 'ScheduledMessage';
+      if (obj.username) return "User";
+      if (obj.profileid) return "Profile";
+      if (obj.postid) return "Post";
+      if (obj.commentid) return "Comment";
+      if (obj.profileid && obj.postid && !obj.commentid) return "Like";
+      if (obj.draftid) return "Draft";
+      if (obj.memoryid) return "Memory";
+      if (obj.blockid) return "BlockedAccount";
+      if (obj.restrictid) return "RestrictedAccount";
+      if (obj.closefriendid) return "CloseFriend";
+      if (obj.mentionid) return "Mention";
+      if (obj.storyid) return "Story";
+      if (obj.highlightid) return "Highlight";
+      if (obj.chatid) return "Chat";
+      if (obj.messageid) return "Message";
+      if (obj.callId) return "CallLog";
+      if (obj.scheduledMessageId) return "ScheduledMessage";
       return null;
-    }
-  }
+    },
+  },
 };
 
 /**
@@ -131,7 +198,9 @@ const profileResolvers = {
         const posts = await Post.find({ profileid: parent.profileid });
         return posts || [];
       } catch (err) {
-        throw new Error(`Error fetching posts for profile ${parent.username}: ${err.message}`);
+        throw new Error(
+          `Error fetching posts for profile ${parent.username}: ${err.message}`,
+        );
       }
     },
     followers: async (parent) => {
@@ -139,7 +208,9 @@ const profileResolvers = {
         const followers = await Followers.find({ profileid: parent.profileid });
         return followers || [];
       } catch (err) {
-        throw new Error(`Error fetching followers for profile ${parent.username}: ${err.message}`);
+        throw new Error(
+          `Error fetching followers for profile ${parent.username}: ${err.message}`,
+        );
       }
     },
     following: async (parent) => {
@@ -147,35 +218,45 @@ const profileResolvers = {
         const following = await Following.find({ profileid: parent.profileid });
         return following || [];
       } catch (err) {
-        throw new Error(`Error fetching following for profile ${parent.username}: ${err.message}`);
+        throw new Error(
+          `Error fetching following for profile ${parent.username}: ${err.message}`,
+        );
       }
     },
     likedPosts: async (parent) => {
       try {
-        const likedPostRecords = await LikedPost.find({ profileid: parent.profileid });
+        const likedPostRecords = await LikedPost.find({
+          profileid: parent.profileid,
+        });
         if (!likedPostRecords || likedPostRecords.length === 0) {
           return [];
         }
         // Get the actual post objects
-        const postIds = likedPostRecords.map(lp => lp.postid);
+        const postIds = likedPostRecords.map((lp) => lp.postid);
         const posts = await Post.find({ postid: { $in: postIds } });
         return posts || [];
       } catch (err) {
-        throw new Error(`Error fetching liked posts for profile ${parent.username}: ${err.message}`);
+        throw new Error(
+          `Error fetching liked posts for profile ${parent.username}: ${err.message}`,
+        );
       }
     },
     savedPosts: async (parent) => {
       try {
-        const savedPostRecords = await SavedPost.find({ profileid: parent.profileid });
+        const savedPostRecords = await SavedPost.find({
+          profileid: parent.profileid,
+        });
         if (!savedPostRecords || savedPostRecords.length === 0) {
           return [];
         }
         // Get the actual post objects
-        const postIds = savedPostRecords.map(sp => sp.postid);
+        const postIds = savedPostRecords.map((sp) => sp.postid);
         const posts = await Post.find({ postid: { $in: postIds } });
         return posts || [];
       } catch (err) {
-        throw new Error(`Error fetching saved posts for profile ${parent.username}: ${err.message}`);
+        throw new Error(
+          `Error fetching saved posts for profile ${parent.username}: ${err.message}`,
+        );
       }
     },
     memories: async (parent) => {
@@ -183,47 +264,69 @@ const profileResolvers = {
         const memories = await Memory.find({ profileid: parent.profileid });
         return memories || [];
       } catch (err) {
-        throw new Error(`Error fetching memories for profile ${parent.username}: ${err.message}`);
+        throw new Error(
+          `Error fetching memories for profile ${parent.username}: ${err.message}`,
+        );
       }
     },
     blockedAccounts: async (parent) => {
       try {
-        const blockedAccounts = await BlockedAccount.find({ profileid: parent.profileid });
+        const blockedAccounts = await BlockedAccount.find({
+          profileid: parent.profileid,
+        });
         return blockedAccounts || [];
       } catch (err) {
-        throw new Error(`Error fetching blocked accounts for profile ${parent.username}: ${err.message}`);
+        throw new Error(
+          `Error fetching blocked accounts for profile ${parent.username}: ${err.message}`,
+        );
       }
     },
     restrictedAccounts: async (parent) => {
       try {
-        const restrictedAccounts = await RestrictedAccount.find({ profileid: parent.profileid });
+        const restrictedAccounts = await RestrictedAccount.find({
+          profileid: parent.profileid,
+        });
         return restrictedAccounts || [];
       } catch (err) {
-        throw new Error(`Error fetching restricted accounts for profile ${parent.username}: ${err.message}`);
+        throw new Error(
+          `Error fetching restricted accounts for profile ${parent.username}: ${err.message}`,
+        );
       }
     },
     closeFriends: async (parent) => {
       try {
-        const closeFriends = await CloseFriends.find({ profileid: parent.profileid });
+        const closeFriends = await CloseFriends.find({
+          profileid: parent.profileid,
+        });
         return closeFriends || [];
       } catch (err) {
-        throw new Error(`Error fetching close friends for profile ${parent.username}: ${err.message}`);
+        throw new Error(
+          `Error fetching close friends for profile ${parent.username}: ${err.message}`,
+        );
       }
     },
     mentions: async (parent) => {
       try {
-        const mentions = await Mentions.find({ mentionedprofileid: parent.profileid });
+        const mentions = await Mentions.find({
+          mentionedprofileid: parent.profileid,
+        });
         return mentions || [];
       } catch (err) {
-        throw new Error(`Error fetching mentions for profile ${parent.username}: ${err.message}`);
+        throw new Error(
+          `Error fetching mentions for profile ${parent.username}: ${err.message}`,
+        );
       }
     },
     settings: async (parent) => {
       try {
-        const userSettings = await UserSettings.findOne({ profileid: parent.profileid });
+        const userSettings = await UserSettings.findOne({
+          profileid: parent.profileid,
+        });
         return userSettings || {};
       } catch (err) {
-        throw new Error(`Error fetching user settings for profile ${parent.username}: ${err.message}`);
+        throw new Error(
+          `Error fetching user settings for profile ${parent.username}: ${err.message}`,
+        );
       }
     },
     stories: async (parent) => {
@@ -231,10 +334,12 @@ const profileResolvers = {
         const stories = await Story.find({ profileid: parent.profileid });
         return stories || [];
       } catch (err) {
-        throw new Error(`Error fetching stories for profile ${parent.username}: ${err.message}`);
+        throw new Error(
+          `Error fetching stories for profile ${parent.username}: ${err.message}`,
+        );
       }
-    }
-  }
+    },
+  },
 };
 
 /**
@@ -247,7 +352,9 @@ const postResolvers = {
         const comments = await Comment.find({ postid: parent.postid });
         return comments || [];
       } catch (err) {
-        throw new Error(`Error fetching comments for post ${parent.postid}: ${err.message}`);
+        throw new Error(
+          `Error fetching comments for post ${parent.postid}: ${err.message}`,
+        );
       }
     },
     like: async (parent) => {
@@ -255,15 +362,22 @@ const postResolvers = {
         const likes = await Likes.find({ postid: parent.postid });
         return likes || [];
       } catch (err) {
-        throw new Error(`Error fetching likes for post ${parent.postid}: ${err.message}`);
+        throw new Error(
+          `Error fetching likes for post ${parent.postid}: ${err.message}`,
+        );
       }
     },
     mentions: async (parent) => {
       try {
-        const mentions = await Mentions.find({ contexttype: 'post', contextid: parent.postid });
+        const mentions = await Mentions.find({
+          contexttype: "post",
+          contextid: parent.postid,
+        });
         return mentions || [];
       } catch (err) {
-        throw new Error(`Error fetching mentions for post ${parent.postid}: ${err.message}`);
+        throw new Error(
+          `Error fetching mentions for post ${parent.postid}: ${err.message}`,
+        );
       }
     },
     likeCount: async (parent) => {
@@ -271,7 +385,9 @@ const postResolvers = {
         const count = await Likes.countDocuments({ postid: parent.postid });
         return count;
       } catch (err) {
-        throw new Error(`Error fetching like count for post ${parent.postid}: ${err.message}`);
+        throw new Error(
+          `Error fetching like count for post ${parent.postid}: ${err.message}`,
+        );
       }
     },
     commentCount: async (parent) => {
@@ -279,28 +395,41 @@ const postResolvers = {
         const count = await Comment.countDocuments({ postid: parent.postid });
         return count;
       } catch (err) {
-        throw new Error(`Error fetching comment count for post ${parent.postid}: ${err.message}`);
+        throw new Error(
+          `Error fetching comment count for post ${parent.postid}: ${err.message}`,
+        );
       }
     },
     isLikedByUser: async (parent, _, context) => {
       try {
         if (!context.user) return false;
-        const like = await Likes.findOne({ postid: parent.postid, profileid: context.user.profileid });
+        const like = await Likes.findOne({
+          postid: parent.postid,
+          profileid: context.user.profileid,
+        });
         return !!like;
       } catch (err) {
-        throw new Error(`Error checking if post is liked by user: ${err.message}`);
+        throw new Error(
+          `Error checking if post is liked by user: ${err.message}`,
+        );
       }
     },
     isSavedByUser: async (parent, _, context) => {
       try {
         if (!context.user) return false;
-        const saved = await SavedPost.findOne({ postid: parent.postid, profileid: context.user.profileid });
+        const saved = await SavedPost.findOne({
+          postid: parent.postid,
+          profileid: context.user.profileid,
+        });
         return !!saved;
       } catch (err) {
-        throw new Error(`Error checking if post is saved by user: ${err.message}`);
+        throw new Error(
+          `Error checking if post is saved by user: ${err.message}`,
+        );
       }
-    }
-  }
+    },
+    description: (parent) => parent.Description,
+  },
 };
 
 /**
@@ -313,7 +442,9 @@ const commentResolvers = {
         const replies = await Comment.find({ commenttoid: parent.commentid });
         return replies || [];
       } catch (err) {
-        throw new Error(`Error fetching replies for comment ${parent.commentid}: ${err.message}`);
+        throw new Error(
+          `Error fetching replies for comment ${parent.commentid}: ${err.message}`,
+        );
       }
     },
     like: async (parent) => {
@@ -321,27 +452,38 @@ const commentResolvers = {
         const likes = await Likes.find({ commentid: parent.commentid });
         return likes || [];
       } catch (err) {
-        throw new Error(`Error fetching likes for comment ${parent.commentid}: ${err.message}`);
+        throw new Error(
+          `Error fetching likes for comment ${parent.commentid}: ${err.message}`,
+        );
       }
     },
     likeCount: async (parent) => {
       try {
-        const count = await Likes.countDocuments({ commentid: parent.commentid });
+        const count = await Likes.countDocuments({
+          commentid: parent.commentid,
+        });
         return count;
       } catch (err) {
-        throw new Error(`Error fetching like count for comment ${parent.commentid}: ${err.message}`);
+        throw new Error(
+          `Error fetching like count for comment ${parent.commentid}: ${err.message}`,
+        );
       }
     },
     isLikedByUser: async (parent, _, context) => {
       try {
         if (!context.user) return false;
-        const like = await Likes.findOne({ commentid: parent.commentid, profileid: context.user.profileid });
+        const like = await Likes.findOne({
+          commentid: parent.commentid,
+          profileid: context.user.profileid,
+        });
         return !!like;
       } catch (err) {
-        throw new Error(`Error checking if comment is liked by user: ${err.message}`);
+        throw new Error(
+          `Error checking if comment is liked by user: ${err.message}`,
+        );
       }
-    }
-  }
+    },
+  },
 };
 
 /**
@@ -352,9 +494,9 @@ const queryResolvers = {
     // Health check
     health: () => ({
       success: true,
-      message: 'GraphQL API is running'
+      message: "GraphQL API is running",
     }),
-    
+
     // User queries
     users: async () => {
       try {
@@ -364,12 +506,21 @@ const queryResolvers = {
         throw new Error(`Error fetching users: ${err.message}`);
       }
     },
-    user: async (_, { id }) => {
+    user: async (_, args, context) => {
+      // 🔐 ENHANCED GRAPHQL SECURITY: Monitor GraphQL activity
+      enhancedGraphQLSecurityService.monitorActivity("user", context, args);
+
+      // 🔐 ENHANCED GRAPHQL SECURITY: Validate and sanitize arguments with SQL/MongoDB injection prevention
+      const sanitizedArgs =
+        enhancedGraphQLSecurityService.validateAndSanitizeArgs(args);
+
       try {
-        const user = await User.findOne({ id });
+        const user = await User.findOne({ id: sanitizedArgs.id });
         return user;
       } catch (err) {
-        throw new Error(`Error fetching user ${id}: ${err.message}`);
+        throw new Error(
+          `Error fetching user ${sanitizedArgs.id}: ${err.message}`,
+        );
       }
     },
     userByUsername: async (_, { username }) => {
@@ -377,10 +528,12 @@ const queryResolvers = {
         const user = await User.findOne({ username });
         return user;
       } catch (err) {
-        throw new Error(`Error fetching user by username ${username}: ${err.message}`);
+        throw new Error(
+          `Error fetching user by username ${username}: ${err.message}`,
+        );
       }
     },
-    
+
     // Profile queries
     profiles: async () => {
       try {
@@ -403,27 +556,139 @@ const queryResolvers = {
         const profile = await Profile.findOne({ username });
         return profile;
       } catch (err) {
-        throw new Error(`Error fetching profile by username ${username}: ${err.message}`);
+        throw new Error(
+          `Error fetching profile by username ${username}: ${err.message}`,
+        );
       }
     },
-    
+
+    // CRITICAL FIX #2: Add getUserbyUsername alias for backward compatibility
+    getUserbyUsername: async (_, { username }) => {
+      try {
+        console.log(
+          `🔍 [Alias] getUserbyUsername called for username: ${username}`,
+        );
+        const profile = await Profile.findOne({ username });
+        return profile;
+      } catch (err) {
+        throw new Error(
+          `Error fetching user by username ${username}: ${err.message}`,
+        );
+      }
+    },
+
+    // Alias: getPosts for backward compatibility
+    getPosts: async () => {
+      try {
+        console.log(`🔍 [Alias] getPosts called`);
+        const posts = await Post.find({});
+        return posts || [];
+      } catch (err) {
+        throw new Error(`Error fetching posts: ${err.message}`);
+      }
+    },
+
+    // CRITICAL FIX: Add missing searchUsers resolver for user search functionality
+    searchUsers: async (_, { query, limit = 10 }) => {
+      try {
+        // Validate input
+        if (!query || typeof query !== "string" || query.trim().length < 1) {
+          return [];
+        }
+
+        const searchTerm = query.trim();
+
+        // Prevent injection attacks
+        if (
+          searchTerm.includes("$") ||
+          searchTerm.includes("{") ||
+          searchTerm.includes("}")
+        ) {
+          console.warn(`🚨 Invalid search term detected: ${searchTerm}`);
+          return [];
+        }
+
+        console.log(
+          `🔍 [GraphQL] Searching users for: "${searchTerm}" (limit: ${limit})`,
+        );
+
+        // Search profiles by username or name
+        const profiles = await Profile.find({
+          $or: [
+            { username: new RegExp(searchTerm, "i") },
+            { name: new RegExp(searchTerm, "i") },
+          ],
+          accountStatus: "active",
+          isActive: true,
+        })
+          .select("profileid username name profilePic isVerified isPrivate bio")
+          .limit(Math.min(limit, 50))
+          .lean()
+          .exec();
+
+        // Calculate counts dynamically for each profile
+        const profilesWithCounts = await Promise.all(
+          profiles.map(async (profile) => {
+            try {
+              const [followersCount, followingCount, postsCount] =
+                await Promise.all([
+                  Followers.countDocuments({ profileid: profile.profileid }),
+                  Following.countDocuments({ profileid: profile.profileid }),
+                  Post.countDocuments({ profileid: profile.profileid }),
+                ]);
+
+              return {
+                ...profile,
+                followersCount,
+                followingCount,
+                postsCount,
+              };
+            } catch (err) {
+              console.warn(
+                `⚠️ Failed to get counts for user ${profile.username}:`,
+                err.message,
+              );
+              return {
+                ...profile,
+                followersCount: 0,
+                followingCount: 0,
+                postsCount: 0,
+              };
+            }
+          }),
+        );
+
+        console.log(
+          `✅ [GraphQL] Search completed: found ${profilesWithCounts.length} users for "${searchTerm}"`,
+        );
+        return profilesWithCounts || [];
+      } catch (err) {
+        console.error("❌ [GraphQL] Error searching users:", err.message);
+        return [];
+      }
+    },
+
     // User settings queries
     getUserSettings: async (_, { profileid }) => {
       try {
         const settings = await UserSettings.findOne({ profileid });
         return settings || {};
       } catch (err) {
-        throw new Error(`Error fetching user settings for profile ${profileid}: ${err.message}`);
+        throw new Error(
+          `Error fetching user settings for profile ${profileid}: ${err.message}`,
+        );
       }
     },
-    
+
     // Followers/Following queries
     getFollowers: async (_, { profileid }) => {
       try {
         const followers = await Followers.find({ profileid });
         return followers || [];
       } catch (err) {
-        throw new Error(`Error fetching followers for profile ${profileid}: ${err.message}`);
+        throw new Error(
+          `Error fetching followers for profile ${profileid}: ${err.message}`,
+        );
       }
     },
     getFollowing: async (_, { profileid }) => {
@@ -431,21 +696,23 @@ const queryResolvers = {
         const following = await Following.find({ profileid });
         return following || [];
       } catch (err) {
-        throw new Error(`Error fetching following for profile ${profileid}: ${err.message}`);
+        throw new Error(
+          `Error fetching following for profile ${profileid}: ${err.message}`,
+        );
       }
     },
     isFollowing: async (_, { profileid, targetProfileId }) => {
       try {
-        const following = await Following.findOne({ 
-          profileid, 
-          followingid: targetProfileId 
+        const following = await Following.findOne({
+          profileid,
+          followingid: targetProfileId,
         });
         return !!following;
       } catch (err) {
         throw new Error(`Error checking if following: ${err.message}`);
       }
     },
-    
+
     // Post queries
     posts: async () => {
       try {
@@ -463,14 +730,16 @@ const queryResolvers = {
         throw new Error(`Error fetching post ${id}: ${err.message}`);
       }
     },
-    
+
     // Draft queries
     drafts: async (_, { profileid }) => {
       try {
         const drafts = await Draft.find({ profileid });
         return drafts || [];
       } catch (err) {
-        throw new Error(`Error fetching drafts for profile ${profileid}: ${err.message}`);
+        throw new Error(
+          `Error fetching drafts for profile ${profileid}: ${err.message}`,
+        );
       }
     },
     draft: async (_, { id }) => {
@@ -481,14 +750,16 @@ const queryResolvers = {
         throw new Error(`Error fetching draft ${id}: ${err.message}`);
       }
     },
-    
+
     // Memory queries
     memories: async (_, { profileid }) => {
       try {
         const memories = await Memory.find({ profileid });
         return memories || [];
       } catch (err) {
-        throw new Error(`Error fetching memories for profile ${profileid}: ${err.message}`);
+        throw new Error(
+          `Error fetching memories for profile ${profileid}: ${err.message}`,
+        );
       }
     },
     memory: async (_, { id }) => {
@@ -499,14 +770,16 @@ const queryResolvers = {
         throw new Error(`Error fetching memory ${id}: ${err.message}`);
       }
     },
-    
+
     // Comment queries
     comments: async (_, { postid }) => {
       try {
         const comments = await Comment.find({ postid });
         return comments || [];
       } catch (err) {
-        throw new Error(`Error fetching comments for post ${postid}: ${err.message}`);
+        throw new Error(
+          `Error fetching comments for post ${postid}: ${err.message}`,
+        );
       }
     },
     comment: async (_, { id }) => {
@@ -517,14 +790,16 @@ const queryResolvers = {
         throw new Error(`Error fetching comment ${id}: ${err.message}`);
       }
     },
-    
+
     // Like queries
     likes: async (_, { postid }) => {
       try {
         const likes = await Likes.find({ postid });
         return likes || [];
       } catch (err) {
-        throw new Error(`Error fetching likes for post ${postid}: ${err.message}`);
+        throw new Error(
+          `Error fetching likes for post ${postid}: ${err.message}`,
+        );
       }
     },
     like: async (_, { id }) => {
@@ -535,14 +810,16 @@ const queryResolvers = {
         throw new Error(`Error fetching like ${id}: ${err.message}`);
       }
     },
-    
+
     // Chat queries
     chats: async (_, { profileid }) => {
       try {
         const chats = await Chat.find({ participants: profileid });
         return chats || [];
       } catch (err) {
-        throw new Error(`Error fetching chats for profile ${profileid}: ${err.message}`);
+        throw new Error(
+          `Error fetching chats for profile ${profileid}: ${err.message}`,
+        );
       }
     },
     chat: async (_, { id }) => {
@@ -555,15 +832,15 @@ const queryResolvers = {
     },
     chatByParticipants: async (_, { participants }) => {
       try {
-        const chat = await Chat.findOne({ 
-          participants: { $all: participants, $size: participants.length } 
+        const chat = await Chat.findOne({
+          participants: { $all: participants, $size: participants.length },
         });
         return chat;
       } catch (err) {
         throw new Error(`Error fetching chat by participants: ${err.message}`);
       }
     },
-    
+
     // Message queries
     messages: async (_, { chatid, limit, cursor }) => {
       try {
@@ -571,27 +848,33 @@ const queryResolvers = {
         if (cursor) {
           query.createdAt = { $lt: new Date(cursor) };
         }
-        
+
         const messages = await Message.find(query)
           .sort({ createdAt: -1 })
           .limit(limit || 20);
-          
+
         const totalCount = await Message.countDocuments({ chatid });
         const hasNextPage = messages.length === (limit || 20);
         const hasPreviousPage = !!cursor;
-        
+
         return {
           messages: messages.reverse(),
           pageInfo: {
             hasNextPage,
             hasPreviousPage,
-            startCursor: messages.length > 0 ? messages[0].createdAt.toISOString() : null,
-            endCursor: messages.length > 0 ? messages[messages.length - 1].createdAt.toISOString() : null
+            startCursor:
+              messages.length > 0 ? messages[0].createdAt.toISOString() : null,
+            endCursor:
+              messages.length > 0
+                ? messages[messages.length - 1].createdAt.toISOString()
+                : null,
           },
-          totalCount
+          totalCount,
         };
       } catch (err) {
-        throw new Error(`Error fetching messages for chat ${chatid}: ${err.message}`);
+        throw new Error(
+          `Error fetching messages for chat ${chatid}: ${err.message}`,
+        );
       }
     },
     message: async (_, { id }) => {
@@ -602,14 +885,16 @@ const queryResolvers = {
         throw new Error(`Error fetching message ${id}: ${err.message}`);
       }
     },
-    
+
     // Story queries
     stories: async (_, { profileid }) => {
       try {
         const stories = await Story.find({ profileid });
         return stories || [];
       } catch (err) {
-        throw new Error(`Error fetching stories for profile ${profileid}: ${err.message}`);
+        throw new Error(
+          `Error fetching stories for profile ${profileid}: ${err.message}`,
+        );
       }
     },
     story: async (_, { id }) => {
@@ -620,14 +905,16 @@ const queryResolvers = {
         throw new Error(`Error fetching story ${id}: ${err.message}`);
       }
     },
-    
+
     // Highlight queries
     highlights: async (_, { profileid }) => {
       try {
         const highlights = await Highlight.find({ profileid });
         return highlights || [];
       } catch (err) {
-        throw new Error(`Error fetching highlights for profile ${profileid}: ${err.message}`);
+        throw new Error(
+          `Error fetching highlights for profile ${profileid}: ${err.message}`,
+        );
       }
     },
     highlight: async (_, { id }) => {
@@ -638,16 +925,18 @@ const queryResolvers = {
         throw new Error(`Error fetching highlight ${id}: ${err.message}`);
       }
     },
-    
+
     // Call log queries
     callHistory: async (_, { profileid }) => {
       try {
-        const callLogs = await CallLog.find({ 
-          $or: [{ callerId: profileid }, { receiverId: profileid }] 
+        const callLogs = await CallLog.find({
+          $or: [{ callerId: profileid }, { receiverId: profileid }],
         }).sort({ createdAt: -1 });
         return callLogs || [];
       } catch (err) {
-        throw new Error(`Error fetching call history for profile ${profileid}: ${err.message}`);
+        throw new Error(
+          `Error fetching call history for profile ${profileid}: ${err.message}`,
+        );
       }
     },
     callLog: async (_, { id }) => {
@@ -658,7 +947,7 @@ const queryResolvers = {
         throw new Error(`Error fetching call log ${id}: ${err.message}`);
       }
     },
-    
+
     // Scheduled message queries
     scheduledMessages: async (_, { chatId }) => {
       try {
@@ -671,13 +960,17 @@ const queryResolvers = {
     },
     scheduledMessage: async (_, { scheduledMessageId }) => {
       try {
-        const scheduledMessage = await ScheduledMessage.findOne({ scheduledMessageId });
+        const scheduledMessage = await ScheduledMessage.findOne({
+          scheduledMessageId,
+        });
         return scheduledMessage;
       } catch (err) {
-        throw new Error(`Error fetching scheduled message ${scheduledMessageId}: ${err.message}`);
+        throw new Error(
+          `Error fetching scheduled message ${scheduledMessageId}: ${err.message}`,
+        );
       }
-    }
-  }
+    },
+  },
 };
 
 /**
@@ -687,18 +980,18 @@ const mutationResolvers = {
   Mutation: {
     // Authentication mutations
     login: (_, { email, password }) => ({
-      token: 'placeholder-token',
-      user: null
+      token: "placeholder-token",
+      user: null,
     }),
     signup: (_, { username, email, password }) => ({
-      token: 'placeholder-token',
-      user: null
+      token: "placeholder-token",
+      user: null,
     }),
     logout: () => ({
       success: true,
-      message: 'Logged out successfully'
+      message: "Logged out successfully",
     }),
-    
+
     // User mutations
     createUser: (_, { input }) => {
       // Implementation would go here
@@ -710,9 +1003,9 @@ const mutationResolvers = {
     },
     deleteUser: (_, { id }) => ({
       success: true,
-      message: 'User deleted successfully'
+      message: "User deleted successfully",
     }),
-    
+
     // Profile mutations
     createProfile: (_, { input }) => {
       // Implementation would go here
@@ -724,9 +1017,9 @@ const mutationResolvers = {
     },
     deleteProfile: (_, { id }) => ({
       success: true,
-      message: 'Profile deleted successfully'
+      message: "Profile deleted successfully",
     }),
-    
+
     // Profile mutations (from user schema)
     updateProfileSettings: (_, { profileid, input }) => {
       // Implementation would go here
@@ -764,7 +1057,7 @@ const mutationResolvers = {
       // Implementation would go here
       return null;
     },
-    
+
     // User settings mutations
     updateUserSettings: (_, { profileid, input }) => {
       // Implementation would go here
@@ -778,7 +1071,7 @@ const mutationResolvers = {
       // Implementation would go here
       return null;
     },
-    
+
     // Post mutations
     createPost: (_, { input }) => {
       // Implementation would go here
@@ -790,9 +1083,9 @@ const mutationResolvers = {
     },
     deletePost: (_, { id }) => ({
       success: true,
-      message: 'Post deleted successfully'
+      message: "Post deleted successfully",
     }),
-    
+
     // Comment mutations
     createComment: (_, { input }) => {
       // Implementation would go here
@@ -804,15 +1097,15 @@ const mutationResolvers = {
     },
     deleteComment: (_, { id }) => ({
       success: true,
-      message: 'Comment deleted successfully'
+      message: "Comment deleted successfully",
     }),
-    
+
     // Like mutations
     toggleLike: (_, { input }) => {
       // Implementation would go here
       return null;
     },
-    
+
     // Draft mutations
     createDraft: (_, { input }) => {
       // Implementation would go here
@@ -824,13 +1117,13 @@ const mutationResolvers = {
     },
     deleteDraft: (_, { id }) => ({
       success: true,
-      message: 'Draft deleted successfully'
+      message: "Draft deleted successfully",
     }),
     publishDraft: (_, { id }) => {
       // Implementation would go here
       return null;
     },
-    
+
     // Memory mutations
     createMemory: (_, { input }) => {
       // Implementation would go here
@@ -842,37 +1135,19 @@ const mutationResolvers = {
     },
     deleteMemory: (_, { id }) => ({
       success: true,
-      message: 'Memory deleted successfully'
+      message: "Memory deleted successfully",
     }),
-    
-    // Chat mutations
-    createChat: (_, { input }) => {
-      // Implementation would go here
-      return null;
-    },
-    updateChat: (_, { id, input }) => {
-      // Implementation would go here
-      return null;
-    },
-    deleteChat: (_, { id }) => ({
-      success: true,
-      message: 'Chat deleted successfully'
-    }),
-    
-    // Message mutations
-    sendMessage: (_, { input }) => {
-      // Implementation would go here
-      return null;
-    },
-    editMessage: (_, { id, content }) => {
-      // Implementation would go here
-      return null;
-    },
-    deleteMessage: (_, { id }) => ({
-      success: true,
-      message: 'Message deleted successfully'
-    }),
-    
+
+    // Chat mutations - MOVED TO chat.resolvers.js
+    // createChat: implemented in chat.resolvers.js
+    // updateChat: implemented in chat.resolvers.js
+    // deleteChat: implemented in chat.resolvers.js
+
+    // Message mutations - MOVED TO chat.resolvers.js
+    // sendMessage: implemented in chat.resolvers.js
+    // editMessage: implemented in chat.resolvers.js
+    // deleteMessage: implemented in chat.resolvers.js
+
     // Story mutations
     createStory: (_, { input }) => {
       // Implementation would go here
@@ -880,9 +1155,9 @@ const mutationResolvers = {
     },
     deleteStory: (_, { id }) => ({
       success: true,
-      message: 'Story deleted successfully'
+      message: "Story deleted successfully",
     }),
-    
+
     // Highlight mutations
     createHighlight: (_, { input }) => {
       // Implementation would go here
@@ -894,9 +1169,9 @@ const mutationResolvers = {
     },
     deleteHighlight: (_, { id }) => ({
       success: true,
-      message: 'Highlight deleted successfully'
+      message: "Highlight deleted successfully",
     }),
-    
+
     // Scheduled message mutations
     createScheduledMessage: (_, { input }) => {
       // Implementation would go here
@@ -905,8 +1180,8 @@ const mutationResolvers = {
     cancelScheduledMessage: (_, { scheduledMessageId }) => {
       // Implementation would go here
       return null;
-    }
-  }
+    },
+  },
 };
 
 /**
@@ -915,62 +1190,60 @@ const mutationResolvers = {
 const subscriptionResolvers = {
   Subscription: {
     messageAdded: {
-      subscribe: (_, { chatid }) => pubsub.asyncIterator(`${MESSAGE_ADDED}_${chatid}`)
+      subscribe: (_, { chatid }, { pubsub }) =>
+        pubsub.asyncIterator(`${MESSAGE_ADDED}_${chatid}`),
     },
     messageUpdated: {
-      subscribe: (_, { chatid }) => pubsub.asyncIterator(`${MESSAGE_UPDATED}_${chatid}`)
+      subscribe: (_, { chatid }, { pubsub }) =>
+        pubsub.asyncIterator(`${MESSAGE_UPDATED}_${chatid}`),
     },
     messageDeleted: {
-      subscribe: (_, { chatid }) => pubsub.asyncIterator(`${MESSAGE_DELETED}_${chatid}`)
+      subscribe: (_, { chatid }, { pubsub }) =>
+        pubsub.asyncIterator(`${MESSAGE_DELETED}_${chatid}`),
     },
     chatUpdated: {
-      subscribe: (_, { chatid }) => pubsub.asyncIterator(`${CHAT_UPDATED}_${chatid}`)
+      subscribe: (_, { chatid }, { pubsub }) =>
+        pubsub.asyncIterator(`${CHAT_UPDATED}_${chatid}`),
     },
     chatDeleted: {
-      subscribe: (_, { chatid }) => pubsub.asyncIterator(`${CHAT_DELETED}_${chatid}`)
+      subscribe: (_, { chatid }, { pubsub }) =>
+        pubsub.asyncIterator(`${CHAT_DELETED}_${chatid}`),
     },
     userUpdated: {
-      subscribe: (_, { id }) => pubsub.asyncIterator(`${USER_UPDATED}_${id}`)
+      subscribe: (_, { id }, { pubsub }) =>
+        pubsub.asyncIterator(`${USER_UPDATED}_${id}`),
     },
     postAdded: {
-      subscribe: () => pubsub.asyncIterator(POST_ADDED)
+      subscribe: (_, __, { pubsub }) => pubsub.asyncIterator(POST_ADDED),
     },
     postUpdated: {
-      subscribe: (_, { id }) => pubsub.asyncIterator(`${POST_UPDATED}_${id}`)
+      subscribe: (_, { id }, { pubsub }) =>
+        pubsub.asyncIterator(`${POST_UPDATED}_${id}`),
     },
     postDeleted: {
-      subscribe: (_, { id }) => pubsub.asyncIterator(`${POST_DELETED}_${id}`)
-    }
-  }
+      subscribe: (_, { id }, { pubsub }) =>
+        pubsub.asyncIterator(`${POST_DELETED}_${id}`),
+    },
+  },
 };
 
 /**
  * Export all resolvers
  */
-export const coreResolvers = {
+export default {
   // Scalars
   ...scalarResolvers,
-  
+
   // Interfaces
   ...interfaceResolvers,
-  
+
   // Type resolvers
   ...profileResolvers,
   ...postResolvers,
   ...commentResolvers,
-  
+
   // Root types
   ...queryResolvers,
   ...mutationResolvers,
-  ...subscriptionResolvers
+  ...subscriptionResolvers,
 };
-
-export default coreResolvers;
-
-
-
-
-
-
-
-

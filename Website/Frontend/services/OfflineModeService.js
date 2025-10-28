@@ -5,11 +5,11 @@
 
 import { EventEmitter } from 'events';
 import indexedDBStorage from '../utils/IndexedDBStorage';
-import offlineRecoveryService from './OfflineRecoveryService';
-import socketService from './SocketService';
-import authService from './AuthService';
 import cacheService from './CacheService';
-import notificationService from './NotificationService';
+import notificationService from './UnifiedNotificationService';
+
+// ✅ FIX: Socket service will be injected via constructor to avoid circular dependency
+let socketService = null;
 
 /**
  * Offline Mode States
@@ -123,28 +123,36 @@ class OfflineModeService extends EventEmitter {
    * Setup socket event listeners
    */
   setupSocketListeners() {
-    socketService.on('connected', () => {
-      this.handleSocketConnected();
-    });
+    // ✅ FIX: Check if socket service is available before setting up listeners
+    if (!socketService || typeof socketService.on !== 'function') {
+      console.warn('⚠️ OfflineModeService: Socket service not available, skipping socket listeners');
+      return;
+    }
 
-    socketService.on('disconnected', () => {
-      this.handleSocketDisconnected();
-    });
+    try {
+      socketService.on('connected', () => {
+        this.handleSocketConnected();
+      });
 
-    socketService.on('reconnected', () => {
-      this.handleSocketReconnected();
-    });
+      socketService.on('disconnected', () => {
+        this.handleSocketDisconnected();
+      });
+
+      socketService.on('reconnected', () => {
+        this.handleSocketReconnected();
+      });
+    } catch (error) {
+      console.error('❌ OfflineModeService: Error setting up socket listeners:', error);
+    }
   }
 
   /**
    * Setup authentication listeners
    */
   setupAuthListeners() {
-    authService.on('authStateChanged', (state) => {
-      if (!state.isAuthenticated) {
-        this.handleAuthenticationLost();
-      }
-    });
+    // ✅ FIX: Auth is handled by React Context, not a service
+    // This method is kept for future extensibility
+    console.log('🔒 OfflineModeService: Auth listeners handled by React Context');
   }
 
   /**
@@ -569,6 +577,8 @@ class OfflineModeService extends EventEmitter {
    * Sync an API call
    */
   async syncApiCall(endpoint, method, data) {
+    
+    console.log('🔐 here i m AUTH: Adding Authorization header in fetchWithAuth and acessToken is -------------------------------',accessToken);
     const response = await fetch(endpoint, {
       method,
       headers: {

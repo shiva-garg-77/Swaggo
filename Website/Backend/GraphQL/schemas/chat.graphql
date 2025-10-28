@@ -1,66 +1,445 @@
 # Chat-related GraphQL schema definitions
 
+# Scheduled message type
+"""
+Represents a message that is scheduled to be sent at a future time
+"""
+type ScheduledMessage implements Node & Timestamped {
+  "Unique identifier for the scheduled message"
+  id: ID!
+  
+  "Unique scheduled message identifier"
+  scheduledMessageId: String!
+  
+  "Identifier of the chat the message will be sent to"
+  chatid: String!
+  
+  "Chat the message will be sent to"
+  chat: Chat!
+  
+  "Identifier of the sender"
+  senderid: String!
+  
+  "Profile of the sender"
+  sender: Profile!
+  
+  "Type of message (e.g., 'text', 'image', 'video')"
+  messageType: String!
+  
+  "Message content"
+  content: String
+  
+  "List of attachments"
+  attachments: [MessageAttachment!]
+  
+  "Timestamp when the message is scheduled to be sent"
+  scheduledFor: DateTime!
+  
+  "Current status of the scheduled message (e.g., 'pending', 'sent', 'failed')"
+  status: String!
+  
+  "Number of retry attempts"
+  retryCount: Int!
+  
+  "Maximum number of retry attempts"
+  maxRetries: Int!
+  
+  "Reason for failure (if applicable)"
+  failureReason: String
+  
+  "Sticker data (if applicable)"
+  stickerData: StickerData
+  
+  "GIF data (if applicable)"
+  gifData: GifData
+  
+  "Voice data (if applicable)"
+  voiceData: VoiceData
+  
+  "File data (if applicable)"
+  fileData: FileData
+  
+  "List of link previews"
+  linkPreviews: [LinkPreview!]
+  
+  "Timestamp when the scheduled message was created"
+  createdAt: DateTime
+  
+  "Timestamp when the scheduled message was last updated"
+  updatedAt: DateTime
+}
+
 extend type Query {
   # Chat queries
-  getUserChats(profileid: String!, limit: Int, offset: Int): [Chat!]
-  searchChats(profileid: String!, query: String!): [Chat!]
-  getChatParticipants(chatid: String!): [Profile!]
-  getChatAdmins(chatid: String!): [Profile!]
+  """
+  Get all chats for a specific user with pagination support
+  """
+  getUserChats(
+    "Profile ID of the user to get chats for"
+    profileid: String!, 
+    "Maximum number of chats to return"
+    limit: Int, 
+    "Offset for pagination"
+    offset: Int
+  ): [Chat!]
+  
+  """
+  Search for chats containing a specific query string
+  """
+  searchChats(
+    "Profile ID of the user performing the search"
+    profileid: String!, 
+    "Search query string"
+    query: String!
+  ): [Chat!]
+  
+  """
+  Get all participants in a specific chat
+  """
+  getChatParticipants(
+    "Chat ID to get participants for"
+    chatid: String!
+  ): [Profile!]
+  
+  """
+  Get all administrators in a specific chat
+  """
+  getChatAdmins(
+    "Chat ID to get administrators for"
+    chatid: String!
+  ): [Profile!]
   
   # Message queries
-  getMessagesByChatWithPagination(chatid: String!, limit: Int, cursor: String): MessageConnection
-  searchMessagesInChat(chatid: String!, query: String!): [Message!]
-  getUnreadMessageCount(profileid: String!): Int
-  getChatUnreadCount(chatid: String!, profileid: String!): Int
+  """
+  Get messages in a chat with pagination support
+  """
+  getMessagesByChatWithPagination(
+    "Chat ID to get messages for"
+    chatid: String!, 
+    "Maximum number of messages to return"
+    limit: Int, 
+    "Cursor for pagination"
+    cursor: String
+  ): MessageConnection
+  
+  """
+  Search for messages in a chat containing a specific query string
+  """
+  searchMessagesInChat(
+    "Chat ID to search messages in"
+    chatid: String!, 
+    "Search query string"
+    query: String!
+  ): [Message!]
+  
+  """
+  Get the total count of unread messages for a user
+  """
+  getUnreadMessageCount(
+    "Profile ID of the user to get unread count for"
+    profileid: String!
+  ): Int
+  
+  """
+  Get the count of unread messages in a specific chat for a user
+  """
+  getChatUnreadCount(
+    "Chat ID to get unread count for"
+    chatid: String!, 
+    "Profile ID of the user to get unread count for"
+    profileid: String!
+  ): Int
   
   # Call log queries
-  getCallHistoryByUser(profileid: String!, limit: Int, offset: Int): [CallLog!]
-  getCallHistoryByChat(chatid: String!, limit: Int, offset: Int): [CallLog!]
+  """
+  Get call history for a specific user
+  """
+  getCallHistoryByUser(
+    "Profile ID of the user to get call history for"
+    profileid: String!, 
+    "Maximum number of calls to return"
+    limit: Int, 
+    "Offset for pagination"
+    offset: Int
+  ): [CallLog!]
+  
+  """
+  Get call history for a specific chat
+  """
+  getCallHistoryByChat(
+    "Chat ID to get call history for"
+    chatid: String!, 
+    "Maximum number of calls to return"
+    limit: Int, 
+    "Offset for pagination"
+    offset: Int
+  ): [CallLog!]
   
   # Scheduled message queries
-  getScheduledMessagesByChat(chatId: String!, limit: Int, offset: Int): [ScheduledMessage!]
-  getScheduledMessagesByUser(profileid: String!, limit: Int, offset: Int): [ScheduledMessage!]
+  """
+  Get scheduled messages for a specific chat
+  """
+  getScheduledMessagesByChat(
+    "Chat ID to get scheduled messages for"
+    chatId: String!, 
+    "Maximum number of scheduled messages to return"
+    limit: Int, 
+    "Offset for pagination"
+    offset: Int
+  ): [ScheduledMessage!]
+  
+  """
+  Get scheduled messages created by a specific user
+  """
+  getScheduledMessagesByUser(
+    "Profile ID of the user to get scheduled messages for"
+    profileid: String!, 
+    "Maximum number of scheduled messages to return"
+    limit: Int, 
+    "Offset for pagination"
+    offset: Int
+  ): [ScheduledMessage!]
 }
 
 extend type Mutation {
   # Chat mutations
-  createGroupChat(input: CreateGroupChatInput!): Chat
-  updateChatSettings(chatid: String!, input: UpdateChatSettingsInput!): Chat
-  deleteChatWithMessages(chatid: String!): Response
-  addParticipantToChat(chatid: String!, profileid: String!): Chat
-  removeParticipantFromChat(chatid: String!, profileid: String!): Chat
-  makeAdmin(chatid: String!, profileid: String!): Chat
-  removeAdmin(chatid: String!, profileid: String!): Chat
-  muteChat(chatid: String!, profileid: String!): Chat
-  unmuteChat(chatid: String!, profileid: String!): Chat
+  """
+  Create a new group chat
+  """
+  createGroupChat(
+    "Input data for creating the group chat"
+    input: CreateGroupChatInput!
+  ): Chat
+  
+  """
+  Update settings for an existing chat
+  """
+  updateChatSettings(
+    "Chat ID to update"
+    chatid: String!, 
+    "Updated settings"
+    input: UpdateChatSettingsInput!
+  ): Chat
+  
+  """
+  Delete a chat and all its messages
+  """
+  deleteChatWithMessages(
+    "Chat ID to delete"
+    chatid: String!
+  ): Response
+  
+  """
+  Add a participant to an existing chat
+  """
+  addParticipantToChat(
+    "Chat ID to add participant to"
+    chatid: String!, 
+    "Profile ID of the participant to add"
+    profileid: String!
+  ): Chat
+  
+  """
+  Remove a participant from an existing chat
+  """
+  removeParticipantFromChat(
+    "Chat ID to remove participant from"
+    chatid: String!, 
+    "Profile ID of the participant to remove"
+    profileid: String!
+  ): Chat
+  
+  """
+  Make a participant an administrator of a chat
+  """
+  makeAdmin(
+    "Chat ID to make admin for"
+    chatid: String!, 
+    "Profile ID of the participant to make admin"
+    profileid: String!
+  ): Chat
+  
+  """
+  Remove administrator privileges from a participant
+  """
+  removeAdmin(
+    "Chat ID to remove admin from"
+    chatid: String!, 
+    "Profile ID of the participant to remove as admin"
+    profileid: String!
+  ): Chat
+  
+  """
+  Mute notifications for a chat
+  """
+  muteChat(
+    "Chat ID to mute"
+    chatid: String!, 
+    "Profile ID of the user muting the chat"
+    profileid: String!
+  ): Chat
+  
+  """
+  Unmute notifications for a chat
+  """
+  unmuteChat(
+    "Chat ID to unmute"
+    chatid: String!, 
+    "Profile ID of the user unmuting the chat"
+    profileid: String!
+  ): Chat
   
   # Message mutations
-  sendMessageWithAttachments(input: SendMessageInput!): Message
-  editMessageWithHistory(messageid: String!, content: String!): Message
-  deleteMessageForEveryone(messageid: String!): Response
-  deleteMessageForMe(messageid: String!, profileid: String!): Response
-  reactToMessage(messageid: String!, emoji: String!): Message
-  removeReaction(messageid: String!, emoji: String!): Message
-  markMessageAsRead(messageid: String!, profileid: String!): Message
-  markChatAsRead(chatid: String!, profileid: String!): [Message!]
+  """
+  Send a message with attachments
+  """
+  sendMessageWithAttachments(
+    "Input data for the message"
+    input: SendMessageInput!
+  ): Message
+  
+  """
+  Edit a message and keep a history of changes
+  """
+  editMessageWithHistory(
+    "Message ID to edit"
+    messageid: String!, 
+    "New content for the message"
+    content: String!
+  ): Message
+  
+  """
+  Delete a message for all participants in the chat
+  """
+  deleteMessageForEveryone(
+    "Message ID to delete"
+    messageid: String!
+  ): Response
+  
+  """
+  Delete a message for a specific user only
+  """
+  deleteMessageForMe(
+    "Message ID to delete"
+    messageid: String!, 
+    "Profile ID of the user deleting the message"
+    profileid: String!
+  ): Response
+  
+  """
+  Add a reaction to a message
+  """
+  reactToMessage(
+    "Message ID to react to"
+    messageid: String!, 
+    "Emoji to react with"
+    emoji: String!
+  ): Message
+  
+  """
+  Remove a reaction from a message
+  """
+  removeReaction(
+    "Message ID to remove reaction from"
+    messageid: String!, 
+    "Emoji to remove"
+    emoji: String!
+  ): Message
+  
+  """
+  Mark a message as read
+  """
+  markMessageAsRead(
+    "Message ID to mark as read"
+    messageid: String!, 
+    "Profile ID of the user marking the message as read"
+    profileid: String!
+  ): Message
+  
+  """
+  Mark all messages in a chat as read
+  """
+  markChatAsRead(
+    "Chat ID to mark as read"
+    chatid: String!, 
+    "Profile ID of the user marking the chat as read"
+    profileid: String!
+  ): [Message!]
   
   # Call log mutations
-  updateCallLog(callId: String!, input: UpdateCallLogInput!): CallLog
-  deleteCallLog(callId: String!): Response
+  """
+  Update information about a call
+  """
+  updateCallLog(
+    "Call ID to update"
+    callId: String!, 
+    "Updated call information"
+    input: UpdateCallLogInput!
+  ): CallLog
+  
+  """
+  Delete a call log entry
+  """
+  deleteCallLog(
+    "Call ID to delete"
+    callId: String!
+  ): Response
   
   # Scheduled message mutations
-  createScheduledMessageWithMedia(input: CreateScheduledMessageInput!): ScheduledMessage
-  updateScheduledMessage(scheduledMessageId: String!, input: UpdateScheduledMessageInput!): ScheduledMessage
-  cancelScheduledMessageWithNotification(scheduledMessageId: String!): ScheduledMessage
+  """
+  Create a scheduled message with media attachments
+  """
+  createScheduledMessageWithMedia(
+    "Input data for the scheduled message"
+    input: CreateScheduledMessageInput!
+  ): ScheduledMessage
+  
+  """
+  Update an existing scheduled message
+  """
+  updateScheduledMessage(
+    "Scheduled message ID to update"
+    scheduledMessageId: String!, 
+    "Updated message data"
+    input: UpdateScheduledMessageInput!
+  ): ScheduledMessage
+  
+  """
+  Cancel a scheduled message and notify participants
+  """
+  cancelScheduledMessageWithNotification(
+    "Scheduled message ID to cancel"
+    scheduledMessageId: String!
+  ): ScheduledMessage
 }
 
 # Subscription extensions
 
 extend type Subscription {
   # Enhanced chat subscriptions
-  typingIndicator(chatid: String!): TypingIndicator
-  userPresence(profileid: String!): UserPresence
-  chatTyping(chatid: String!): [Profile!]
+  """
+  Subscribe to typing indicator events in a chat
+  """
+  typingIndicator(
+    "Chat ID to subscribe to typing indicators for"
+    chatid: String!
+  ): TypingIndicator
+  
+  """
+  Subscribe to user presence updates
+  """
+  userPresence(
+    "Profile ID to subscribe to presence updates for"
+    profileid: String!
+  ): UserPresence
+  
+  """
+  Subscribe to typing events in a chat
+  """
+  chatTyping(
+    "Chat ID to subscribe to typing events for"
+    chatid: String!
+  ): [Profile!]
 }
 
 # New types for subscriptions

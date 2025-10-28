@@ -129,9 +129,10 @@ export const GET_USER_STORIES = gql`
 `;
 
 // Get all active stories from followed users
+// ✅ FIX: Changed from getFollowingStories to getActiveStoriesForUser (correct backend query)
 export const GET_FOLLOWING_STORIES = gql`
   query GetFollowingStories($profileid: String!) {
-    getFollowingStories(profileid: $profileid) {
+    getActiveStoriesForUser(profileid: $profileid) {
       storyid
       profileid
       mediaUrl

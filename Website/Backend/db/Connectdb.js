@@ -71,10 +71,11 @@ class SecureDatabaseConnection {
       this.connectionHealth.status = 'disconnected';
       this.logSecurityEvent('database_disconnected', { timestamp: new Date() });
       
-      // Attempt reconnection if not intentional
-      if (this.connectionAttempts < this.maxRetries) {
-        this.scheduleReconnection();
-      }
+      // Don't auto-reconnect to prevent reconnection loops
+      // Only reconnect on connection errors, not normal disconnections
+      // if (this.connectionAttempts < this.maxRetries) {
+      //   this.scheduleReconnection();
+      // }
     });
     
     // Process termination
@@ -99,16 +100,19 @@ class SecureDatabaseConnection {
   getConnectionOptions() {
     const options = {
       // Connection pool settings - FIXED: Proper connection pool limits
-      maxPoolSize: process.env.MONGODB_MAX_POOL_SIZE ? parseInt(process.env.MONGODB_MAX_POOL_SIZE) : 50,
-      minPoolSize: process.env.MONGODB_MIN_POOL_SIZE ? parseInt(process.env.MONGODB_MIN_POOL_SIZE) : 5,
+      maxPoolSize: process.env.MONGODB_MAX_POOL_SIZE ? parseInt(process.env.MONGODB_MAX_POOL_SIZE) : 100,
+      minPoolSize: process.env.MONGODB_MIN_POOL_SIZE ? parseInt(process.env.MONGODB_MIN_POOL_SIZE) : 10,
       maxIdleTimeMS: process.env.MONGODB_MAX_IDLE_TIME_MS ? parseInt(process.env.MONGODB_MAX_IDLE_TIME_MS) : 30000,
-      serverSelectionTimeoutMS: process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS ? parseInt(process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS) : 10000,
+      serverSelectionTimeoutMS: process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS ? parseInt(process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS) : 5000,
       socketTimeoutMS: process.env.MONGODB_SOCKET_TIMEOUT_MS ? parseInt(process.env.MONGODB_SOCKET_TIMEOUT_MS) : 45000,
       connectTimeoutMS: process.env.MONGODB_CONNECT_TIMEOUT_MS ? parseInt(process.env.MONGODB_CONNECT_TIMEOUT_MS) : 10000,
       
+      // 🔧 DATABASE CONNECTION POOLING OPTIMIZATION #149: Add connection pool optimization settings
+      maxConnecting: process.env.MONGODB_MAX_CONNECTING ? parseInt(process.env.MONGODB_MAX_CONNECTING) : 5,
+      waitQueueTimeoutMS: process.env.MONGODB_WAIT_QUEUE_TIMEOUT_MS ? parseInt(process.env.MONGODB_WAIT_QUEUE_TIMEOUT_MS) : 5000,
+      
       // Connection pool monitoring
       monitorCommands: true,
-      waitQueueTimeoutMS: process.env.MONGODB_WAIT_QUEUE_TIMEOUT_MS ? parseInt(process.env.MONGODB_WAIT_QUEUE_TIMEOUT_MS) : 5000,
       
       // Heartbeat settings
       heartbeatFrequencyMS: process.env.MONGODB_HEARTBEAT_FREQUENCY_MS ? parseInt(process.env.MONGODB_HEARTBEAT_FREQUENCY_MS) : 10000,
@@ -129,6 +133,10 @@ class SecureDatabaseConnection {
       },
       readConcern: { level: 'majority' },
       
+      // 🔧 DATABASE QUERY OPTIMIZATION #139: Add performance optimization settings
+      // Enable compression for better network performance (snappy disabled due to dependency issues)
+      // compressors: ['snappy', 'zlib'],
+      
       // Security settings - only for production with authentication
       // authSource: 'admin',
       // authMechanism: 'SCRAM-SHA-256'
@@ -140,8 +148,8 @@ class SecureDatabaseConnection {
       options.tlsAllowInvalidCertificates = false;
       options.tlsAllowInvalidHostnames = false;
       
-      // Additional security in production
-      options.compressors = ['zstd', 'snappy', 'zlib'];
+      // Additional security in production (compression disabled due to dependency issues)
+      // options.compressors = ['zstd', 'snappy', 'zlib'];
     }
     
     return options;

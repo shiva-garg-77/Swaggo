@@ -1,9 +1,15 @@
+"use client";
 import React from 'react'
 import ForgetPass from '@/Components/LoginComponts/Forget-Pass'
+import { InvisiblePreloader } from '@/Components/Helper/InvisibleSpeedBoost'
 
 const ForgetPassPage = () => {
   return (
-    <ForgetPass />
+    <>
+      {/* ✅ FIX: Only preload unauthenticated routes */}
+      <InvisiblePreloader routes={['/', '/signup']} />
+      <ForgetPass />
+    </>
   )
 }
 

@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect, useContext, useMemo, useCallback } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useTheme } from '../../Helper/ThemeProvider';
 import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
-import { useQuery, useMutation } from '@apollo/client/react';
-import { ApolloClientContext } from '../../Helper/ApolloProvider';
+import { useQuery, useMutation, useApolloClient } from '@apollo/client/react';
 import { clearProfileCache, clearApolloCache } from '../../../lib/apollo/cacheUtils';
 import { 
   GET_USER_BY_USERNAME, 
@@ -24,11 +23,12 @@ import {
   GET_FOLLOW_REQUEST_STATUS,
   SEND_FOLLOW_REQUEST,
   CANCEL_FOLLOW_REQUEST,
-  GET_FOLLOW_REQUESTS
+  GET_FOLLOW_REQUESTS,
+  GET_MEMORIES,
+  CREATE_MEMORY,
+  HELLO_QUERY
 } from '../../../lib/graphql/queries';
 import { GET_SIMPLE_PROFILE, GET_CURRENT_USER_PROFILE } from '../../../lib/graphql/fixedProfileQueries';
-import { GET_MEMORIES, CREATE_MEMORY } from '../../../lib/graphql/queries';
-import { GET_USER_SIMPLE, HELLO_QUERY } from '../../../lib/graphql/simpleQueries';
 import ProfileHeader from './ProfileHeader';
 import ProfileTabs from './ProfileTabs';
 import ProfileGrid from './ProfileGrid';
@@ -54,9 +54,17 @@ export default function UserProfile() {
   // ===== THEME AND AUTHENTICATION =====
   const { theme } = useTheme();
   const { isAuthenticated, user, isLoading: authLoading } = useSecureAuth();
-  const apolloClient = useContext(ApolloClientContext);
+  const apolloClient = useApolloClient(); // ✅ FIX: Use Apollo hook instead of context
   const router = useRouter();
-  const searchParams = useSearchParams();
+  
+  // Ensure router is properly initialized
+  if (!router || typeof router.push !== 'function') {
+    console.error('Router not properly initialized in UserProfile');
+  }
+  // Extract search params manually to avoid read-only property error
+  const searchParams = typeof window !== 'undefined' && window.location.search ? 
+    new URLSearchParams(window.location.search) : 
+    null;
   
   // ===== COMPREHENSIVE AUTHENTICATION VALIDATION =====
   const authValidation = useMemo(() => {
@@ -130,8 +138,11 @@ export default function UserProfile() {
   const queryConfig = useMemo(() => {
     const shouldUseCurrentUser = urlParams.isOwnProfile && authValidation.isValid;
     const queryToUse = shouldUseCurrentUser ? GET_CURRENT_USER_PROFILE : GET_SIMPLE_PROFILE;
-    const variables = shouldUseCurrentUser ? {} : { username: urlParams.profileUsername };
-    const shouldSkip = !authValidation.shouldProceed || authLoading;
+    // ✅ FIX: Both queries now require username parameter
+    const variables = shouldUseCurrentUser 
+      ? { username: user?.username || '' } 
+      : { username: urlParams.profileUsername || '' };
+    const shouldSkip = !authValidation.shouldProceed || authLoading || !variables.username;
     
     return {
       query: queryToUse,
@@ -139,7 +150,7 @@ export default function UserProfile() {
       shouldSkip,
       shouldUseCurrentUser
     };
-  }, [urlParams.isOwnProfile, urlParams.profileUsername, authValidation, authLoading]);
+  }, [urlParams.isOwnProfile, urlParams.profileUsername, authValidation, authLoading, user?.username]);
   
   // ===== MAIN PROFILE DATA QUERY WITH COMPREHENSIVE ERROR HANDLING =====
   const { 
@@ -156,11 +167,11 @@ export default function UserProfile() {
     notifyOnNetworkStatusChange: true,
     onCompleted: (userData) => {
       try {
-        if (userData?.getUserbyUsername && process.env.NODE_ENV === 'development') {
+        if (userData?.profileByUsername && process.env.NODE_ENV === 'development') {
           console.log('✅ ULTIMATE PROFILE LOADED:', {
-            username: userData.getUserbyUsername.username,
-            profileid: userData.getUserbyUsername.profileid,
-            postCount: userData.getUserbyUsername.post?.length || 0,
+            username: userData.profileByUsername.username,
+            profileid: userData.profileByUsername.profileid,
+            postCount: userData.profileByUsername.post?.length || 0,
             isOwnProfile: urlParams.isOwnProfile,
             queryType: queryConfig.shouldUseCurrentUser ? 'current-user' : 'by-username'
           });
@@ -187,14 +198,14 @@ export default function UserProfile() {
   const ownershipVerification = useMemo(() => {
     try {
       const urlBasedOwnership = urlParams.isOwnProfile;
-      const hasProfileData = data?.getUserbyUsername;
+      const hasProfileData = data?.profileByUsername;
       const hasUserData = user?.profileid;
       
       let isActuallyOwnProfile = urlBasedOwnership;
       let verificationLevel = 'url-only';
       
       if (hasUserData && hasProfileData) {
-        isActuallyOwnProfile = user.profileid === data.getUserbyUsername.profileid;
+        isActuallyOwnProfile = user.profileid === data.profileByUsername.profileid;
         verificationLevel = 'verified';
       }
       
@@ -215,7 +226,7 @@ export default function UserProfile() {
         isValid: false
       };
     }
-  }, [urlParams.isOwnProfile, user?.profileid, data?.getUserbyUsername?.profileid]);
+  }, [urlParams.isOwnProfile, user?.profileid, data?.profileByUsername?.profileid]);
 
   // ===== CURRENT USER PROFILE QUERY WITH ERROR HANDLING =====
   const { 
@@ -229,8 +240,8 @@ export default function UserProfile() {
     fetchPolicy: 'cache-first',
     onCompleted: (userData) => {
       try {
-        if (userData?.getUserbyUsername) {
-          setCurrentUserProfile(userData.getUserbyUsername);
+        if (userData?.profileByUsername) {
+          setCurrentUserProfile(userData.profileByUsername);
         }
       } catch (error) {
         console.error('❌ Current user data completion error:', error);
@@ -245,11 +256,11 @@ export default function UserProfile() {
   const { data: followRequestData } = useQuery(GET_FOLLOW_REQUEST_STATUS, {
     variables: {
       requesterid: currentUserProfile?.profileid,
-      requestedid: data?.getUserbyUsername?.profileid
+      requestedid: data?.profileByUsername?.profileid
     },
     skip: (
       !currentUserProfile?.profileid || 
-      !data?.getUserbyUsername?.profileid || 
+      !data?.profileByUsername?.profileid ||
       ownershipVerification.isOwnProfile
     ),
     errorPolicy: 'all',
@@ -272,21 +283,21 @@ export default function UserProfile() {
     error: draftsError, 
     refetch: refetchDrafts 
   } = useQuery(GET_DRAFTS_QUERY, {
-    variables: { profileid: data?.getUserbyUsername?.profileid },
+    variables: { profileid: data?.profileByUsername?.profileid },
     skip: (
-      !data?.getUserbyUsername?.profileid || 
+      !data?.profileByUsername?.profileid ||
       !ownershipVerification.isActuallyOwnProfile || 
       !authValidation.isValid
     ),
     errorPolicy: 'none',
     fetchPolicy: 'cache-and-network',
     onCompleted: (draftData) => {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('🔍 ULTIMATE DRAFT SUCCESS:', {
-          profileId: data?.getUserbyUsername?.profileid,
+        if (process.env.NODE_ENV === 'development') {
+          console.log('🔍 ULTIMATE DRAFT SUCCESS:', {
+            profileId: data?.profileByUsername?.profileid,
           userId: user?.profileid,
           ownership: ownershipVerification,
-          draftCount: draftData?.getDrafts?.length || 0
+          draftCount: draftData?.drafts?.length || 0
         });
       }
     },
@@ -303,16 +314,16 @@ export default function UserProfile() {
     loading: memoriesLoading, 
     refetch: refetchMemories 
   } = useQuery(GET_MEMORIES, {
-    variables: { profileid: data?.getUserbyUsername?.profileid },
-    skip: !data?.getUserbyUsername?.profileid,
+    variables: { profileid: data?.profileByUsername?.profileid },
+    skip: !data?.profileByUsername?.profileid,
     errorPolicy: 'all',
     fetchPolicy: 'cache-first',
     onCompleted: (memoryData) => {
       if (process.env.NODE_ENV === 'development') {
         console.log('\n📸 MEMORY DEBUG - Query Completed:');
-        console.log('- Memory count:', memoryData?.getMemories?.length || 0);
-        if (memoryData?.getMemories && memoryData.getMemories.length > 0) {
-          console.log('- First memory:', memoryData.getMemories[0]);
+        console.log('- Memory count:', memoryData?.memories?.length || 0);
+        if (memoryData?.memories && memoryData.memories.length > 0) {
+          console.log('- First memory:', memoryData.memories[0]);
         }
       }
     },
@@ -362,12 +373,12 @@ export default function UserProfile() {
   // ===== ENHANCED HANDLER FUNCTIONS WITH BULLETPROOF ERROR HANDLING =====
   // Handle follow/unfollow action with follow request support
   const handleFollowToggle = useCallback(async () => {
-    if (ownershipVerification.isOwnProfile || !currentUserProfile || !data?.getUserbyUsername) {
+    if (ownershipVerification.isOwnProfile || !currentUserProfile || !data?.profileByUsername) {
       console.log('🚫 Follow toggle blocked: Invalid conditions');
       return;
     }
 
-    const targetProfile = data.getUserbyUsername;
+    const targetProfile = data.profileByUsername;
     const isPrivate = targetProfile?.isPrivate || false;
     const currentFollowing = componentState.isFollowing;
     const currentRequestStatus = componentState.followRequestStatus;
@@ -421,11 +432,11 @@ export default function UserProfile() {
 
   // Get follow button state based on account type and follow status
   const getFollowButtonState = useCallback(() => {
-    if (ownershipVerification.isOwnProfile || !data?.getUserbyUsername) {
+    if (ownershipVerification.isOwnProfile || !data?.profileByUsername) {
       return { text: '', disabled: true, variant: 'default' };
     }
 
-    const targetProfile = data.getUserbyUsername;
+    const targetProfile = data.profileByUsername;
     const isPrivate = targetProfile?.isPrivate || false;
     const currentFollowing = componentState.isFollowing;
     const currentRequestStatus = componentState.followRequestStatus;
@@ -477,12 +488,12 @@ export default function UserProfile() {
 
   // Handle message user - navigate to message route
   const handleMessage = useCallback(() => {
-    if (ownershipVerification.isOwnProfile || !data?.getUserbyUsername) {
+    if (ownershipVerification.isOwnProfile || !data?.profileByUsername) {
       console.log('🚫 Message blocked: Invalid conditions');
       return;
     }
     
-    const targetUser = data.getUserbyUsername;
+    const targetUser = data.profileByUsername;
     console.log('💬 Navigating to message with user:', targetUser.username, targetUser.profileid);
     
     // Navigate to message route with the user info
@@ -515,11 +526,11 @@ export default function UserProfile() {
   const { data: blockStatusData } = useQuery(IS_USER_BLOCKED, {
     variables: { 
       profileid: currentUserProfile?.profileid, 
-      targetprofileid: data?.getUserbyUsername?.profileid 
+      targetprofileid: data?.profileByUsername?.profileid
     },
     skip: (
       !currentUserProfile?.profileid || 
-      !data?.getUserbyUsername?.profileid || 
+      !data?.profileByUsername?.profileid ||
       ownershipVerification.isOwnProfile
     ),
     fetchPolicy: 'cache-first',
@@ -529,11 +540,11 @@ export default function UserProfile() {
   const { data: restrictStatusData } = useQuery(IS_USER_RESTRICTED, {
     variables: { 
       profileid: currentUserProfile?.profileid, 
-      targetprofileid: data?.getUserbyUsername?.profileid 
+      targetprofileid: data?.profileByUsername?.profileid
     },
     skip: (
       !currentUserProfile?.profileid || 
-      !data?.getUserbyUsername?.profileid || 
+      !data?.profileByUsername?.profileid ||
       ownershipVerification.isOwnProfile
     ),
     fetchPolicy: 'cache-first',
@@ -545,12 +556,12 @@ export default function UserProfile() {
 
   // Handle restrict user with enhanced validation
   const handleRestrict = useCallback(async () => {
-    if (ownershipVerification.isOwnProfile || !currentUserProfile || !data?.getUserbyUsername) {
+    if (ownershipVerification.isOwnProfile || !currentUserProfile || !data?.profileByUsername) {
       console.log('🚫 Restrict blocked: Invalid conditions');
       return;
     }
     
-    const targetUser = data.getUserbyUsername;
+    const targetUser = data.profileByUsername;
     
     if (isUserRestricted) {
       notificationService.showToast('info', 'This user is already restricted');
@@ -574,12 +585,12 @@ export default function UserProfile() {
 
   // Handle block user with enhanced validation
   const handleBlock = useCallback(async () => {
-    if (ownershipVerification.isOwnProfile || !currentUserProfile || !data?.getUserbyUsername) {
+    if (ownershipVerification.isOwnProfile || !currentUserProfile || !data?.profileByUsername) {
       console.log('🚫 Block blocked: Invalid conditions');
       return;
     }
     
-    const targetUser = data.getUserbyUsername;
+    const targetUser = data.profileByUsername;
     
     if (isUserBlocked) {
       notificationService.showToast('info', 'This user is already blocked');
@@ -808,7 +819,7 @@ export default function UserProfile() {
 
   // Get posts based on active tab (using useMemo for proper reactivity)
   const posts = useMemo(() => {
-    const profileData = data?.getUserbyUsername;
+    const profileData = data?.profileByUsername;
     if (!profileData) {
       if (process.env.NODE_ENV === 'development') {
         console.log('\n🔍 POSTS DEBUG - No profile data available');
@@ -825,7 +836,7 @@ export default function UserProfile() {
       console.log('- Is own profile (URL):', ownershipVerification.isOwnProfile);
       console.log('- Is actually own profile (verified):', actuallyOwnProfile);
       console.log('- Drafts data available:', !!draftsData);
-      console.log('- Drafts count:', draftsData?.getDrafts?.length || 0);
+      console.log('- Drafts count:', draftsData?.drafts?.length || 0);
     }
     
     switch (componentState.activeTab) {
@@ -842,7 +853,7 @@ export default function UserProfile() {
           }
           return [];
         }
-        const drafts = draftsData?.getDrafts || [];
+        const drafts = draftsData?.drafts || [];
         if (process.env.NODE_ENV === 'development') {
           console.log('- Returning drafts:', drafts.length);
           if (drafts.length > 0) {
@@ -909,7 +920,7 @@ export default function UserProfile() {
     );
   }
 
-  const profileData = data?.getUserbyUsername;
+  const profileData = data?.profileByUsername;
 
   // Handle case where profile is not found
   if (!profileData) {
@@ -985,7 +996,7 @@ export default function UserProfile() {
         onBlock={handleBlock}
         onRefresh={refetch}
         onCreateMemory={handleCreateMemory}
-        memoriesData={memoriesData && memoriesData.getMemories ? memoriesData.getMemories : []}
+        memoriesData={memoriesData && memoriesData.memories ? memoriesData.memories : []}
         followButtonState={getFollowButtonState()}
         followRequestStatus={componentState.followRequestStatus}
         theme={theme}

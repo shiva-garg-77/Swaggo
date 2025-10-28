@@ -1,3 +1,5 @@
+'use client';
+
 import ProtectedRoute from "../../Components/Helper/ProtectedRoute";
 import MainLayout from "../../Components/Layout/MainLayout";
 

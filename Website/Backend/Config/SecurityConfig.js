@@ -46,11 +46,11 @@ const SecurityConfig = {
         jwt: {
             accessTokenSecret: process.env.ACCESS_TOKEN_SECRET,
             refreshTokenSecret: process.env.REFRESH_TOKEN_SECRET || process.env.ACCESS_TOKEN_SECRET,
-            accessTokenExpiry: process.env.ACCESS_TOKEN_EXPIRY || '15m',
-            refreshTokenExpiry: process.env.REFRESH_TOKEN_EXPIRY || '7d',
+            accessTokenExpiry: process.env.ACCESS_TOKEN_EXPIRY || '10m', // Reduced from 15m to 10m
+            refreshTokenExpiry: process.env.REFRESH_TOKEN_EXPIRY || '24h', // Reduced from 7d to 24h
             issuer: process.env.JWT_ISSUER || 'swaggo-backend',
             audience: process.env.JWT_AUDIENCE || 'swaggo-frontend',
-            algorithm: 'HS256'
+            algorithm: 'HS512' // Upgraded from HS256 to HS512 for better security
         },
 
         // Login Attempt Limits
@@ -64,7 +64,7 @@ const SecurityConfig = {
 
         // Password Policy
         password: {
-            minLength: parseInt(process.env.MIN_PASSWORD_LENGTH) || 12,
+            minLength: parseInt(process.env.MIN_PASSWORD_LENGTH) || 6,
             maxLength: parseInt(process.env.MAX_PASSWORD_LENGTH) || 128,
             requireUppercase: process.env.PASSWORD_REQUIRE_UPPERCASE !== 'false',
             requireLowercase: process.env.PASSWORD_REQUIRE_LOWERCASE !== 'false',
@@ -77,10 +77,15 @@ const SecurityConfig = {
 
         // Session Management
         session: {
-            maxConcurrentSessions: parseInt(process.env.MAX_SESSIONS) || 5,
-            sessionTimeout: parseInt(process.env.SESSION_TIMEOUT) || 15, // 15 minutes (reduced from 30 minutes)
+            maxConcurrentSessions: parseInt(process.env.MAX_SESSIONS) || 3, // Reduced from 5 to 3 for better security
+            sessionTimeout: parseInt(process.env.SESSION_TIMEOUT) || 1800000, // Reduced from 1 hour to 30 minutes
             extendOnActivity: true,
-            requireReauthForSensitive: true
+            requireReauthForSensitive: true,
+            inactivityTimeout: parseInt(process.env.INACTIVITY_TIMEOUT) || 900000, // 15 minutes of inactivity
+            maxSessionDuration: parseInt(process.env.MAX_SESSION_DURATION) || 43200000, // 12 hours max session
+            regenerateOnActivity: process.env.REGENERATE_SESSION_ON_ACTIVITY === 'true', // Regenerate session ID on activity
+            strictIPBinding: process.env.STRICT_IP_BINDING === 'true', // Bind session to IP address
+            deviceBinding: process.env.DEVICE_BINDING !== 'false' // Bind session to device fingerprint
         },
 
         // Two-Factor Authentication
@@ -106,7 +111,7 @@ const SecurityConfig = {
         // Authentication endpoints
         auth: {
             windowMs: 15 * 60 * 1000, // 15 minutes
-            max: process.env.NODE_ENV === 'production' ? 10 : 100,
+            max: process.env.NODE_ENV === 'production' ? 5 : 50, // Reduced from 10/100 to 5/50
             skipSuccessfulRequests: true,
             skipFailedRequests: false
         },
@@ -158,9 +163,8 @@ const SecurityConfig = {
         // 🔒 SECURITY FIX #64: Enhanced sameSite handling with appropriate defaults
         sameSite: (() => {
             if (process.env.NODE_ENV === 'production') return 'strict';
-            // Use 'lax' as default for development to improve security
-            // 'none' should only be used when explicitly required for cross-site requests
-            return process.env.COOKIE_SAME_SITE || 'lax';
+            // Use 'strict' as default for development to improve security
+            return process.env.COOKIE_SAME_SITE || 'strict';
         })(),
         // Domain handling: undefined for localhost development to allow cross-port
         domain: (() => {
@@ -173,7 +177,7 @@ const SecurityConfig = {
         })(),
         path: '/',
         // Enhanced maxAge calculation for remember-me functionality
-        maxAge: parseInt(process.env.COOKIE_MAX_AGE) || (7 * 24 * 60 * 60 * 1000), // 7 days default
+        maxAge: parseInt(process.env.COOKIE_MAX_AGE) || (24 * 60 * 60 * 1000), // Reduced from 7 days to 24 hours
         
         // CSRF Protection - Enhanced configuration
         csrf: {
@@ -186,10 +190,10 @@ const SecurityConfig = {
             // 🔒 SECURITY FIX #64: Consistent SameSite policy for CSRF cookies
             sameSite: (() => {
                 if (process.env.NODE_ENV === 'production') return 'strict';
-                // Use 'lax' as default for development to improve security
-                return process.env.CSRF_COOKIE_SAME_SITE || 'lax';
+                // Use 'strict' as default for development to improve security
+                return process.env.CSRF_COOKIE_SAME_SITE || 'strict';
             })(),
-            maxAge: 60 * 60 * 1000 // 1 hour for CSRF tokens
+            maxAge: 30 * 60 * 1000 // Reduced from 1 hour to 30 minutes for CSRF tokens
         }
     },
 

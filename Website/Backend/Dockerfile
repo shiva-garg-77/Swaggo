@@ -109,7 +109,7 @@ RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 ENV NODE_ENV=production \
     NODE_OPTIONS="--max-old-space-size=512 --no-deprecation" \
     UV_THREADPOOL_SIZE=4 \
-    PORT=5000 \
+    PORT=45799 \
     FORCE_COLOR=0
 
 # Security: Disable Node.js inspector and debugging
@@ -119,11 +119,11 @@ ENV NODE_OPTIONS="${NODE_OPTIONS} --inspect=0 --debug=0"
 USER appuser
 
 # Security: Expose only necessary port
-EXPOSE 5000
+EXPOSE 45799
 
 # Comprehensive health check with security considerations
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:5000/health/quick || exit 1
+  CMD curl -f http://localhost:45799/health/quick || exit 1
 
 # Use tini as PID 1 to handle signals properly (security best practice)
 ENTRYPOINT ["/sbin/tini", "--"]

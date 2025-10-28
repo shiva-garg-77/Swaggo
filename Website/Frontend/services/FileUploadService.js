@@ -4,9 +4,9 @@
  */
 
 import { EventEmitter } from 'events';
-import apiService from './ApiService';
-import validationService from './ValidationService';
-import notificationService from './NotificationService';
+import apiService from '@services/ApiService';
+import validationService from '@services/ValidationService';
+import notificationService from '@services/NotificationService';
 
 /**
  * Upload Status Constants

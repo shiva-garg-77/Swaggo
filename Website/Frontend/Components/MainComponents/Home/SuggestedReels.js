@@ -28,6 +28,11 @@ export default function SuggestedMoments({ onMomentClick = null }) {
   const { theme } = useTheme();
   const { user } = useSecureAuth();
   const router = useRouter();
+  
+  // Ensure router is properly initialized
+  if (!router || typeof router.push !== 'function') {
+    console.error('Router not properly initialized');
+  }
   const [currentPlayingIndex, setCurrentPlayingIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
   const [scrollPosition, setScrollPosition] = useState(0);
@@ -186,7 +191,16 @@ export default function SuggestedMoments({ onMomentClick = null }) {
     }
     
     // Navigate to moments page with the selected moment index
-    router.push(`/reel?moment=${index}`);
+    // Add safety check for router
+    if (router && typeof router.push === 'function') {
+      router.push(`/reel?moment=${index}`);
+    } else {
+      console.error('Router not available for navigation');
+      // Fallback to window.location
+      if (typeof window !== 'undefined') {
+        window.location.href = `/reel?moment=${index}`;
+      }
+    }
   };
 
   if (loading) {

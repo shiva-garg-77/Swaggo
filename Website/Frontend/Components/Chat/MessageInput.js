@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { useSocket } from '../Helper/PerfectSocketProvider';
+import { useSocket } from '@components/Helper/PerfectSocketProvider';
 import VoiceMessageRecorder from './VoiceMessageRecorder';
 import GifPanel from './GifPanel';
 import StickerPanel from './StickerPanel';
@@ -9,8 +9,8 @@ import EmojiPicker from './EmojiPicker';
 import MessageTemplatesPanel from './MessageTemplatesPanel';
 import InlineLinkPreviewBar from './InlineLinkPreviewBar';
 import { Clock, X, Mic } from 'lucide-react';
-import cdnService from '../../services/CDNService'; // 🔧 PERFORMANCE FIX #39: Import CDN service for image optimization
-import { LazyImage } from '../../utils/performanceOptimizations';
+import cdnService from '@services/CDNService'; // 🔧 PERFORMANCE FIX #39: Import CDN service for image optimization
+import { LazyImage } from '@utils/performanceOptimizations';
 
 export default function MessageInput({ 
   onSendMessage, 

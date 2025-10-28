@@ -62,6 +62,11 @@ export const PerformanceMonitoringProvider = ({ children }) => {
   
   // Update metrics periodically
   useEffect(() => {
+    // Only run in development
+    if (process.env.NODE_ENV !== 'development') {
+      return;
+    }
+    
     const interval = setInterval(() => {
       setMetrics(simpleMonitor.getAllMetrics());
     }, 5000); // Update every 5 seconds
@@ -86,8 +91,13 @@ export const PerformanceMonitoringProvider = ({ children }) => {
 export const usePerformanceMonitoring = () => {
   const context = useContext(PerformanceMonitoringContext);
   
+  // Return null object instead of throwing error in production
   if (!context) {
-    throw new Error('usePerformanceMonitoring must be used within a PerformanceMonitoringProvider');
+    return {
+      metrics: {},
+      updateMetric: () => {},
+      getMetric: () => null
+    };
   }
   
   return context;
@@ -100,7 +110,9 @@ export const PerformanceDashboard = () => {
     return null;
   }
   
-  const { metrics } = usePerformanceMonitoring();
+  // Safe access to context
+  const context = useContext(PerformanceMonitoringContext);
+  const { metrics = {} } = context || {};
   
   return (
     <div style={{
@@ -127,7 +139,10 @@ export const PerformanceDashboard = () => {
 
 // Performance monitoring hook for components
 export const useComponentPerformance = (componentName) => {
-  const { updateMetric } = usePerformanceMonitoring();
+  // Safe access to context
+  const context = useContext(PerformanceMonitoringContext);
+  const { updateMetric = () => {} } = context || {};
+  
   const renderStartRef = useRef(null);
   
   // Measure render time
@@ -138,7 +153,9 @@ export const useComponentPerformance = (componentName) => {
       return () => {
         if (renderStartRef.current) {
           const renderTime = performance.now() - renderStartRef.current;
-          updateMetric(`${componentName}_renderTime`, renderTime);
+          if (updateMetric) {
+            updateMetric(`${componentName}_renderTime`, renderTime);
+          }
         }
       };
     }
@@ -146,7 +163,7 @@ export const useComponentPerformance = (componentName) => {
   
   // Measure interaction time
   const measureInteraction = useCallback((interactionName, fn) => {
-    if (process.env.NODE_ENV === 'development') {
+    if (process.env.NODE_ENV === 'development' && updateMetric) {
       const start = performance.now();
       const result = fn();
       const end = performance.now();

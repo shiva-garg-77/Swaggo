@@ -64,17 +64,27 @@ class EnhancedApiClient {
     
     // Try to get token from cookie first
     if (typeof document !== 'undefined') {
-      const cookieToken = this.getCookieValue('csrf-token');
-      if (cookieToken) {
-        this.csrfToken = cookieToken;
-        this.csrfTokenExpiry = Date.now() + (55 * 60 * 1000); // 55 minutes
-        return cookieToken;
+      // Try multiple cookie names that the backend might set
+      const cookieNames = [
+        '__Secure-csrfToken',  // Most common in production
+        '__Host-csrfToken',    // Highest security level
+        'csrfToken',           // Fallback for development
+        'csrf-token'           // Legacy name
+      ];
+      
+      for (const cookieName of cookieNames) {
+        const cookieToken = this.getCookieValue(cookieName);
+        if (cookieToken) {
+          this.csrfToken = cookieToken;
+          this.csrfTokenExpiry = Date.now() + (55 * 60 * 1000); // 55 minutes
+          return cookieToken;
+        }
       }
     }
     
     // If no token available, make a request to get one
     try {
-      const response = await fetch(`${this.baseURL}/api/csrf-token`, {
+      const response = await fetch(`${this.baseURL}/api/v1/auth/csrf`, {
         method: 'GET',
         credentials: 'include',
         headers: {
@@ -214,13 +224,19 @@ class EnhancedApiClient {
   sanitizeUrl(url) {
     try {
       const urlObj = new URL(url);
-      // Remove sensitive query parameters
+      // Create a new URLSearchParams to avoid mutating read-only object
+      const newSearchParams = new URLSearchParams(urlObj.searchParams);
+      
+      // Remove sensitive query parameters from the copy
       const sensitiveParams = ['token', 'key', 'secret', 'password', 'auth'];
       sensitiveParams.forEach(param => {
-        if (urlObj.searchParams.has(param)) {
-          urlObj.searchParams.set(param, '[REDACTED]');
+        if (newSearchParams.has(param)) {
+          newSearchParams.set(param, '[REDACTED]');
         }
       });
+      
+      // Create new URL with sanitized params
+      urlObj.search = newSearchParams.toString();
       return urlObj.toString();
     } catch (e) {
       return '[INVALID_URL]';

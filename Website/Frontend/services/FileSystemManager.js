@@ -6,7 +6,7 @@
 
 import uploadConfig from '../config/uploadConfig.js';
 import MemoryManager from '../performance/MemoryManager.js';
-import { InputSanitizer, FileUploadSecurity } from '../security/SecurityConfig.js';
+import { InputSanitizer, FileUploadSecurity } from '../security/ClientSecurityHelpers.js';
 
 // File system error class
 class FileSystemError extends Error {

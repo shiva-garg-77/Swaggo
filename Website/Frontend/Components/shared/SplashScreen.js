@@ -1,6 +1,22 @@
 "use client";
 import { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+
+// Safe import for framer-motion to handle SSR/hydration issues
+let motion, AnimatePresence;
+try {
+  const framer = require('framer-motion');
+  motion = framer.motion;
+  AnimatePresence = framer.AnimatePresence;
+} catch (e) {
+  console.warn('Framer-motion failed to load:', e);
+  // Fallback components that render nothing
+  motion = {
+    div: ({ children, ...props }) => <div {...props}>{children}</div>,
+    span: ({ children, ...props }) => <span {...props}>{children}</span>,
+    p: ({ children, ...props }) => <p {...props}>{children}</p>
+  };
+  AnimatePresence = ({ children }) => <>{children}</>;
+}
 
 // A clean, symmetric splash screen that uses the site's logo and matches the theme
 export default function SplashScreen({ show = true, compact = false, onComplete }) {
@@ -17,6 +33,47 @@ export default function SplashScreen({ show = true, compact = false, onComplete 
   }, [show, onComplete]);
 
   if (!isVisible) return null;
+
+  // Check if motion is available
+  if (!motion || !AnimatePresence) {
+    console.warn('Framer-motion components not available, using fallback');
+    return (
+      <div className={`fixed inset-0 z-[9999] bg-white dark:bg-gray-950 flex items-center justify-center`}>
+        <div className="absolute inset-0" />
+        <div className="relative w-full max-w-sm px-8">
+          <div className={`mx-auto flex flex-col items-center justify-center ${compact ? 'space-y-4' : 'space-y-8'}`}>
+            <div className="relative">
+              <div className="w-20 h-20 rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-sm flex items-center justify-center">
+                <img
+                  src="/logo_light.png"
+                  alt="Swaggo"
+                  className="w-12 h-12 object-contain dark:hidden"
+                />
+                <img
+                  src="/Logo_dark1.png"
+                  alt="Swaggo"
+                  className="w-12 h-12 object-contain hidden dark:block"
+                />
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              {[0, 1, 2].map((i) => (
+                <span
+                  key={i}
+                  className="inline-block w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-600"
+                />
+              ))}
+            </div>
+            {!compact && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">
+                Loading...
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <AnimatePresence>

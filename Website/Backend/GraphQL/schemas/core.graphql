@@ -46,44 +46,116 @@ type AuthPayload {
 }
 
 # User type
+"""
+Represents a user in the system with authentication and profile information
+"""
 type User implements Node & Timestamped {
+  "Unique identifier for the user"
   id: ID!
+  
+  "Unique username for the user"
   username: String!
+  
+  "User's email address"
   email: String!
+  
+  "URL to the user's profile picture"
   profilePicture: URL
+  
+  "Associated profile information"
   profile: Profile
+  
+  "Timestamp when the user was created"
   createdAt: DateTime
+  
+  "Timestamp when the user was last updated"
   updatedAt: DateTime
 }
 
 # Profile type
+"""
+Represents a user's profile information and social connections
+"""
 type Profile implements Node & Timestamped {
+  "Unique identifier for the profile"
   id: ID!
+  
+  "Unique profile identifier"
   profileid: String!
+  
+  "URL to the profile picture"
   profilePic: URL
+  
+  "Whether the profile is private"
   isPrivate: Boolean
+  
+  "Whether the profile is verified"
   isVerified: Boolean
+  
+  "Username associated with the profile"
   username: String!
+  
+  "User's display name"
   name: String
+  
+  "User's biography"
   bio: String
+  
+  "List of followers"
   followers: [Profile!]
+  
+  "List of users being followed"
   following: [Profile!]
+  
+  "Number of followers"
   followersCount: Int
+  
+  "Number of users being followed"
   followingCount: Int
+  
+  "Number of posts"
   postsCount: Int
+  
+  "List of close friends"
   closeFriends: [CloseFriend!]
+  
+  "List of users for whom this profile is a close friend"
   closeFriendsOf: [CloseFriend!]
+  
+  "List of posts created by the user"
   posts: [Post!]
+  
+  "List of drafts created by the user"
   drafts: [Draft!]
+  
+  "List of posts liked by the user"
   likedPosts: [Post!]
+  
+  "List of posts saved by the user"
   savedPosts: [Post!]
+  
+  "List of memories associated with the user"
   memories: [Memory!]
+  
+  "List of blocked accounts"
   blockedAccounts: [BlockedAccount!]
+  
+  "List of restricted accounts"
   restrictedAccounts: [RestrictedAccount!]
+  
+  "List of mentions"
   mentions: [Mention!]
+  
+  "User settings"
   settings: UserSettings
+  
+  "List of stories"
   stories: [Story!]
+  
+  "Timestamp when the profile was created"
   createdAt: DateTime
+  
+  "Timestamp when the profile was last updated"
   updatedAt: DateTime
 }
 
@@ -106,45 +178,122 @@ type UserSettings implements Node & Timestamped {
 }
 
 # Post type
+"""
+Represents a social media post with content and engagement metrics
+"""
 type Post implements Node & Timestamped {
+  "Unique identifier for the post"
   id: ID!
+  
+  "Unique post identifier"
   postid: String!
+  
+  "Profile that created the post"
   profile: Profile!
+  
+  "URL to the post content"
   postUrl: URL!
+  
+  "List of likes on the post"
   like: [Like!]
+  
+  "List of comments on the post"
   comments: [Comment!]
+  
+  "List of mentions in the post"
   mentions: [Mention!]
+  
+  "Number of likes on the post"
   likeCount: Int!
+  
+  "Number of comments on the post"
   commentCount: Int!
+  
+  "Whether the current user has liked the post"
   isLikedByUser: Boolean!
+  
+  "Whether the current user has saved the post"
   isSavedByUser: Boolean!
+  
+  "Title of the post"
   title: String
+  
+  "Description of the post"
   description: String
+  
+  "Type of post content"
   postType: String!
+  
+  "Location associated with the post"
   location: String
+  
+  "List of tagged people"
   taggedPeople: [String!]
+  
+  "List of tags"
   tags: [String!]
+  
+  "Whether comments are allowed on the post"
   allowComments: Boolean
+  
+  "Whether to hide the like count"
   hideLikeCount: Boolean
+  
+  "Whether to auto-play media"
   autoPlay: Boolean
+  
+  "Whether the post is only visible to close friends"
   isCloseFriendOnly: Boolean
+  
+  "Timestamp when the post was created"
   createdAt: DateTime
+  
+  "Timestamp when the post was last updated"
   updatedAt: DateTime
 }
 
 # Comment type
+"""
+Represents a comment on a post
+"""
 type Comment implements Node & Timestamped {
+  "Unique identifier for the comment"
   id: ID!
+  
+  "Unique comment identifier"
   commentid: String!
+  
+  "Identifier of the post the comment belongs to"
   postid: String!
+  
+  "Profile that created the comment"
   profile: Profile!
+  
+  "Profile being replied to (if applicable)"
   userto: Profile
+  
+  "Identifier of the comment being replied to (if applicable)"
   commenttoid: String
+  
+  "Comment content"
   comment: String!
+  
+  "List of replies to this comment"
   replies: [Comment!]
+  
+  "List of likes on the comment"
+  like: [Like!]
+  
+  "Number of likes on the comment"
   likeCount: Int!
+  
+  "Whether the current user has liked the comment"
   isLikedByUser: Boolean!
+  
+  "Timestamp when the comment was created"
   createdAt: DateTime
+  
+  "Timestamp when the comment was last updated"
   updatedAt: DateTime
 }
 
@@ -306,47 +455,125 @@ type Highlight implements Node & Timestamped {
 }
 
 # Chat type
+"""
+Represents a chat conversation between users
+"""
 type Chat implements Node & Timestamped {
+  "Unique identifier for the chat"
   id: ID!
+  
+  "Unique chat identifier"
   chatid: String!
+  
+  "List of participants in the chat"
   participants: [Profile!]!
+  
+  "Type of chat (e.g., 'private', 'group')"
   chatType: String!
+  
+  "Name of the chat (for group chats)"
   chatName: String
+  
+  "URL to the chat avatar"
   chatAvatar: URL
+  
+  "Last message in the chat"
   lastMessage: Message
+  
+  "Timestamp of the last message"
   lastMessageAt: DateTime
+  
+  "Whether the chat is active"
   isActive: Boolean!
+  
+  "List of profiles that have muted the chat"
   mutedBy: [Profile!]
+  
+  "List of chat administrators"
   adminIds: [Profile!]
+  
+  "Profile that created the chat"
   createdBy: Profile!
+  
+  "List of messages in the chat"
   messages: [Message!]
+  
+  "Timestamp when the chat was created"
   createdAt: DateTime
+  
+  "Timestamp when the chat was last updated"
   updatedAt: DateTime
 }
 
 # Message type
+"""
+Represents a message in a chat
+"""
 type Message implements Node & Timestamped {
+  "Unique identifier for the message"
   id: ID!
+  
+  "Unique message identifier"
   messageid: String!
+  
+  "Identifier of the chat the message belongs to"
   chatid: String!
+  
+  "Chat the message belongs to"
   chat: Chat!
+  
+  "Identifier of the sender"
   senderid: String!
+  
+  "Profile of the sender"
   sender: Profile!
+  
+  "Type of message (e.g., 'text', 'image', 'video')"
   messageType: String!
+  
+  "Message content"
   content: String
+  
+  "List of attachments"
   attachments: [MessageAttachment!]
+  
+  "Message being replied to (if applicable)"
   replyTo: Message
+  
+  "List of mentioned profiles"
   mentions: [Profile!]
+  
+  "List of reactions to the message"
   reactions: [MessageReaction!]
+  
+  "List of profiles that have read the message"
   readBy: [MessageReadStatus!]
+  
+  "Whether the message has been edited"
   isEdited: Boolean
+  
+  "Edit history of the message"
   editHistory: [MessageEditHistory!]
+  
+  "Whether the message has been deleted"
   isDeleted: Boolean
+  
+  "Profile that deleted the message (if applicable)"
   deletedBy: Profile
+  
+  "Timestamp when the message was deleted (if applicable)"
   deletedAt: DateTime
+  
+  "Status of the message (e.g., 'sent', 'delivered', 'read')"
   messageStatus: String
+  
+  "Timestamp when the message was created"
   createdAt: DateTime
+  
+  "Timestamp when the message was last updated"
   updatedAt: DateTime
+  
+  "List of link previews in the message"
   linkPreviews: [LinkPreview!]
 }
 
@@ -854,5 +1081,9 @@ type MessageConnection {
   pageInfo: PageInfo!
   totalCount: Int!
 }
+
+
+
+
 
 

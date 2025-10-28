@@ -311,7 +311,7 @@ export class PerformanceMonitor {
           });
           
           // Log long tasks in development
-          if (isDevelopment()) {
+          if (isDevelopment) {
             console.warn(`🐌 Long task detected: ${entry.duration}ms`, entry);
           }
         });
@@ -336,7 +336,7 @@ export class PerformanceMonitor {
             this.metrics.cumulativeLayoutShift = clsValue;
             
             // Log significant layout shifts in development
-            if (isDevelopment() && entry.value > 0.1) {
+            if (isDevelopment && entry.value > 0.1) {
               console.warn(`📏 Significant layout shift: ${entry.value}`, entry);
             }
           }
@@ -423,7 +423,7 @@ export const usePerformanceMonitoring = (componentName) => {
   useEffect(() => {
     renderCount.current += 1;
     
-    if (isDevelopment() && renderCount.current > 10) {
+    if (isDevelopment && renderCount.current > 10) {
       console.warn(`🔄 Component "${componentName}" has rendered ${renderCount.current} times`);
     }
   });
@@ -444,7 +444,7 @@ export const usePerformanceMonitoring = (componentName) => {
  */
 export const BundleAnalyzer = {
   analyzeBundle: () => {
-    if (typeof window === 'undefined' || !isDevelopment()) return;
+    if (typeof window === 'undefined' || !isDevelopment) return;
     
     const modules = {};
     const scripts = Array.from(document.scripts);
@@ -469,7 +469,7 @@ export const BundleAnalyzer = {
   },
   
   reportLargeAssets: (threshold = 100000) => {
-    if (typeof window === 'undefined' || !isDevelopment()) return;
+    if (typeof window === 'undefined' || !isDevelopment) return;
     
     const largeAssets = [];
     
@@ -495,7 +495,7 @@ export const BundleAnalyzer = {
 };
 
 // Initialize performance monitoring in development
-if (isDevelopment() && typeof window !== 'undefined') {
+if (isDevelopment && typeof window !== 'undefined') {
   window.addEventListener('load', () => {
     setTimeout(() => {
       performanceMonitor.init();

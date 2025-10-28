@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useFixedSecureAuth } from '../context/FixedSecureAuthContext';
-import enhancedMessageService from '../services/MessageService';
+import { useFixedSecureAuth } from '@context/FixedSecureAuthContext';
+import enhancedMessageService from '@services/MessageService';
 
 /**
  * 🔒 REACT HOOK FOR ENHANCED MESSAGE SERVICE

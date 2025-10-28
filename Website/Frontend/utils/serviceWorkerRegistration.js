@@ -40,20 +40,28 @@ export function registerServiceWorker() {
 
 export function unregisterServiceWorker() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.ready
-      .then((registration) => {
-        registration.unregister();
+    navigator.serviceWorker.getRegistrations()
+      .then((registrations) => {
+        registrations.forEach((registration) => {
+          registration.unregister()
+            .then((success) => {
+              if (success) {
+                console.log('[Service Worker] Unregistered successfully');
+              } else {
+                console.warn('[Service Worker] Unregistration failed');
+              }
+            })
+            .catch((error) => {
+              console.error('[Service Worker] Unregistration error:', error);
+            });
+        });
       })
       .catch((error) => {
-        console.error('[Service Worker] Unregistration failed:', error);
+        console.error('[Service Worker] Failed to get registrations:', error);
       });
   }
 }
 
-// Check if service worker is supported and register it
-if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-  // Only register in production environment
-  if (process.env.NODE_ENV === 'production') {
-    registerServiceWorker();
-  }
-}
+// ✅ FIX: REMOVED AUTO-EXECUTION - This was causing infinite recompilations!
+// Service worker registration is now handled ONLY in ClientProviders.js
+// This file now only exports the functions, doesn't auto-execute them

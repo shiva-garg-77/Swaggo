@@ -1,23 +1,40 @@
 "use client";
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
+import { useState, useEffect, useRef } from 'react';
+import OptimizedLink from '../Helper/OptimizedLink';
 import { useTheme } from '../Helper/ThemeProvider';
 import { useFixedSecureAuth } from '../../context/FixedSecureAuthContext';
 
 export default function ForgetPass() {
   const { theme } = useTheme();
-  const { forgetPassword, ErrorMsg, successMsg, clearMessages, clearError } = useFixedSecureAuth();
+  const { error: authError, clearError } = useFixedSecureAuth();
   const [formData, setFormData] = useState({
     email: '',
   });
   const [fieldErrors, setFieldErrors] = useState({});
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+  
+  // Use ref to track if component is mounted
+  const isMountedRef = useRef(false);
 
-  // Clear messages on component unmount only
+  // Clear messages on component mount and unmount
   useEffect(() => {
+    isMountedRef.current = true;
+    
+    // Clear any existing messages when component mounts
+    setErrorMsg('');
+    setSuccessMsg('');
+    
     return () => {
-      clearMessages();
+      isMountedRef.current = false;
+      // Only clear messages if component is still mounted
+      if (isMountedRef.current) {
+        setErrorMsg('');
+        setSuccessMsg('');
+        if (clearError) clearError();
+      }
     };
-  }, []);
+  }, []); // ✅ FIX: Empty dependency array to run only on mount/unmount
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -35,7 +52,10 @@ export default function ForgetPass() {
     }
     
     // Clear global error message when user starts typing
-    if (ErrorMsg) {
+    if (errorMsg) {
+      setErrorMsg('');
+    }
+    if (authError && clearError) {
       clearError();
     }
   };
@@ -60,10 +80,34 @@ export default function ForgetPass() {
       return;
     }
 
-    const result = await forgetPassword(formData.email);
-    
-    if (result.success) {
-      setFormData({ email: '' });
+    try {
+      // Make API call to reset password
+      const response = await fetch('/api/auth/forget-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email: formData.email })
+      });
+      
+      const result = await response.json();
+      
+      // Only update state if component is still mounted
+      if (isMountedRef.current) {
+        if (result.success) {
+          setSuccessMsg('Password reset link sent to your email!');
+          setErrorMsg('');
+          setFormData({ email: '' });
+        } else {
+          setErrorMsg(result.message || 'Failed to send reset link');
+          setSuccessMsg('');
+        }
+      }
+    } catch (error) {
+      // Only update state if component is still mounted
+      if (isMountedRef.current) {
+        setErrorMsg('Network error. Please try again.');
+        setSuccessMsg('');
+      }
     }
   };
 
@@ -107,7 +151,7 @@ export default function ForgetPass() {
             )}
           </div>
           {/* Error/Success Messages */}
-          {ErrorMsg && <p className="text-red-500 text-sm mb-3 text-center">{ErrorMsg}</p>}
+          {errorMsg && <p className="text-red-500 text-sm mb-3 text-center">{errorMsg}</p>}
           {successMsg && <p className="text-green-500 text-sm mb-3 text-center">{successMsg}</p>}
 
           <button
@@ -121,9 +165,9 @@ export default function ForgetPass() {
         <div className='h-[0.5px] w-full bg-cyan-900'></div>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 mt-6 transition-colors duration-300">
           Remember your password?{' '}
-          <Link href="/" className="text-blue-500 hover:underline">
+          <OptimizedLink href="/" className="text-blue-500 hover:underline" prefetch={true}>
             Back to Login
-          </Link>
+          </OptimizedLink>
         </p>
       </div>
     </div>

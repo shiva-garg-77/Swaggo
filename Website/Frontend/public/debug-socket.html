@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Socket Authentication Debug</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #00ff00;
+        }
+        .log {
+            padding: 5px;
+            margin: 2px 0;
+            border-left: 3px solid #00ff00;
+            padding-left: 10px;
+        }
+        .error { border-left-color: #ff0000; color: #ff0000; }
+        .warn { border-left-color: #ffaa00; color: #ffaa00; }
+        .success { border-left-color: #00ff00; color: #00ff00; }
+        .info { border-left-color: #0088ff; color: #0088ff; }
+        button {
+            background: #00ff00;
+            color: #1a1a1a;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            font-family: monospace;
+        }
+        button:hover {
+            background: #00dd00;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔌 Socket Authentication Diagnostics</h1>
+    <div>
+        <button onclick="checkCookies()">Check Cookies</button>
+        <button onclick="checkAuth()">Check Auth Status</button>
+        <button onclick="testSocket()">Test Socket Connection</button>
+        <button onclick="clearLogs()">Clear Logs</button>
+    </div>
+    <hr>
+    <div id="logs"></div>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script>
+        const logContainer = document.getElementById('logs');
+
+        function log(message, type = 'info') {
+            const logDiv = document.createElement('div');
+            logDiv.className = `log ${type}`;
+            logDiv.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logContainer.appendChild(logDiv);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            console.log(message);
+        }
+
+        function clearLogs() {
+            logContainer.innerHTML = '';
+        }
+
+        function checkCookies() {
+            log('=== Checking Cookies ===', 'info');
+            const cookies = document.cookie.split(';').map(c => c.trim());
+            
+            if (cookies.length === 0 || (cookies.length === 1 && cookies[0] === '')) {
+                log('❌ No cookies found!', 'error');
+                log('User is likely not authenticated', 'error');
+                return;
+            }
+
+            log(`Found ${cookies.length} cookies:`, 'success');
+            cookies.forEach(cookie => {
+                const [name, value] = cookie.split('=');
+                const displayValue = value ? value.substring(0, 20) + '...' : 'empty';
+                log(`  📦 ${name}: ${displayValue}`, 'info');
+            });
+
+            // Check for auth tokens
+            const hasAccessToken = cookies.some(c => c.includes('accessToken') || c.includes('__Host-accessToken') || c.includes('__Secure-accessToken'));
+            const hasRefreshToken = cookies.some(c => c.includes('refreshToken') || c.includes('__Host-refreshToken') || c.includes('__Secure-refreshToken'));
+
+            if (hasAccessToken && hasRefreshToken) {
+                log('✅ Both access and refresh tokens found', 'success');
+            } else if (hasAccessToken) {
+                log('⚠️  Only access token found (missing refresh token)', 'warn');
+            } else if (hasRefreshToken) {
+                log('⚠️  Only refresh token found (missing access token)', 'warn');
+            } else {
+                log('❌ No authentication tokens found in cookies', 'error');
+                log('User needs to log in', 'error');
+            }
+        }
+
+        async function checkAuth() {
+            log('=== Checking Auth Status ===', 'info');
+            
+            try {
+                const response = await fetch('/api/auth/status', {
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    log('✅ Auth Status: ' + JSON.stringify(data, null, 2), 'success');
+                } else {
+                    log(`❌ Auth check failed: ${response.status} ${response.statusText}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Error checking auth: ${error.message}`, 'error');
+            }
+        }
+
+        function testSocket() {
+            log('=== Testing Socket Connection ===', 'info');
+            log('Attempting to connect to: ' + window.location.origin, 'info');
+
+            const socket = io(window.location.origin, {
+                withCredentials: true,
+                auth: {
+                    timestamp: Date.now()
+                },
+                autoConnect: true,
+                timeout: 15000,
+                transports: ['polling', 'websocket']
+            });
+
+            socket.on('connect', () => {
+                log('✅ Socket connected successfully!', 'success');
+                log(`Socket ID: ${socket.id}`, 'success');
+            });
+
+            socket.on('authenticated', (data) => {
+                log('✅ Socket authenticated!', 'success');
+                log('User: ' + JSON.stringify(data.user, null, 2), 'success');
+            });
+
+            socket.on('connect_error', (error) => {
+                log(`❌ Connection error: ${error.message}`, 'error');
+                log('Error type: ' + error.type, 'error');
+                log('This usually means authentication failed or cookies are not being sent', 'warn');
+            });
+
+            socket.on('error', (error) => {
+                log(`❌ Socket error: ${JSON.stringify(error)}`, 'error');
+            });
+
+            socket.on('disconnect', (reason) => {
+                log(`⚠️  Socket disconnected: ${reason}`, 'warn');
+            });
+
+            // Auto disconnect after 30 seconds
+            setTimeout(() => {
+                if (socket.connected) {
+                    log('Disconnecting test socket...', 'info');
+                    socket.disconnect();
+                }
+            }, 30000);
+        }
+
+        // Auto-run diagnostics on page load
+        window.addEventListener('load', () => {
+            log('🚀 Socket Diagnostics Tool Loaded', 'success');
+            log('Click buttons above to run diagnostics', 'info');
+            
+            setTimeout(() => {
+                checkCookies();
+            }, 500);
+        });
+    </script>
+</body>
+</html>

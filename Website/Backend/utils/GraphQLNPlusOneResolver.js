@@ -1,4 +1,4 @@
-import DataLoaderService from '../Services/DataLoaderService.js';
+import DataLoaderService from '../Services/System/DataLoaderService.js';
 import GraphQLAuthHelper from '../utils/GraphQLAuthHelper.js';
 
 /**
@@ -595,9 +595,9 @@ class GraphQLNPlusOneResolver {
     
     // Return only the resolvers that match the GraphQL schema
     return {
-      Posts: this.createPostResolvers(),
-      Profiles: this.createProfileResolvers(),
-      Comments: this.createCommentResolvers(),
+      Post: this.createPostResolvers(),
+      Profile: this.createProfileResolvers(),
+      Comment: this.createCommentResolvers(),
       Chat: this.createChatResolvers(), // Add chat resolvers
       Message: this.createMessageResolvers() // Add message resolvers
       // Remove dataLoader and authHelper from the return object as they're not part of the schema

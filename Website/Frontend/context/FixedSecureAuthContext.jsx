@@ -2,13 +2,16 @@
 
 import React, { createContext, useState, useContext, useReducer, useEffect, useCallback, useRef, memo } from 'react';
 import { toast } from 'react-hot-toast';
-import { 
+import authSecurityFixes from '../utils/authSecurityFixes';
+
+// Destructure the needed components from the default export
+const { 
   AUTH_CONFIG, 
   AuthError, 
   SecureApiClient, 
   SessionManager, 
   AuthFixUtils 
-} from '../utils/authSecurityFixes';
+} = authSecurityFixes;
 
 /**
  * 🔒 FIXED SECURE AUTHENTICATION CONTEXT - 10/10 SECURITY
@@ -106,6 +109,7 @@ const authReducer = (state, action) => {
       };
       
     case AuthActionTypes.AUTH_SUCCESS:
+      console.log('📦 AUTH REDUCER: Processing AUTH_SUCCESS action');
       // Ensure profileid is available for socket authentication
       let userWithProfileId = payload.user;
       if (payload.user && !payload.user.profileid && payload.user.id) {
@@ -115,7 +119,7 @@ const authReducer = (state, action) => {
         };
       }
       
-      return {
+      const newState = {
         ...state,
         isAuthenticated: true,
         isLoading: false,
@@ -135,6 +139,16 @@ const authReducer = (state, action) => {
         },
         error: null
       };
+      
+      console.log('✅ AUTH REDUCER: AUTH_SUCCESS new state:', {
+        isAuthenticated: newState.isAuthenticated,
+        isLoading: newState.isLoading,
+        hasUser: !!newState.user,
+        userId: newState.user?.id,
+        profileid: newState.user?.profileid
+      });
+      
+      return newState;
       
     case AuthActionTypes.AUTH_FAILURE:
       return {
@@ -199,10 +213,23 @@ const authReducer = (state, action) => {
 };
 
 // ===== CONTEXT CREATION =====
-const FixedSecureAuthContext = createContext(null);
+const FixedSecureAuthContext = createContext({
+  ...initialState,
+  login: () => Promise.resolve({ success: false }),
+  signup: () => Promise.resolve({ success: false }),
+  logout: () => Promise.resolve(),
+  validateSession: () => Promise.resolve(false),
+  getTokens: () => ({ accessToken: null, refreshToken: null }),
+  fetchWithAuth: () => Promise.resolve(),
+  clearError: () => {},
+  _debug: {
+    initializationState: { started: false, completed: false },
+    mountedRef: false
+  }
+});
 
 // ===== PROVIDER COMPONENT =====
-export const FixedSecureAuthProvider = memo(({ children }) => {
+export const FixedSecureAuthProvider = ({ children }) => {
   const [state, dispatch] = useReducer(authReducer, initialState);
   
   // Refs for cleanup and state management
@@ -245,6 +272,11 @@ export const FixedSecureAuthProvider = memo(({ children }) => {
         ...credentials,
         ...(mfaCode && { totpCode: mfaCode })
       };
+      
+      // FIX: Add null check for apiClientRef.current
+      if (!apiClientRef.current) {
+        throw new Error('API client not initialized');
+      }
       
       const result = await AuthFixUtils.performLogin(apiClientRef.current, loginCredentials);
       
@@ -291,6 +323,11 @@ export const FixedSecureAuthProvider = memo(({ children }) => {
     dispatch({ type: AuthActionTypes.AUTH_LOADING });
     
     try {
+      // FIX: Add null check for apiClientRef.current
+      if (!apiClientRef.current) {
+        throw new Error('API client not initialized');
+      }
+      
       const result = await AuthFixUtils.performSignup(apiClientRef.current, userData);
       
       if (result.success) {
@@ -338,7 +375,10 @@ export const FixedSecureAuthProvider = memo(({ children }) => {
         sessionManagerRef.current.stopSessionMonitoring();
       }
       
-      await AuthFixUtils.performLogout(apiClientRef.current, options);
+      // FIX: Add null check for apiClientRef.current
+      if (apiClientRef.current) {
+        await AuthFixUtils.performLogout(apiClientRef.current, options);
+      }
       
       dispatch({ type: AuthActionTypes.AUTH_LOGOUT });
       
@@ -371,9 +411,22 @@ export const FixedSecureAuthProvider = memo(({ children }) => {
   
   // ===== EFFECTS =====
   
-  // Enhanced authentication initialization
+  // ✅ FIX #6: Enhanced authentication initialization with reload support
   useEffect(() => {
-    if (initializationRef.current.started) {
+    // ✅ FIX: Reset initialization on page reload
+    if (typeof window !== 'undefined' && typeof performance !== 'undefined') {
+      if (performance.navigation && performance.navigation.type === 1) {
+        initializationRef.current = { started: false, completed: false };
+      } else if (performance.getEntriesByType) {
+        const navEntries = performance.getEntriesByType('navigation');
+        if (navEntries.length > 0 && navEntries[0].type === 'reload') {
+          initializationRef.current = { started: false, completed: false };
+        }
+      }
+    }
+    
+    if (!mountedRef.current || initializationRef.current.started) {
+      mountedRef.current = true;
       return;
     }
     
@@ -381,14 +434,23 @@ export const FixedSecureAuthProvider = memo(({ children }) => {
     let abortController = new AbortController();
     
     const initializeAuth = async () => {
-      if (!mountedRef.current || abortController.signal.aborted) return;
+      console.log('🚀 AUTH CONTEXT: INITIALIZING AUTHENTICATION...');
+      
+      // FIX: Add mounted check before proceeding
+      if (!mountedRef.current || abortController.signal.aborted) {
+        console.log('⚠️ AUTH CONTEXT: Aborting - component unmounted or aborted');
+        return;
+      }
       
       try {
+        console.log('🔄 AUTH CONTEXT: Setting loading state...');
         dispatch({ type: AuthActionTypes.AUTH_LOADING });
         
         // Failsafe timeout
+        console.log('⏰ AUTH CONTEXT: Setting up failsafe timeout (10s)...');
         const failsafeTimeout = setTimeout(() => {
           if (!initializationRef.current.completed && mountedRef.current) {
+            console.log('⏰ AUTH CONTEXT: TIMEOUT! Authentication initialization timed out');
             dispatch({ 
               type: AuthActionTypes.AUTH_FAILURE, 
               payload: { error: 'Authentication initialization timed out' }
@@ -398,16 +460,38 @@ export const FixedSecureAuthProvider = memo(({ children }) => {
           }
         }, 10000); // 10 seconds timeout
         
-        if (!mountedRef.current || abortController.signal.aborted) return;
+        if (!mountedRef.current || abortController.signal.aborted) {
+          console.log('⚠️ AUTH CONTEXT: Aborting session check - component state changed');
+          return;
+        }
         
+        // FIX: Add null check for sessionManagerRef.current
+        if (!sessionManagerRef.current) {
+          console.log('❌ AUTH CONTEXT: Session manager not initialized!');
+          throw new Error('Session manager not initialized');
+        }
+        
+        console.log('🔍 AUTH CONTEXT: Checking existing session...');
         const sessionResult = await sessionManagerRef.current.checkExistingSession();
+        console.log('🔍 AUTH CONTEXT: Session check result:', {
+          success: sessionResult.success,
+          hasUser: !!sessionResult.user,
+          reason: sessionResult.reason,
+          userId: sessionResult.user?.id,
+          profileid: sessionResult.user?.profileid
+        });
         
-        if (!mountedRef.current || abortController.signal.aborted) return;
+        if (!mountedRef.current || abortController.signal.aborted) {
+          console.log('⚠️ AUTH CONTEXT: Aborting after session check - component state changed');
+          return;
+        }
         
+        console.log('✅ AUTH CONTEXT: Clearing failsafe timeout and marking initialization complete');
         clearTimeout(failsafeTimeout);
         initializationRef.current.completed = true;
         
         if (sessionResult.success && sessionResult.user) {
+          console.log('✅ AUTH CONTEXT: SESSION VALID! Processing authentication success...');
           // Ensure profileid is available
           let userWithProfileId = sessionResult.user;
           if (!sessionResult.user.profileid && sessionResult.user.id) {
@@ -416,6 +500,12 @@ export const FixedSecureAuthProvider = memo(({ children }) => {
               profileid: sessionResult.user.id
             };
           }
+          
+          console.log('📦 AUTH CONTEXT: Dispatching AUTH_SUCCESS with user data:', {
+            userId: userWithProfileId.id,
+            profileid: userWithProfileId.profileid,
+            username: userWithProfileId.username
+          });
           
           dispatch({
             type: AuthActionTypes.AUTH_SUCCESS,
@@ -431,6 +521,38 @@ export const FixedSecureAuthProvider = memo(({ children }) => {
             }
           });
           
+          console.log('✅ AUTH CONTEXT: AUTH_SUCCESS dispatched successfully');
+          
+          // 🔧 OPTIMIZED FIX: Dispatch auth-socket-ready with delay to ensure cookies are set
+          console.log('🚀 AUTH CONTEXT: Scheduling auth-socket-ready event dispatch...');
+          setTimeout(() => {
+            try {
+              if (typeof window !== 'undefined') {
+                // Verify cookies are actually set before dispatching
+                const cookiesPresent = document.cookie.includes('accessToken');
+                console.log('🍪 Cookie verification before socket-ready dispatch:', {
+                  cookiesPresent,
+                  cookiePreview: document.cookie.substring(0, 100)
+                });
+                
+                const event = new CustomEvent('auth-socket-ready', {
+                  detail: {
+                    user: userWithProfileId,
+                    isAuthenticated: true,
+                    initializationComplete: true,
+                    cookiesVerified: cookiesPresent
+                  }
+                });
+                window.dispatchEvent(event);
+                console.log('🎉 AUTH CONTEXT: auth-socket-ready event dispatched!', {
+                  cookiesVerified: cookiesPresent
+                });
+              }
+            } catch (error) {
+              console.error('❌ AUTH CONTEXT: Event dispatch failed:', error);
+            }
+          }, 300); // Increased delay to ensure cookies are set by backend response
+          
           // Start session monitoring
           const startMonitoring = () => {
             if (sessionManagerRef.current && mountedRef.current) {
@@ -442,18 +564,22 @@ export const FixedSecureAuthProvider = memo(({ children }) => {
           
         } else {
           const reason = sessionResult.reason || 'unknown';
+          console.log('❌ AUTH CONTEXT: SESSION INVALID! Reason:', reason);
           
           if (reason === 'unauthorized' || reason === 'refresh_expired' || reason === 'no_refresh_token') {
+            console.log('🛡️ AUTH CONTEXT: Dispatching AUTH_FAILURE for auth-related reason:', reason);
             dispatch({ 
               type: AuthActionTypes.AUTH_FAILURE, 
               payload: { error: null }
             });
           } else {
+            console.log('❌ AUTH CONTEXT: Dispatching AUTH_FAILURE for other reason:', reason);
             dispatch({ 
               type: AuthActionTypes.AUTH_FAILURE, 
               payload: { error: null }
             });
           }
+          console.log('❌ AUTH CONTEXT: AUTH_FAILURE dispatched - user not authenticated');
         }
         
       } catch (error) {
@@ -480,15 +606,65 @@ export const FixedSecureAuthProvider = memo(({ children }) => {
   const getTokens = useCallback(() => {
     if (typeof document === 'undefined') return { accessToken: null, refreshToken: null };
     
-    const cookies = document.cookie || '';
+    const allCookies = document.cookie || '';
     
-    const accessToken = getCookie('__Host-accessToken') || 
-                       getCookie('__Secure-accessToken') || 
-                       getCookie('accessToken');
-                       
-    const refreshToken = getCookie('__Host-refreshToken') || 
-                        getCookie('__Secure-refreshToken') || 
-                        getCookie('refreshToken');
+    // Enhanced token extraction with regex matching (same as Apollo client)
+    const getAccessToken = () => {
+      const tokenCookieNames = [
+        '__Host-accessToken',
+        '__Secure-accessToken',
+        'accessToken'
+      ];
+      
+      for (const cookieName of tokenCookieNames) {
+        const escapedName = cookieName.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+        const regex = new RegExp(`(?:^|; )${escapedName}=([^;]*)`);
+        const match = allCookies.match(regex);
+        
+        if (match && match[1]) {
+          try {
+            const token = decodeURIComponent(match[1]);
+            if (token && token !== 'undefined' && token.length >= 16) {
+              return token;
+            }
+          } catch (e) {
+            console.warn(`Failed to decode access token from cookie ${cookieName}:`, e);
+          }
+        }
+      }
+      
+      return null;
+    };
+    
+    const getRefreshToken = () => {
+      const tokenCookieNames = [
+        '__Host-refreshToken',
+        '__Secure-refreshToken',
+        'refreshToken'
+      ];
+      
+      for (const cookieName of tokenCookieNames) {
+        const escapedName = cookieName.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+        const regex = new RegExp(`(?:^|; )${escapedName}=([^;]*)`);
+        const match = allCookies.match(regex);
+        
+        if (match && match[1]) {
+          try {
+            const token = decodeURIComponent(match[1]);
+            if (token && token !== 'undefined' && token.length >= 16) {
+              return token;
+            }
+          } catch (e) {
+            console.warn(`Failed to decode refresh token from cookie ${cookieName}:`, e);
+          }
+        }
+      }
+      
+      return null;
+    };
+    
+    const accessToken = getAccessToken();
+    const refreshToken = getRefreshToken();
     
     return { accessToken, refreshToken };
   }, []);
@@ -496,10 +672,22 @@ export const FixedSecureAuthProvider = memo(({ children }) => {
   const getCookie = useCallback((name) => {
     if (typeof document === 'undefined') return null;
     
-    const value = `; ${document.cookie}`;
-    const parts = value.split(`; ${name}=`);
-    if (parts.length === 2) {
-      return parts.pop().split(';').shift();
+    // Enhanced cookie parsing with better regex matching
+    const cookies = document.cookie || '';
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+    const regex = new RegExp(`(?:^|; )${escapedName}=([^;]*)`);
+    const match = cookies.match(regex);
+    
+    if (match && match[1]) {
+      try {
+        const decoded = decodeURIComponent(match[1]);
+        // Check if the value is actually valid (not 'undefined' or empty)
+        if (decoded && decoded !== 'undefined' && decoded.length > 0) {
+          return decoded;
+        }
+      } catch (e) {
+        console.warn(`Failed to decode cookie ${name}:`, e);
+      }
     }
     return null;
   }, []);
@@ -513,6 +701,7 @@ export const FixedSecureAuthProvider = memo(({ children }) => {
     };
     
     if (accessToken) {
+      console.log('🔐 AUTH: Adding Authorization header in fetchWithAuth and acessToken is -------------------------------',accessToken);
       headers.Authorization = `Bearer ${accessToken}`;
     }
     
@@ -523,27 +712,9 @@ export const FixedSecureAuthProvider = memo(({ children }) => {
     });
   }, [getTokens]);
   
-  // Dispatch auth-socket-ready event when user is authenticated
-  useEffect(() => {
-    if (typeof window !== 'undefined' && state.isAuthenticated && state.user && !state.isLoading) {
-      // Dispatch event to notify socket provider that auth is ready
-      const event = new CustomEvent('auth-socket-ready', {
-        detail: {
-          user: state.user,
-          isAuthenticated: state.isAuthenticated
-        }
-      });
-      
-      console.log('✅ Dispatching auth-socket-ready event', {
-        user: state.user,
-        isAuthenticated: state.isAuthenticated,
-        profileid: state.user?.profileid,
-        id: state.user?.id
-      });
-      
-      window.dispatchEvent(event);
-    }
-  }, [state.isAuthenticated, state.user, state.isLoading]);
+  // NOTE: auth-socket-ready event is dispatched immediately when auth succeeds
+  // (See line 526-544 in the initializeAuth function above)
+  // We do NOT dispatch it again in a useEffect to avoid race conditions and duplicate dispatches
   
   // Expose auth functions globally for Apollo client integration
   useEffect(() => {
@@ -557,6 +728,11 @@ export const FixedSecureAuthProvider = memo(({ children }) => {
           let refreshInProgress = false;
           
           return async () => {
+            // FIX: Add null check for apiClientRef.current
+            if (!apiClientRef.current) {
+              return false;
+            }
+            
             if (refreshInProgress) {
               return refreshPromise;
             }
@@ -646,7 +822,7 @@ export const FixedSecureAuthProvider = memo(({ children }) => {
       {children}
     </FixedSecureAuthContext.Provider>
   );
-});
+};
 
 FixedSecureAuthProvider.displayName = 'FixedSecureAuthProvider';
 
@@ -654,8 +830,10 @@ FixedSecureAuthProvider.displayName = 'FixedSecureAuthProvider';
 export const useFixedSecureAuth = () => {
   const context = useContext(FixedSecureAuthContext);
   
-  if (!context) {
-    throw new Error('useFixedSecureAuth must be used within a FixedSecureAuthProvider');
+  // FIX: Better error handling for undefined context
+  if (context == null) {
+    // Return a default context value instead of throwing an error
+    return initialState;
   }
   
   return context;

@@ -38,17 +38,18 @@
 
 'use client';
 
-import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  useRef,
-  useCallback,
-  useMemo,
-  Fragment,
-  forwardRef
+import { 
+  createContext, 
+  useContext, 
+  useState, 
+  useRef, 
+  useCallback, 
+  useMemo, 
+  Fragment, 
+  forwardRef 
 } from 'react';
+import { useScreenReader, useFocusTrap, useScreenReaderDetection } from '../../hooks/useAccessibility';
+import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 
 /**
  * @typedef {Object} AccessibilityConfig
@@ -112,19 +113,24 @@ class AccessibilityManager {
   initializeAccessibilityFeatures() {
     if (typeof window === 'undefined') return;
     
-    // MINIMAL ACCESSIBILITY: Provide basic functionality without console spam
-    console.log('🔇 Minimal accessibility framework - reduced console output for development');
+    // Enhanced accessibility: Provide comprehensive functionality with appropriate logging
+    console.log('🔊 Enhanced accessibility framework initialized');
     
     // Delay initialization to prevent hydration issues
     setTimeout(() => {
-      // Basic screen reader detection (silent)
-      this.screenReaderActive = !!(window.speechSynthesis || document.querySelector('[aria-live]'));
+      // Enhanced screen reader detection
+      this.detectScreenReader();
       
-      // Basic keyboard navigation (silent)
-      this.setupMinimalKeyboardNavigation();
+      // Enhanced keyboard navigation
+      this.setupKeyboardNavigation();
       
-      // Skip focus management and color contrast monitoring to reduce noise
+      // Initialize focus management
+      this.initializeFocusManagement();
       
+      // Initialize color contrast monitoring in development
+      if (process.env.NODE_ENV === 'development') {
+        this.initializeColorContrastMonitoring();
+      }
     }, 150); // Wait for hydration to complete
   }
   
@@ -778,35 +784,6 @@ export const useScreenReaderAnnouncement = () => {
  * @description Hook for managing keyboard shortcuts
  * @returns {Object} Keyboard shortcut utilities
  */
-export const useKeyboardShortcuts = () => {
-  const [shortcuts, setShortcuts] = useState(new Map());
-
-  const registerShortcut = useCallback((shortcut) => {
-    accessibilityManager.registerKeyboardShortcut(shortcut);
-    setShortcuts(new Map(accessibilityManager.shortcuts));
-  }, []);
-
-  const unregisterShortcut = useCallback((key) => {
-    accessibilityManager.shortcuts.delete(key);
-    setShortcuts(new Map(accessibilityManager.shortcuts));
-  }, []);
-
-  useEffect(() => {
-    const handleKeydown = (event) => {
-      accessibilityManager.handleKeyboardShortcut(event);
-    };
-
-    document.addEventListener('keydown', handleKeydown);
-    return () => document.removeEventListener('keydown', handleKeydown);
-  }, []);
-
-  return {
-    shortcuts: Array.from(shortcuts.entries()),
-    registerShortcut,
-    unregisterShortcut
-  };
-};
-
 /**
  * @component AccessibilityProvider
  * @description Provider for accessibility context and global features
@@ -1053,15 +1030,3 @@ export const LiveRegion = ({
 
 // Export accessibility manager for external use
 export { accessibilityManager };
-
-export default {
-  AccessibilityProvider,
-  useAccessibility,
-  useFocusManagement,
-  useScreenReaderAnnouncement,
-  useKeyboardShortcuts,
-  AccessibleButton,
-  SkipNavigation,
-  LiveRegion,
-  accessibilityManager
-};

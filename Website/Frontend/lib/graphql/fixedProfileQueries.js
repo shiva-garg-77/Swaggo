@@ -2,8 +2,8 @@ import { gql } from '@apollo/client';
 
 // Simple profile query that should work reliably
 export const GET_SIMPLE_PROFILE = gql`
-  query GetSimpleProfile($username: String) {
-    getUserbyUsername(username: $username) {
+  query GetSimpleProfile($username: String!) {
+    profileByUsername(username: $username) {
       profileid
       username
       name
@@ -19,19 +19,19 @@ export const GET_SIMPLE_PROFILE = gql`
         profileid
         username
       }
-      post {
+      posts {
         postid
         postUrl
         title
-        Description
+        description
         postType
         createdAt
       }
-      savedpost {
+      savedPosts {
         postid
         postUrl
         title
-        Description
+        description
         postType
         createdAt
         profile {
@@ -45,10 +45,11 @@ export const GET_SIMPLE_PROFILE = gql`
   }
 `;
 
-// Current user profile query - more specific
+// Current user profile query - more specific  
+// ✅ FIX: This needs the current user's username as parameter
 export const GET_CURRENT_USER_PROFILE = gql`
-  query GetCurrentUserProfile {
-    getUserbyUsername {
+  query GetCurrentUserProfile($username: String!) {
+    profileByUsername(username: $username) {
       profileid
       username
       name
@@ -56,19 +57,19 @@ export const GET_CURRENT_USER_PROFILE = gql`
       bio
       isVerified
       isPrivate
-      post {
+      posts {
         postid
         postUrl
         title
-        Description
+        description
         postType
         createdAt
       }
-      savedpost {
+      savedPosts {
         postid
         postUrl
         title
-        Description
+        description
         postType
         createdAt
         profile {
@@ -78,11 +79,11 @@ export const GET_CURRENT_USER_PROFILE = gql`
           isVerified
         }
       }
-      likedpost {
+      likedPosts {
         postid
         postUrl
         title
-        Description
+        description
         postType
         createdAt
         profile {
@@ -98,8 +99,8 @@ export const GET_CURRENT_USER_PROFILE = gql`
 
 // Minimal profile check query
 export const CHECK_PROFILE_EXISTS = gql`
-  query CheckProfileExists($username: String) {
-    getUserbyUsername(username: $username) {
+  query CheckProfileExists($username: String!) {
+    profileByUsername(username: $username) {
       profileid
       username
     }

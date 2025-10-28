@@ -1,13 +1,14 @@
 /**
  * Message Template Service - Frontend service for managing message templates
  * 
- * This service provides functionality for creating, retrieving, updating, and deleting
- * message templates for quick responses.
+ * This service provides functionality for interacting with the backend message template API.
  */
 
-import apiService from './ApiService';
-
 class MessageTemplateService {
+  constructor() {
+    this.baseUrl = '/api/templates';
+  }
+
   /**
    * Create a new message template
    * @param {object} templateData - Template data
@@ -15,8 +16,23 @@ class MessageTemplateService {
    */
   async createTemplate(templateData) {
     try {
-      const response = await apiService.post('/templates', templateData);
-      return response.data;
+      const response = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // Auth header would be added by auth middleware
+        },
+        credentials: 'include',
+        body: JSON.stringify(templateData)
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to create template');
+      }
+      
+      return result.data;
     } catch (error) {
       console.error('Error creating template:', error);
       throw error;
@@ -29,8 +45,21 @@ class MessageTemplateService {
    */
   async getUserTemplates() {
     try {
-      const response = await apiService.get('/templates');
-      return response.data;
+      const response = await fetch(this.baseUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to get templates');
+      }
+      
+      return result.data;
     } catch (error) {
       console.error('Error getting user templates:', error);
       throw error;
@@ -44,8 +73,24 @@ class MessageTemplateService {
    */
   async getTemplateById(templateId) {
     try {
-      const response = await apiService.get(`/templates/${templateId}`);
-      return response.data;
+      const response = await fetch(`${this.baseUrl}/${templateId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        if (response.status === 404) {
+          return null;
+        }
+        throw new Error(result.message || 'Failed to get template');
+      }
+      
+      return result.data;
     } catch (error) {
       console.error('Error getting template:', error);
       throw error;
@@ -60,8 +105,22 @@ class MessageTemplateService {
    */
   async updateTemplate(templateId, updateData) {
     try {
-      const response = await apiService.put(`/templates/${templateId}`, updateData);
-      return response.data;
+      const response = await fetch(`${this.baseUrl}/${templateId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(updateData)
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to update template');
+      }
+      
+      return result.data;
     } catch (error) {
       console.error('Error updating template:', error);
       throw error;
@@ -75,8 +134,21 @@ class MessageTemplateService {
    */
   async deleteTemplate(templateId) {
     try {
-      const response = await apiService.delete(`/templates/${templateId}`);
-      return response.data;
+      const response = await fetch(`${this.baseUrl}/${templateId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to delete template');
+      }
+      
+      return result;
     } catch (error) {
       console.error('Error deleting template:', error);
       throw error;
@@ -90,8 +162,21 @@ class MessageTemplateService {
    */
   async searchTemplates(query) {
     try {
-      const response = await apiService.get(`/templates/search?query=${encodeURIComponent(query)}`);
-      return response.data;
+      const response = await fetch(`${this.baseUrl}/search?query=${encodeURIComponent(query)}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to search templates');
+      }
+      
+      return result.data;
     } catch (error) {
       console.error('Error searching templates:', error);
       throw error;
@@ -105,8 +190,21 @@ class MessageTemplateService {
    */
   async getTemplatesByCategory(category) {
     try {
-      const response = await apiService.get(`/templates/category/${encodeURIComponent(category)}`);
-      return response.data;
+      const response = await fetch(`${this.baseUrl}/category/${encodeURIComponent(category)}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to get templates by category');
+      }
+      
+      return result.data;
     } catch (error) {
       console.error('Error getting templates by category:', error);
       throw error;
@@ -119,8 +217,21 @@ class MessageTemplateService {
    */
   async getUserCategories() {
     try {
-      const response = await apiService.get('/templates/categories');
-      return response.data;
+      const response = await fetch(`${this.baseUrl}/categories`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to get categories');
+      }
+      
+      return result.data;
     } catch (error) {
       console.error('Error getting user categories:', error);
       throw error;

@@ -1,34 +1,28 @@
 import { Inter } from 'next/font/google'
-import './globals.css';
-import { registerServiceWorker } from '../utils/serviceWorkerRegistration';
-import { FixedSecureAuthProvider } from '../context/FixedSecureAuthContext';
+import './globals.css'
+import Providers from './providers'
 
-// Register service worker when the app loads
-if (typeof window !== 'undefined') {
-  registerServiceWorker();
-}
+// Configure Inter font
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-inter',
+})
 
 export const metadata = {
   title: 'Swaggo - Secure Messaging',
   description: '10/10 Secure Authentication System',
   manifest: '/manifest.json',
-};
+}
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="theme-color" content="#dc2626" />
-        <link rel="manifest" href="/manifest.json" />
-        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
-        <link rel="icon" href="/favicon.ico" />
-      </head>
-      <body>
-        <FixedSecureAuthProvider>
+    <html lang="en" className={inter.variable}>
+      <body className={`${inter.variable} font-sans`}>
+        <Providers>
           {children}
-        </FixedSecureAuthProvider>
+        </Providers>
       </body>
     </html>
-  );
+  )
 }

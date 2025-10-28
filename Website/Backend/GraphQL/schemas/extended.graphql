@@ -1,0 +1,502 @@
+# Extended GraphQL Schema
+# Contains additional queries, mutations, and types for missing functionality
+# Version 2.0 - Complete Implementation
+
+extend type Query {
+  # ==========================================
+  # ALIAS QUERIES (Backward Compatibility)
+  # ==========================================
+  getUserbyUsername(username: String!): Profile
+  getPostbyId(postid: String!): Post
+  getPosts: [Post!]
+  getCommentsByPost(postid: String!): [Comment!]
+
+  # ==========================================
+  # POST QUERIES
+  # ==========================================
+  getPostStats(postid: String!): PostStats
+  getTrendingPosts(timeRange: String, limit: Int): [Post!]
+  getPostsByHashtag(hashtag: String!, limit: Int, offset: Int): [Post!]
+  searchPosts(
+    query: String!
+    limit: Int
+    offset: Int
+    filters: SearchFilters
+  ): [Post!]
+  getUserFeed(profileid: String!, limit: Int, cursor: String): FeedConnection
+
+  # ==========================================
+  # BLOCKED/RESTRICTED USERS QUERIES
+  # ==========================================
+  getBlockedAccounts(profileid: String!): [BlockedAccount!]
+  getRestrictedAccounts(profileid: String!): [RestrictedAccount!]
+  isUserBlocked(profileid: String!, targetprofileid: String!): Boolean
+  isUserRestricted(profileid: String!, targetprofileid: String!): Boolean
+
+  # ==========================================
+  # CLOSE FRIENDS QUERIES
+  # ==========================================
+  getCloseFriends(profileid: String!): [CloseFriend!]
+  isCloseFriend(profileid: String!, targetprofileid: String!): Boolean
+
+  # ==========================================
+  # MENTIONS QUERIES
+  # ==========================================
+  getMentions(profileid: String!): [Mention!]
+  getMentionsByContext(contexttype: String!, contextid: String!): [Mention!]
+
+  # ==========================================
+  # FOLLOW REQUEST QUERIES
+  # ==========================================
+  getFollowRequests(profileid: String!): [FollowRequest!]
+  getSentFollowRequests(profileid: String!): [FollowRequest!]
+  getFollowRequestStatus(requesterid: String!, requestedid: String!): String
+
+  # ==========================================
+  # NOTIFICATION QUERIES
+  # ==========================================
+  getNotifications(profileid: String!, limit: Int, offset: Int): [Notification!]
+  getUnreadNotificationCount(profileid: String!): Int
+  getNotificationsByType(profileid: String!, type: String!): [Notification!]
+
+  # ==========================================
+  # MEMORY QUERIES
+  # ==========================================
+  getMemories(profileid: String!): [Memory!]
+  memories(profileid: String!): [Memory!]
+}
+
+extend type Mutation {
+  # ==========================================
+  # POST MUTATIONS
+  # ==========================================
+  SharePost(profileid: String!, postid: String!, shareType: String!): Share
+  bulkLikePosts(
+    profileid: String!
+    postids: [String!]!
+    action: String!
+  ): BulkLikeResult
+  invalidatePostCache(postid: String!): MutationResponse
+
+  # ==========================================
+  # BLOCKED/RESTRICTED USERS MUTATIONS
+  # ==========================================
+  BlockUser(
+    profileid: String!
+    targetprofileid: String!
+    reason: String
+  ): BlockedAccount
+  UnblockUser(profileid: String!, targetprofileid: String!): BlockedAccount
+  RestrictUser(profileid: String!, targetprofileid: String!): RestrictedAccount
+  UnrestrictUser(
+    profileid: String!
+    targetprofileid: String!
+  ): RestrictedAccount
+
+  # ==========================================
+  # CLOSE FRIENDS MUTATIONS (Schema names)
+  # ==========================================
+  addToCloseFriends(profileid: String!, targetProfileId: String!): CloseFriend
+  removeFromCloseFriends(
+    profileid: String!
+    targetProfileId: String!
+  ): CloseFriend
+
+  # ==========================================
+  # MENTIONS MUTATIONS
+  # ==========================================
+  CreateMention(
+    mentionedprofileid: String!
+    mentionerprofileid: String!
+    contexttype: String!
+    contextid: String!
+  ): Mention
+  MarkMentionAsRead(mentionid: String!): Mention
+
+  # ==========================================
+  # USER SETTINGS MUTATIONS
+  # ==========================================
+  UpdateUserSettings(
+    profileid: String!
+    allowMentions: Boolean
+    mentionNotifications: Boolean
+    tagNotifications: Boolean
+    showTaggedPosts: Boolean
+    isPrivate: Boolean
+    allowMessages: String
+    showActivity: Boolean
+    twoFactor: Boolean
+    notificationsEnabled: Boolean
+    darkMode: Boolean
+  ): UserSettings
+
+  # ==========================================
+  # FOLLOW REQUEST MUTATIONS
+  # ==========================================
+  SendFollowRequest(
+    requesterid: String!
+    requestedid: String!
+    message: String
+  ): FollowRequest
+  AcceptFollowRequest(requestid: String!): FollowRequest
+  RejectFollowRequest(requestid: String!): FollowRequest
+  CancelFollowRequest(requesterid: String!, requestedid: String!): FollowRequest
+
+  # ==========================================
+  # NOTIFICATION MUTATIONS
+  # ==========================================
+  CreateNotification(
+    recipientid: String!
+    senderid: String!
+    type: String!
+    title: String!
+    message: String!
+    contextType: String
+    contextId: String
+    actionUrl: String
+    metadata: String
+    priority: String
+  ): Notification
+  MarkNotificationAsRead(notificationid: String!): Notification
+  MarkNotificationAsActioned(notificationid: String!): Notification
+  MarkAllNotificationsAsRead(profileid: String!): [Notification!]
+  DeleteNotification(notificationid: String!): Notification
+
+  # ==========================================
+  # MEMORY MUTATIONS
+  # ==========================================
+  CreateMemory(
+    profileid: String!
+    title: String!
+    coverImage: URL
+    postUrl: URL
+  ): Memory
+  AddStoryToMemory(
+    memoryid: String!
+    mediaUrl: String!
+    mediaType: String!
+  ): Memory
+}
+
+# ==========================================
+# BLOCKED/RESTRICTED USER TYPES
+# ==========================================
+
+type BlockedAccount {
+  blockid: String!
+  profileid: String!
+  blockedprofileid: String!
+  reason: String
+  createdAt: DateTime!
+  blockedProfile: Profile
+}
+
+type RestrictedAccount {
+  restrictid: String!
+  profileid: String!
+  restrictedprofileid: String!
+  createdAt: DateTime!
+  restrictedProfile: Profile
+}
+
+# ==========================================
+# CLOSE FRIENDS TYPE
+# ==========================================
+
+type CloseFriend {
+  closefriendid: String!
+  profileid: String!
+  closefriendprofileid: String
+  status: String!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  closeFriend: Profile
+}
+
+# ==========================================
+# MENTIONS TYPE
+# ==========================================
+
+type Mention {
+  mentionid: String!
+  mentionedprofileid: String!
+  mentionerprofileid: String!
+  contexttype: String!
+  contextid: String!
+  isnotified: Boolean!
+  isread: Boolean!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  mentionedProfile: Profile
+  mentionerProfile: Profile
+}
+
+# ==========================================
+# POST STATISTICS TYPE
+# ==========================================
+
+type PostStats {
+  postid: String!
+  likeCount: Int!
+  commentCount: Int!
+  shareCount: Int!
+  isLikedByCurrentUser: Boolean!
+  isSavedByCurrentUser: Boolean!
+  recentLikes: [Profile!]
+}
+
+# ==========================================
+# FEED CONNECTION (Pagination)
+# ==========================================
+
+type FeedConnection {
+  posts: [Post!]!
+  pageInfo: PageInfo!
+  totalCount: Int
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean
+  startCursor: String
+  endCursor: String
+}
+
+# ==========================================
+# FOLLOW REQUEST TYPE
+# ==========================================
+
+type FollowRequest {
+  requestid: String!
+  requesterid: String!
+  requestedid: String!
+  status: String!
+  message: String
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  requester: Profile
+  requested: Profile
+}
+
+# ==========================================
+# NOTIFICATION TYPE
+# ==========================================
+
+type Notification {
+  notificationid: String!
+  recipientid: String!
+  senderid: String!
+  type: String!
+  title: String!
+  message: String!
+  contextType: String
+  contextId: String
+  actionUrl: String
+  metadata: String
+  isRead: Boolean!
+  isActioned: Boolean!
+  priority: String!
+  expiresAt: DateTime
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  sender: Profile
+  recipient: Profile
+}
+
+# ==========================================
+# SHARE TYPE
+# ==========================================
+
+type Share {
+  shareid: String!
+  profileid: String!
+  postid: String!
+  shareType: String!
+  caption: String
+  createdAt: DateTime!
+  updatedAt: DateTime
+  profile: Profile
+  post: Post
+}
+
+# ==========================================
+# BULK OPERATIONS TYPES
+# ==========================================
+
+type BulkLikeResult {
+  success: Boolean!
+  results: [LikeResult!]
+  errors: [LikeError!]
+}
+
+type LikeResult {
+  postid: String!
+  liked: Boolean!
+  likeCount: Int!
+}
+
+type LikeError {
+  postid: String!
+  error: String!
+}
+
+# ==========================================
+# GENERIC MUTATION RESPONSE
+# ==========================================
+
+type MutationResponse {
+  success: Boolean!
+  message: String!
+  code: String
+  data: JSON
+}
+
+# ==========================================
+# MEMORY TYPE (Extended)
+# ==========================================
+
+type Memory {
+  memoryid: String!
+  profileid: String!
+  title: String!
+  coverImage: URL
+  postUrl: URL
+  stories: [Story!]
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  profile: Profile
+}
+
+type MemoryStory {
+  storyid: String!
+  mediaUrl: String!
+  mediaType: String!
+  caption: String
+  createdAt: DateTime!
+}
+
+# ==========================================
+# LIKE TYPE (Extended)
+# ==========================================
+
+extend type Like {
+  profile: Profile
+}
+
+# ==========================================
+# COMMENT TYPE (Extended)
+# ==========================================
+
+extend type Comment {
+  userto: Profile
+}
+
+# ==========================================
+# INPUT TYPES
+# ==========================================
+
+input SearchFilters {
+  postType: String
+  location: String
+  tags: [String!]
+  dateRange: DateRangeInput
+  hasMedia: Boolean
+  isVerifiedOnly: Boolean
+}
+
+input DateRangeInput {
+  start: String!
+  end: String!
+}
+
+input NotificationInput {
+  recipientid: String!
+  senderid: String!
+  type: String!
+  title: String!
+  message: String!
+  contextType: String
+  contextId: String
+  actionUrl: String
+  metadata: String
+  priority: String
+}
+
+input MemoryInput {
+  profileid: String!
+  title: String!
+  coverImage: URL
+  postUrl: URL
+}
+
+input FollowRequestInput {
+  requesterid: String!
+  requestedid: String!
+  message: String
+}
+
+# ==========================================
+# ENUMS FOR TYPE SAFETY
+# ==========================================
+
+enum NotificationType {
+  LIKE
+  COMMENT
+  FOLLOW
+  MENTION
+  FOLLOW_REQUEST
+  POST
+  STORY
+  MESSAGE
+  SHARE
+  TAG
+  SYSTEM
+}
+
+enum NotificationPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum FollowRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELLED
+}
+
+enum ShareType {
+  REPOST
+  STORY
+  MESSAGE
+  EXTERNAL
+}
+
+enum PostSortOrder {
+  RECENT
+  POPULAR
+  TRENDING
+  OLDEST
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+  PENDING
+  DEACTIVATED
+}
+
+# ==========================================
+# SUBSCRIPTION TYPES (Real-time Updates)
+# ==========================================
+
+extend type Subscription {
+  notificationAdded(profileid: String!): Notification
+  followRequestReceived(profileid: String!): FollowRequest
+  postShared(postid: String!): Share
+  feedUpdated(profileid: String!): Post
+  mentionCreated(profileid: String!): Mention
+}

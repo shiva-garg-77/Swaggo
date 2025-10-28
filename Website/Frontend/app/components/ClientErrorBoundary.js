@@ -8,7 +8,7 @@
  */
 
 import React from 'react';
-import { UnifiedStableErrorBoundary } from '../../Components/ErrorBoundary/UnifiedStableErrorBoundary';
+import UnifiedStableErrorBoundary from '../../Components/ErrorBoundary';
 
 export default function ClientErrorBoundary({ children }) {
   const handleError = (error, errorInfo) => {

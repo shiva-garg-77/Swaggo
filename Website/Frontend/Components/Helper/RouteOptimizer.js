@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useCallback, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { useFixedSecureAuth } from '../../context/FixedSecureAuthContext';
 import { OptimizedLoadingIndicator } from './OptimizedErrorDisplay';
 
 // Enhanced route prefetching utility with performance optimizations
@@ -12,10 +13,24 @@ class RoutePrefetcher {
     this.priorityRoutes = new Set(['/home', '/Profile', '/reel', '/create', '/message']);
     this.maxConcurrentPrefetch = 2;
     this.currentPrefetchCount = 0;
+    
+    // Define unauthenticated routes that should always be prefetched
+    this.unauthenticatedRoutes = new Set(['/', '/signup', '/forget-password', '/reset-password']);
   }
 
-  async prefetchRoute(route, priority = false) {
-    if (this.prefetchedRoutes.has(route) || typeof window === 'undefined') {
+  async prefetchRoute(route, priority = false, isAuthenticated = false) {
+    // Skip if we're in server-side rendering
+    if (typeof window === 'undefined') {
+      return;
+    }
+    
+    // Skip if already prefetched
+    if (this.prefetchedRoutes.has(route)) {
+      return;
+    }
+
+    // For unauthenticated users, only prefetch unauthenticated routes
+    if (!isAuthenticated && !this.unauthenticatedRoutes.has(route) && !route.startsWith('/reset-password/')) {
       return;
     }
 
@@ -119,10 +134,10 @@ class RoutePrefetcher {
     }
   }
 
-  async prefetchMultiple(routes, priorityRoutes = []) {
+  async prefetchMultiple(routes, priorityRoutes = [], isAuthenticated = false) {
     // Prefetch priority routes first
     const priorityPromises = priorityRoutes.map(route => 
-      this.prefetchRoute(route, true)
+      this.prefetchRoute(route, true, isAuthenticated)
     );
     
     // Wait for priority routes to start
@@ -131,12 +146,12 @@ class RoutePrefetcher {
     // Then prefetch remaining routes with staggered timing
     const remainingRoutes = routes.filter(route => !priorityRoutes.includes(route));
     remainingRoutes.forEach((route, index) => {
-      setTimeout(() => this.prefetchRoute(route), index * 150);
+      setTimeout(() => this.prefetchRoute(route, false, isAuthenticated), index * 150);
     });
   }
   
   // Smart prefetch based on user behavior
-  smartPrefetch(currentRoute) {
+  smartPrefetch(currentRoute, isAuthenticated = false) {
     const routeMap = {
       '/home': ['/Profile', '/create', '/reel'],
       '/Profile': ['/home', '/create'],
@@ -146,7 +161,19 @@ class RoutePrefetcher {
     };
     
     const suggestedRoutes = routeMap[currentRoute] || [];
-    suggestedRoutes.forEach(route => this.prefetchRoute(route));
+    suggestedRoutes.forEach(route => this.prefetchRoute(route, false, isAuthenticated));
+  }
+  
+  // Reset prefetched routes (useful for auth state changes)
+  reset() {
+    this.prefetchedRoutes.clear();
+    this.prefetchPromises.clear();
+    this.currentPrefetchCount = 0;
+    
+    if (this.prefetchTimeout) {
+      clearTimeout(this.prefetchTimeout);
+      this.prefetchTimeout = null;
+    }
   }
 }
 
@@ -157,6 +184,7 @@ const routePrefetcher = new RoutePrefetcher();
 export const useOptimizedNavigation = () => {
   const router = useRouter();
   const pathname = usePathname();
+  const { isAuthenticated } = useFixedSecureAuth();
 
   const [showLoadingIndicator, setShowLoadingIndicator] = useState(false);
   
@@ -168,7 +196,7 @@ export const useOptimizedNavigation = () => {
 
     try {
       // Prefetch the route if not already prefetched
-      await routePrefetcher.prefetchRoute(route, true);
+      await routePrefetcher.prefetchRoute(route, true, isAuthenticated);
       
       // Navigate to route
       await router.push(route);
@@ -182,21 +210,21 @@ export const useOptimizedNavigation = () => {
       // Remove loading indicator
       setShowLoadingIndicator(false);
     }
-  }, [router]);
+  }, [router, isAuthenticated]);
 
   const prefetchRoute = useCallback((route, priority = false) => {
-    routePrefetcher.prefetchRoute(route, priority);
-  }, []);
+    routePrefetcher.prefetchRoute(route, priority, isAuthenticated);
+  }, [isAuthenticated]);
 
   const prefetchMainRoutes = useCallback(async () => {
     const mainRoutes = ['/home', '/Profile', '/create', '/reel', '/message'];
     const priorityRoutes = ['/home', '/Profile']; // Most commonly accessed
-    await routePrefetcher.prefetchMultiple(mainRoutes, priorityRoutes);
-  }, []);
+    await routePrefetcher.prefetchMultiple(mainRoutes, priorityRoutes, isAuthenticated);
+  }, [isAuthenticated]);
 
   const smartPrefetch = useCallback(() => {
-    routePrefetcher.smartPrefetch(pathname);
-  }, [pathname]);
+    routePrefetcher.smartPrefetch(pathname, isAuthenticated);
+  }, [pathname, isAuthenticated]);
 
   // Auto smart prefetch on route change
   useEffect(() => {
@@ -217,7 +245,12 @@ export const useOptimizedNavigation = () => {
 
 // Enhanced component to automatically prefetch routes with connection awareness
 export const RoutePreloader = ({ routes = [], priority = [], delay = 2000 }) => {
+  const { isAuthenticated, isLoading } = useFixedSecureAuth();
+  
   useEffect(() => {
+    // Don't prefetch while auth state is loading
+    if (isLoading) return;
+    
     // Check connection quality
     const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
     const isSlowConnection = connection && (connection.effectiveType === 'slow-2g' || connection.effectiveType === '2g');
@@ -229,17 +262,17 @@ export const RoutePreloader = ({ routes = [], priority = [], delay = 2000 }) => 
     
     const timer = setTimeout(async () => {
       if (routes.length > 0) {
-        await routePrefetcher.prefetchMultiple(routes, priority);
+        await routePrefetcher.prefetchMultiple(routes, priority, isAuthenticated);
       } else {
         // Default prefetch main routes
         const mainRoutes = ['/home', '/Profile', '/create', '/reel', '/message'];
         const priorityRoutes = ['/home', '/Profile'];
-        await routePrefetcher.prefetchMultiple(mainRoutes, priorityRoutes);
+        await routePrefetcher.prefetchMultiple(mainRoutes, priorityRoutes, isAuthenticated);
       }
     }, delay);
     
     return () => clearTimeout(timer);
-  }, [routes, priority, delay]);
+  }, [routes, priority, delay, isAuthenticated, isLoading]);
 
   return null;
 };

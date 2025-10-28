@@ -4,11 +4,10 @@
  */
 
 import { EventEmitter } from 'events';
-import socketService from './SocketService';
-import authService from './AuthService';
-import errorHandlingService, { ERROR_TYPES } from './ErrorHandlingService';
-import notificationService from './NotificationService';
-import cacheService from './CacheService';
+import socketService from '@services/UnifiedSocketService'; // 🔧 FIX: Use UnifiedSocketService instead
+import errorHandlingService, { ERROR_TYPES } from '@services/ErrorHandlingService';
+import notificationService from '@services/NotificationService';
+import cacheService from '@services/CacheService';
 
 /**
  * Sync Operation Types

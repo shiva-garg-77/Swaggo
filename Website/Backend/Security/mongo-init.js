@@ -255,7 +255,7 @@ try {
   db.security_config.insertOne({
     _id: 'default',
     passwordPolicy: {
-      minLength: 8,
+      minLength: 6,
       requireUppercase: true,
       requireLowercase: true,
       requireNumbers: true,

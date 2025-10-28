@@ -44,7 +44,7 @@ export default function AutoLoginTest() {
 
   const testSessionStatus = async () => {
     try {
-      const response = await fetch('http://localhost:45799/api/auth/session-status', {
+      const response = await fetch('http://localhost:45799/api/v1/auth/session-status', {
         method: 'GET',
         credentials: 'include'
       });

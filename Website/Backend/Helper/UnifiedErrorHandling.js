@@ -1,4 +1,4 @@
-import { GraphQLError } from 'graphql';
+import { GraphQLError } from '../utils/GraphQLInstance.js';
 import { logger } from '../utils/SanitizedLogger.js';
 
 /**
@@ -167,16 +167,26 @@ export const APIResponse = {
 
 // Unified error handler for all contexts
 export const handleUnifiedError = (error, contextType = 'unknown') => {
-  // Log error with context
+  // Log error with context (detailed logging for debugging)
   logger.error(`${contextType.toUpperCase()} Error:`, {
     message: error.message,
     code: error.code,
-    stack: error.stack,
+    // Only log stack trace in development
+    stack: process.env.NODE_ENV === 'development' ? error.stack : 'Stack trace hidden in production',
     timestamp: new Date().toISOString()
   });
 
   // Return appropriate error based on context
   if (error instanceof AppError) {
+    // For production, sanitize operational errors
+    if (process.env.NODE_ENV === 'production' && error.isOperational) {
+      return new AppError(
+        error.message,
+        error.code,
+        error.statusCode,
+        error.isOperational
+      );
+    }
     return error;
   }
 
@@ -203,10 +213,12 @@ export const handleUnifiedError = (error, contextType = 'unknown') => {
     return new AuthenticationError('Token expired');
   }
 
-  // Generic error
-  return new AppError(
-    process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message
-  );
+  // Generic error - hide implementation details in production
+  const errorMessage = process.env.NODE_ENV === 'production' 
+    ? 'Internal server error' 
+    : error.message;
+    
+  return new AppError(errorMessage);
 };
 
 // Standardized async handler wrapper for consistent error handling

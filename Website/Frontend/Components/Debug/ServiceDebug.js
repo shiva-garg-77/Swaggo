@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useFixedSecureAuth } from '../../context/FixedSecureAuthContext.jsx';
-import { useSocket } from '../Helper/SocketProvider';
+import { useSocket } from '../Helper/PerfectSocketProvider';
 import notificationService from '../../services/UnifiedNotificationService.js';
 import { io } from 'socket.io-client';
 

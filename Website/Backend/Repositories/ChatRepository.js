@@ -80,16 +80,10 @@ class ChatRepository extends BaseRepository {
     const query = {
       'participants.profileid': { $all: participants },
       chatType: chatType,
-      isActive: true
+      isActive: true,
+      // Use $size on the participants array, not on the nested profileid field
+      participants: { $size: participants.length }
     };
-
-    // For direct chats, ensure exact match of 2 participants
-    if (chatType === 'direct') {
-      query['participants.profileid'].$size = 2;
-    } else {
-      // For group chats, match the exact number of participants
-      query['participants.profileid'].$size = participants.length;
-    }
 
     // 🔧 OPTIMIZATION #75: Add projection to only fetch needed fields
     return this.findOne(query, {
@@ -108,7 +102,7 @@ class ChatRepository extends BaseRepository {
   async updateLastMessage(chatId, lastMessage) {
     return this.updateOne(
       { chatid: chatId },
-      { 
+      {
         lastMessage: lastMessage,
         lastMessageAt: new Date()
       }
@@ -124,12 +118,12 @@ class ChatRepository extends BaseRepository {
    */
   async updateParticipantUnreadCount(chatId, profileId, unreadCount) {
     return this.updateOne(
-      { 
+      {
         chatid: chatId,
         'participants.profileid': profileId
       },
-      { 
-        $set: { 
+      {
+        $set: {
           'participants.$.unreadCount': unreadCount,
           'participants.$.lastReadAt': new Date()
         }
@@ -146,8 +140,8 @@ class ChatRepository extends BaseRepository {
   async addParticipant(chatId, profileId) {
     return this.updateOne(
       { chatid: chatId },
-      { 
-        $addToSet: { 
+      {
+        $addToSet: {
           participants: {
             profileid: profileId,
             unreadCount: 0,
@@ -167,8 +161,8 @@ class ChatRepository extends BaseRepository {
   async removeParticipant(chatId, profileId) {
     return this.updateOne(
       { chatid: chatId },
-      { 
-        $pull: { 
+      {
+        $pull: {
           participants: { profileid: profileId }
         }
       }

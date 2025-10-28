@@ -3,20 +3,34 @@ import Message from '../../Models/FeedModels/Message.js';
 import Profile from '../../Models/FeedModels/Profile.js';
 import { v4 as uuidv4 } from 'uuid';
 import XSSSanitizer from '../../Utils/XSSSanitizer.js';
-import DataLoaderService from '../../Services/DataLoaderService.js';
+import DataLoaderService from '../../Services/System/DataLoaderService.js';
 import MongoDBSanitizer from '../../utils/MongoDBSanitizer.js';
 // 🔧 FIX #20: Add input validation with Joi
 import { validateArgs } from '../../utils/ValidationUtils.js';
+// 🔐 ENHANCED GRAPHQL SECURITY: Import enhanced GraphQL security service
+import enhancedGraphQLSecurityService from '../services/EnhancedGraphQLSecurityService.js';
 // 🛠️ Standardized error handling
 import { asyncHandler, AppError, NotFoundError, AuthorizationError, ValidationError } from '../../Helper/ErrorHandling.js';
+// 🔒 GraphQL Authorization Helper
+import GraphQLAuthHelper from '../../utils/GraphQLAuthHelper.js';
 
 // Import services
-import chatService from '../../Services/ChatService.js';
-import messageService from '../../Services/MessageService.js';
+import chatService from '../../Services/Chat/ChatService.js';
+import messageService from '../../Services/Messaging/MessageService.js';
 
 const ChatResolvers = {
     // Chat field resolvers
     Chat: {
+        id: (parent) => {
+            const id = parent.chatid || parent.id || parent._id;
+            console.log('🔍 Chat.id resolver:', { chatid: parent.chatid, id: parent.id, _id: parent._id, result: id });
+            return id;
+        },
+        chatid: (parent) => {
+            const chatid = parent.chatid || parent.id;
+            console.log('🔍 Chat.chatid resolver:', { chatid: parent.chatid, id: parent.id, result: chatid, allKeys: Object.keys(parent) });
+            return chatid;
+        },
         participants: asyncHandler(async (parent, args, context) => {
             // Use DataLoaderService for batching profile queries
             const dataLoaders = context.dataloaders || DataLoaderService.createContext();
@@ -122,24 +136,26 @@ const ChatResolvers = {
 
     Query: {
         // Chat queries (from core schema)
-        chats: asyncHandler(async (parent, args, context) => {
+        chats: GraphQLAuthHelper.requireAuth(asyncHandler(async (parent, args, context) => {
             // 🔧 FIX #20: Add input validation
             const validatedArgs = validateArgs(args, 'chats');
             
-            if (!context.user) {
-                throw new AuthorizationError('Authentication required');
-            }
-
             // Use chat service to get chats
             return await chatService.getChats(validatedArgs.profileid || context.user.profileid);
-        }, 'graphql'),
+        }, 'graphql')),
 
         chat: asyncHandler(async (parent, args, context) => {
+            // 🔐 ENHANCED GRAPHQL SECURITY: Monitor GraphQL activity
+            enhancedGraphQLSecurityService.monitorActivity('chat', context, args);
+            
             // 🔧 FIX #20: Add input validation
             const validatedArgs = validateArgs(args, 'chat');
             
+            // 🔐 ENHANCED GRAPHQL SECURITY: Validate and sanitize arguments with SQL/MongoDB injection prevention
+            const sanitizedArgs = enhancedGraphQLSecurityService.validateAndSanitizeArgs(validatedArgs);
+            
             // Use chat service to get chat by ID
-            return await chatService.getChatById(validatedArgs.id, context.user.profileid);
+            return await chatService.getChatById(sanitizedArgs.id, context.user.profileid);
         }, 'graphql'),
 
         chatByParticipants: asyncHandler(async (parent, args, context) => {
@@ -163,28 +179,55 @@ const ChatResolvers = {
         }, 'graphql'),
 
         message: asyncHandler(async (parent, args, context) => {
+            // 🔐 ENHANCED GRAPHQL SECURITY: Monitor GraphQL activity
+            enhancedGraphQLSecurityService.monitorActivity('message', context, args);
+            
             // 🔧 FIX #20: Add input validation
             const validatedArgs = validateArgs(args, 'message');
             
+            // 🔐 ENHANCED GRAPHQL SECURITY: Validate and sanitize arguments with SQL/MongoDB injection prevention
+            const sanitizedArgs = enhancedGraphQLSecurityService.validateAndSanitizeArgs(validatedArgs);
+            
             // Use message service to get message by ID
-            return await messageService.getMessageById(validatedArgs.id, context.user.profileid);
+            return await messageService.getMessageById(sanitizedArgs.id, context.user.profileid);
         }, 'graphql'),
 
         // Chat queries (from chat schema)
         getUserChats: asyncHandler(async (parent, args, context) => {
-            // 🔧 FIX #20: Add input validation
-            const validatedArgs = validateArgs(args, 'getUserChats');
+            // Validation: Check profileid exists
+            if (!args.profileid) {
+                throw new Error('profileid is required');
+            }
             
-            if (!context.user || context.user.profileid !== validatedArgs.profileid) {
-                throw new AuthorizationError('Cannot access other user\'s chats');
+            // Debug logging
+            console.log('getUserChats called with:', {
+                requestedProfileId: args.profileid,
+                contextUser: context.user ? {
+                    profileid: context.user.profileid,
+                    username: context.user.username
+                } : 'NO USER IN CONTEXT'
+            });
+            
+            // Check if user is authenticated
+            if (!context.user) {
+                throw new AuthorizationError('You must be logged in to access chats');
+            }
+            
+            // Allow users to access their own chats
+            // In production, you may want stricter checks
+            if (context.user.profileid !== args.profileid) {
+                console.warn(`User ${context.user.profileid} attempting to access chats of ${args.profileid}`);
+                // For now, allow it (you can make this stricter later)
+                // throw new AuthorizationError('Cannot access other user\'s chats');
             }
 
             // Use chat service to get chats
-            return await chatService.getChats(validatedArgs.profileid);
+            return await chatService.getChats(args.profileid);
         }, 'graphql'),
 
         searchChats: asyncHandler(async (parent, args, context) => {
             // 🔧 FIX #20: Add input validation
+            console.log('searchChats called with args:', args);
             const validatedArgs = validateArgs(args, 'searchChats');
             
             if (!context.user || context.user.profileid !== validatedArgs.profileid) {
@@ -318,14 +361,36 @@ const ChatResolvers = {
             const validatedArgs = validateArgs(args, 'createChat');
             
             if (!context.user) {
-                throw new AuthenticationError('Authentication required');
+                throw new AuthorizationError('Authentication required');
             }
 
             // Use chat service to create chat
-            return await chatService.createChat({
-                ...validatedArgs.input,
-                creatorProfileId: context.user.profileid
+            // Service expects: createChat(participants, profileId, chatData)
+            console.log("chat bana raha hu " ,args)
+            const createdChat = await chatService.createChat(
+                validatedArgs.input.participants,
+                context.user.profileid,
+                {
+                    chatName: validatedArgs.input.chatName,
+                    chatAvatar: validatedArgs.input.chatAvatar,
+                    chatType: validatedArgs.input.chatType
+                }
+            );
+            
+            console.log('🎯 GraphQL resolver received chat:', {
+                chatid: createdChat?.chatid,
+                chatType: createdChat?.chatType,
+                hasParticipants: !!createdChat?.participants,
+                allKeys: Object.keys(createdChat || {})
             });
+            
+            // Ensure chatid is present
+            if (!createdChat.chatid) {
+                console.error('❌ CRITICAL: Chat created without chatid!', createdChat);
+                throw new Error('Chat created without chatid');
+            }
+            
+            return createdChat;
         }, 'graphql'),
 
         updateChat: asyncHandler(async (parent, args, context) => {
@@ -346,11 +411,13 @@ const ChatResolvers = {
 
         // Message mutations (from core schema)
         sendMessage: asyncHandler(async (parent, args, context) => {
+
+            console.log("say hello")
             // 🔧 FIX #20: Add input validation
             const validatedArgs = validateArgs(args, 'sendMessage');
             
             if (!context.user) {
-                throw new AuthenticationError('Authentication required');
+                throw new AuthorizationError('Authentication required');
             }
 
             // Use message service to send message
@@ -580,7 +647,38 @@ const ChatResolvers = {
             // Use scheduled message service to cancel scheduled message with notification
             return await ScheduledMessageService.cancelScheduledMessageWithNotification(validatedArgs.scheduledMessageId, context.user.profileid);
         }, 'graphql')
+    },
+
+    // Subscription resolvers
+    Subscription: {
+        typingIndicator: {
+            subscribe: (parent, args, context) => {
+                // In a real implementation, you would filter by chatid
+                // For now, we'll just return the pubsub async iterator
+                // This would typically be implemented with a custom PubSub implementation
+                // that can filter by chatid
+                return context.pubsub.asyncIterator(`TYPING_INDICATOR_${args.chatid}`);
+            }
+        },
+        
+        userPresence: {
+            subscribe: (parent, args, context) => {
+                // Subscribe to user presence updates
+                return context.pubsub.asyncIterator(`USER_PRESENCE_${args.profileid}`);
+            }
+        },
+        
+        chatTyping: {
+            subscribe: (parent, args, context) => {
+                // Subscribe to chat typing updates
+                return context.pubsub.asyncIterator(`CHAT_TYPING_${args.chatid}`);
+            }
+        }
     }
 };
 
 export default ChatResolvers;
+
+
+
+

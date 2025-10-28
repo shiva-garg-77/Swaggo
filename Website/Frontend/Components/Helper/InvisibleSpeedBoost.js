@@ -2,6 +2,7 @@
 
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useCallback, useRef } from 'react';
+import { useFixedSecureAuth } from '../../context/FixedSecureAuthContext';
 
 // Invisible speed boost - no UI changes, just pure performance
 class InvisibleSpeedBooster {
@@ -10,30 +11,44 @@ class InvisibleSpeedBooster {
     this.preloadedRoutes = new Set();
     this.isNavigating = false;
     this.routesToPreload = ['/home', '/Profile', '/create', '/reel', '/message', '/dashboard'];
+    
+    // Define unauthenticated routes that should always be prefetched
+    this.unauthenticatedRoutes = ['/', '/signup', '/forget-password', '/reset-password'];
   }
 
-  init(router) {
+  init(router, isAuthenticated) {
     this.router = router;
-    this.preloadCriticalRoutes();
+    this.preloadCriticalRoutes(isAuthenticated);
   }
 
   // Preload routes invisibly in the background
-  async preloadCriticalRoutes() {
+  async preloadCriticalRoutes(isAuthenticated) {
     if (typeof window === 'undefined' || !this.router) return;
     
     // Use requestIdleCallback for non-blocking preloading
     const preloadInIdle = (route) => {
       if (window.requestIdleCallback) {
-        window.requestIdleCallback(() => this.preloadRoute(route), { timeout: 2000 });
+        window.requestIdleCallback(() => this.preloadRoute(route, isAuthenticated), { timeout: 2000 });
       } else {
-        setTimeout(() => this.preloadRoute(route), 100);
+        setTimeout(() => this.preloadRoute(route, isAuthenticated), 100);
       }
     };
 
-    this.routesToPreload.forEach(route => preloadInIdle(route));
+    this.routesToPreload.forEach(route => {
+      // For unauthenticated users, only preload unauthenticated routes
+      if (!isAuthenticated && !this.unauthenticatedRoutes.includes(route)) {
+        return;
+      }
+      preloadInIdle(route);
+    });
   }
 
-  async preloadRoute(route) {
+  async preloadRoute(route, isAuthenticated) {
+    // For unauthenticated users, only preload unauthenticated routes
+    if (!isAuthenticated && !this.unauthenticatedRoutes.includes(route) && !route.startsWith('/reset-password/')) {
+      return;
+    }
+    
     if (this.preloadedRoutes.has(route)) return;
     
     try {
@@ -80,10 +95,15 @@ class InvisibleSpeedBooster {
   }
 
   // Preload on hover (invisible)
-  preloadOnHover(route) {
+  preloadOnHover(route, isAuthenticated) {
     if (!this.preloadedRoutes.has(route)) {
-      this.preloadRoute(route);
+      this.preloadRoute(route, isAuthenticated);
     }
+  }
+  
+  // Reset preloaded routes (useful for auth state changes)
+  reset() {
+    this.preloadedRoutes.clear();
   }
 }
 
@@ -93,6 +113,12 @@ const speedBooster = new InvisibleSpeedBooster();
 // Minimal hook that doesn't interfere with existing code
 export const useInvisibleSpeedBoost = () => {
   const router = useRouter();
+  const { isAuthenticated } = useFixedSecureAuth();
+  
+  // Ensure router is properly initialized
+  if (!router || typeof router.push !== 'function') {
+    console.error('Router not properly initialized in InvisibleSpeedBoost');
+  }
   const pathname = usePathname();
   const initRef = useRef(false);
 
@@ -101,22 +127,35 @@ export const useInvisibleSpeedBoost = () => {
     if (initRef.current) return;
     initRef.current = true;
     
-    speedBooster.init(router);
-  }, [router]);
+    // Ensure router is properly initialized before initializing speed booster
+    if (router && typeof router.push === 'function') {
+      speedBooster.init(router, isAuthenticated);
+    } else {
+      console.error('Router not properly initialized for speed booster');
+    }
+  }, [router, isAuthenticated]);
 
   // Fast navigate function
   const fastNavigate = useCallback(async (route) => {
     const success = await speedBooster.fastNavigate(route);
     if (!success) {
       // Fallback to normal navigation
-      router.push(route);
+      if (router && typeof router.push === 'function') {
+        router.push(route);
+      } else {
+        console.error('Router not available for fallback navigation');
+        // Use window.location as ultimate fallback
+        if (typeof window !== 'undefined') {
+          window.location.href = route;
+        }
+      }
     }
   }, [router]);
 
   // Preload on hover
   const preloadOnHover = useCallback((route) => {
-    speedBooster.preloadOnHover(route);
-  }, []);
+    speedBooster.preloadOnHover(route, isAuthenticated);
+  }, [isAuthenticated]);
 
   return {
     fastNavigate,
@@ -127,16 +166,24 @@ export const useInvisibleSpeedBoost = () => {
 
 // Invisible preloader component (no visual impact)
 export const InvisiblePreloader = ({ routes = [] }) => {
+  const { isAuthenticated, isLoading } = useFixedSecureAuth();
+  
   useEffect(() => {
-    if (typeof window === 'undefined' || !routes.length) return;
+    if (typeof window === 'undefined' || !routes.length || isLoading) return;
     
     // Preload routes in the background after page load
     const timer = setTimeout(() => {
-      routes.forEach(route => speedBooster.preloadRoute(route));
+      routes.forEach(route => {
+        // For unauthenticated users, only preload unauthenticated routes
+        if (!isAuthenticated && route !== '/' && route !== '/signup' && route !== '/forget-password' && !route.startsWith('/reset-password/')) {
+          return;
+        }
+        speedBooster.preloadRoute(route, isAuthenticated);
+      });
     }, 2000);
     
     return () => clearTimeout(timer);
-  }, [routes]);
+  }, [routes, isAuthenticated, isLoading]);
 
   return null; // Completely invisible
 };

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import VoiceCommandService from '../services/VoiceCommandService';
+import getVoiceCommandService from '../services/VoiceCommandService';
 
 /**
  * 🎤 Voice Commands Hook
@@ -22,12 +22,14 @@ export const useVoiceCommands = (context = 'global') => {
 
   // Check if voice commands are supported
   useEffect(() => {
-    setIsSupported(VoiceCommandService.isSpeechRecognitionSupported());
+    const service = getVoiceCommandService();
+    setIsSupported(service.isSpeechRecognitionSupported());
   }, []);
 
   // Set context on mount
   useEffect(() => {
-    VoiceCommandService.setContext(context);
+    const service = getVoiceCommandService();
+    service.setContext(context);
   }, [context]);
 
   // Event listeners
@@ -92,14 +94,16 @@ export const useVoiceCommands = (context = 'global') => {
       return;
     }
     
-    VoiceCommandService.startListening();
+    const service = getVoiceCommandService();
+    service.startListening();
   }, [isSupported]);
 
   /**
    * Stop listening for voice commands
    */
   const stopListening = useCallback(() => {
-    VoiceCommandService.stopListening();
+    const service = getVoiceCommandService();
+    service.stopListening();
   }, []);
 
   /**
@@ -110,7 +114,8 @@ export const useVoiceCommands = (context = 'global') => {
    * @param {function} callback - Callback function to execute
    */
   const registerCommand = useCallback((phrase, action, description, callback) => {
-    VoiceCommandService.registerCommand(context, phrase, action, description, callback);
+    const service = getVoiceCommandService();
+    service.registerCommand(context, phrase, action, description, callback);
   }, [context]);
 
   /**
@@ -118,7 +123,8 @@ export const useVoiceCommands = (context = 'global') => {
    * @param {string} phrase - Voice phrase
    */
   const unregisterCommand = useCallback((phrase) => {
-    VoiceCommandService.unregisterCommand(context, phrase);
+    const service = getVoiceCommandService();
+    service.unregisterCommand(context, phrase);
   }, [context]);
 
   /**
@@ -126,7 +132,8 @@ export const useVoiceCommands = (context = 'global') => {
    * @returns {Map} Map of commands
    */
   const getCommands = useCallback(() => {
-    return VoiceCommandService.getCommandsForContext(context);
+    const service = getVoiceCommandService();
+    return service.getCommandsForContext(context);
   }, [context]);
 
   /**
@@ -134,7 +141,8 @@ export const useVoiceCommands = (context = 'global') => {
    * @returns {Array} Array of command help information
    */
   const getHelpInfo = useCallback(() => {
-    return VoiceCommandService.getHelpInfo();
+    const service = getVoiceCommandService();
+    return service.getHelpInfo();
   }, []);
 
   /**
@@ -142,7 +150,8 @@ export const useVoiceCommands = (context = 'global') => {
    * @param {string} lang - Language code
    */
   const setLanguage = useCallback((lang) => {
-    VoiceCommandService.setLanguage(lang);
+    const service = getVoiceCommandService();
+    service.setLanguage(lang);
   }, []);
 
   /**
@@ -150,7 +159,8 @@ export const useVoiceCommands = (context = 'global') => {
    * @param {number} threshold - Confidence threshold
    */
   const setConfidenceThreshold = useCallback((threshold) => {
-    VoiceCommandService.setConfidenceThreshold(threshold);
+    const service = getVoiceCommandService();
+    service.setConfidenceThreshold(threshold);
   }, []);
 
   return {

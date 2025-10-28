@@ -1,6 +1,8 @@
 import Story from '../../Models/FeedModels/Story.js';
 import Profile from '../../Models/FeedModels/Profile.js';
 import { v4 as uuidv4 } from 'uuid';
+// 🔐 ENHANCED GRAPHQL SECURITY: Import enhanced GraphQL security service
+import enhancedGraphQLSecurityService from '../services/EnhancedGraphQLSecurityService.js';
 
 const StoryResolvers = {
     // Story field resolvers

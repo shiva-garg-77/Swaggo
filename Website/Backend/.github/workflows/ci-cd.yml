@@ -87,17 +87,17 @@ jobs:
       - name: Run tests
         env:
           NODE_ENV: test
-          MONGOURI: mongodb://admin:password@localhost:27017/swaggo_test?authSource=admin
-          ACCESS_TOKEN_SECRET: test-secret
-          REFRESH_TOKEN_SECRET: test-refresh-secret
+          MONGOURI: ${{ secrets.TEST_MONGODB_URI }}
+          ACCESS_TOKEN_SECRET: ${{ secrets.TEST_ACCESS_TOKEN_SECRET }}
+          REFRESH_TOKEN_SECRET: ${{ secrets.TEST_REFRESH_TOKEN_SECRET }}
         run: npm test
 
       - name: Run coverage
         env:
           NODE_ENV: test
-          MONGOURI: mongodb://admin:password@localhost:27017/swaggo_test?authSource=admin
-          ACCESS_TOKEN_SECRET: test-secret
-          REFRESH_TOKEN_SECRET: test-refresh-secret
+          MONGOURI: ${{ secrets.TEST_MONGODB_URI }}
+          ACCESS_TOKEN_SECRET: ${{ secrets.TEST_ACCESS_TOKEN_SECRET }}
+          REFRESH_TOKEN_SECRET: ${{ secrets.TEST_REFRESH_TOKEN_SECRET }}
         run: npm run test:coverage
 
       - name: Upload coverage to Codecov

@@ -33,13 +33,13 @@ import { io, Socket } from 'socket.io-client';
 // Import existing services but use them carefully
 // Remove direct import of notificationService to avoid circular dependency
 // notificationService will be injected via constructor
-import connectionState from '../lib/ConnectionState.js';
+import connectionState from '@lib/ConnectionState.js';
 // Import secure environment configuration
 import secureEnvironment, { getUrlConfig, getConnectionConfig } from '../config/SecureEnvironment.js';
 // Import socket event constants
 import SocketEvents, { CONNECTION_EVENTS, AUTH_EVENTS, MESSAGE_EVENTS, CALL_EVENTS } from '../constants/SocketEvents.js';
 // Import TypeScript types
-import { ConnectionStates, SocketConfig, ConnectionStatus, MessageQueueItem, AuthData, UnifiedSocketServiceInterface } from '../types/socket.js';
+import { ConnectionStates, SocketConfig, ConnectionStatus, MessageQueueItem, AuthData, UnifiedSocketServiceInterface } from '@types/socket.js';
 
 /**
  * Connection states for the unified service
@@ -222,12 +222,19 @@ class UnifiedSocketService extends EventEmitter {
   constructor(notificationService = null) {
     super();
     
+    console.log('🚀 UnifiedSocketService: CONSTRUCTOR STARTED', { notificationService: !!notificationService });
+    
     // Connection configuration
     this.config = this.getSocketConfig();
+    console.log('⚙️ UnifiedSocketService: Config loaded:', this.config);
     
     // Connection management (using secure configuration)
     this.maxReconnectAttempts = getConnectionConfig().retryAttempts;
     this.maxReconnectDelay = Math.max(getConnectionConfig().timeout, 30000);
+    console.log('🔄 UnifiedSocketService: Reconnection config:', { 
+      maxReconnectAttempts: this.maxReconnectAttempts, 
+      maxReconnectDelay: this.maxReconnectDelay 
+    });
     
     // Inject notification service to avoid circular dependency
     this.notificationService = notificationService;
@@ -235,7 +242,7 @@ class UnifiedSocketService extends EventEmitter {
     // Initialize service
     this.initializeService();
     
-    console.log('🚀 UnifiedSocketService: Initialized successfully');
+    console.log('✅ UnifiedSocketService: CONSTRUCTOR COMPLETED');
   }
   
   /**
@@ -303,8 +310,15 @@ class UnifiedSocketService extends EventEmitter {
    * @returns {Promise<Socket | null>}
    */
   async connect(authData = null) {
+    console.log('🔌 UnifiedSocketService: CONNECT METHOD CALLED', { 
+      authData: !!authData, 
+      isConnecting: this.isConnecting, 
+      connectionState: this.connectionState,
+      hasSocket: !!this.socket
+    });
+    
     if (this.isConnecting || this.connectionState === CONNECTION_STATES.CONNECTED) {
-      console.log('🔄 UnifiedSocketService: Already connecting/connected, skipping');
+      console.log('⚠️ UnifiedSocketService: Already connecting/connected, skipping');
       return this.socket;
     }
     
@@ -312,18 +326,33 @@ class UnifiedSocketService extends EventEmitter {
       this.isConnecting = true;
       this.setConnectionState(CONNECTION_STATES.CONNECTING);
       
-      console.log('🔌 UnifiedSocketService: Connecting to:', this.config.url);
+      const finalAuthData = authData || this.getAuthData();
+      console.log('🔐 UnifiedSocketService: Using auth data:', { 
+        hasAuth: !!finalAuthData,
+        authKeys: finalAuthData ? Object.keys(finalAuthData) : 'none'
+      });
+      
+      console.log('🔌 UnifiedSocketService: Creating socket connection to:', this.config.url);
+      console.log('⚙️ UnifiedSocketService: Socket options:', this.config.options);
       
       // Create socket connection
       this.socket = io(this.config.url, {
         ...this.config.options,
-        auth: authData || this.getAuthData()
+        auth: finalAuthData
+      });
+      
+      console.log('🔌 UnifiedSocketService: Socket instance created:', {
+        socketId: this.socket?.id,
+        connected: this.socket?.connected,
+        disconnected: this.socket?.disconnected
       });
       
       // Setup event handlers
+      console.log('🛠️ UnifiedSocketService: Setting up socket event handlers...');
       this.setupSocketEventHandlers();
       
       // Wait for connection
+      console.log('⏳ UnifiedSocketService: Waiting for connection...');
       await this.waitForConnection();
       
       console.log('✅ UnifiedSocketService: Connected successfully');
@@ -331,10 +360,17 @@ class UnifiedSocketService extends EventEmitter {
       
     } catch (error) {
       console.error('❌ UnifiedSocketService: Connection failed:', error);
+      console.error('❌ UnifiedSocketService: Error details:', {
+        message: error.message,
+        code: error.code,
+        type: error.type,
+        stack: error.stack
+      });
       this.handleConnectionError(error);
       throw error;
     } finally {
       this.isConnecting = false;
+      console.log('📝 UnifiedSocketService: Connect method finished, isConnecting reset to false');
     }
   }
   

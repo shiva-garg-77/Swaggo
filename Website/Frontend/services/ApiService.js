@@ -3,8 +3,7 @@
  * Provides unified API response handling, formatting, and error management
  */
 
-import { AuthErrorHandler } from '../utils/authUtils';
-import authService from './AuthService';
+import { AppError, ERROR_TYPES } from './ErrorHandlingService';
 
 /**
  * Standard API Response Interface
@@ -36,7 +35,7 @@ class ApiResponse {
 class ApiService {
   constructor() {
     this.baseUrl = typeof window !== 'undefined' 
-      ? `http://localhost:${process.env.NEXT_PUBLIC_PORT || 3001}` 
+      ? (process.env.NEXT_PUBLIC_SERVER_URL || `http://localhost:${process.env.NEXT_PUBLIC_PORT || 3001}`)
       : '';
     
     this.defaultTimeout = 10000;
@@ -56,8 +55,15 @@ class ApiService {
   setupDefaultInterceptors() {
     // Add authentication token to requests
     this.addRequestInterceptor(async (config) => {
-      const token = authService.getCurrentToken();
+      // Get token from global auth context if available
+      let token = null;
+      if (typeof window !== 'undefined' && window.__UNIFIED_AUTH__) {
+        const tokens = window.__UNIFIED_AUTH__.getTokens();
+        token = tokens.accessToken;
+      }
+      
       if (token && config.requiresAuth !== false) {
+        console.log('🔐 hahahhahah AUTH: Adding Authorization header in fetchWithAuth and accessToken is -------------------------------', token);
         config.headers = {
           ...config.headers,
           'Authorization': `Bearer ${token}`
@@ -70,16 +76,27 @@ class ApiService {
     this.addResponseInterceptor(
       (response) => response, // Success handler
       async (error) => { // Error handler
-        if (error.status === 401 && authService.isAuthenticated()) {
+        // Check if we have auth context and user is authenticated
+        const isAuthenticated = typeof window !== 'undefined' && 
+          window.__UNIFIED_AUTH__ && 
+          window.__UNIFIED_AUTH__.isAuthenticated && 
+          window.__UNIFIED_AUTH__.isAuthenticated();
+          
+        if (error.status === 401 && isAuthenticated) {
           // Try to refresh token
           try {
-            await authService.refreshToken();
-            // Retry the original request
-            return this.retryRequest(error.config);
+            if (typeof window !== 'undefined' && window.__UNIFIED_AUTH__ && window.__UNIFIED_AUTH__.refreshTokens) {
+              const refreshSuccess = await window.__UNIFIED_AUTH__.refreshTokens();
+              if (refreshSuccess) {
+                // Retry the original request
+                return this.retryRequest(error.config);
+              }
+            }
+            // If refresh failed, throw auth error
+            throw new AppError(ERROR_TYPES.AUTH_SESSION_EXPIRED, 'Session expired. Please log in again.');
           } catch (refreshError) {
-            // Refresh failed, logout user
-            await authService.logout();
-            throw AuthErrorHandler.createError('AUTH_EXPIRED', 'Session expired. Please log in again.');
+            // Refresh failed, throw auth error
+            throw new AppError(ERROR_TYPES.AUTH_SESSION_EXPIRED, 'Session expired. Please log in again.');
           }
         }
         throw error;
@@ -477,8 +494,13 @@ class ApiService {
         };
 
         // Add authorization header if needed
-        const token = authService.getCurrentToken();
+        let token = null;
+        if (typeof window !== 'undefined' && window.__UNIFIED_AUTH__) {
+          const tokens = window.__UNIFIED_AUTH__.getTokens();
+          token = tokens.accessToken;
+        }
         if (token && otherOptions.requiresAuth !== false) {
+          console.log('🔐 yotototototot AUTH: Adding Authorization header in fetchWithAuth and accessToken is -------------------------------', token);
           xhr.setRequestHeader('Authorization', `Bearer ${token}`);
         }
 
@@ -566,3 +588,7 @@ const apiService = new ApiService();
 
 export default apiService;
 export { ApiResponse };
+
+/**
+ * @typedef {InstanceType<typeof ApiService>} ApiServiceInstance
+ */

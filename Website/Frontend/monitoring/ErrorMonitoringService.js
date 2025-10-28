@@ -3,6 +3,8 @@
  * Sends error reports to external monitoring service
  */
 
+import frontendMonitoringService from '../services/FrontendMonitoringService.js';
+
 class ErrorMonitoringService {
   constructor() {
     this.apiEndpoint = process.env.NEXT_PUBLIC_ERROR_MONITORING_ENDPOINT || '/api/monitoring/errors';
@@ -58,6 +60,9 @@ class ErrorMonitoringService {
       if (!response.ok) {
         console.warn('Failed to send error report to monitoring service:', response.status);
       }
+
+      // Also report to the frontend monitoring service
+      await frontendMonitoringService.reportError(error, context);
 
       return response;
     } catch (networkError) {

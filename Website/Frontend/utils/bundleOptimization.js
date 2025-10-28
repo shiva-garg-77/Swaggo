@@ -342,8 +342,8 @@ export const ResourcePreloader = {
   preloadCriticalResources: () => {
     const criticalResources = [
       { href: '/api/auth/session', as: 'fetch' },
-      { href: '/api/user/profile', as: 'fetch' },
-      { href: '/fonts/inter.woff2', as: 'font', type: 'font/woff2', crossOrigin: 'anonymous' }
+      { href: '/api/user/profile', as: 'fetch' }
+      // Inter font is handled by next/font/google - no need for manual preload
     ];
     
     criticalResources.forEach(resource => {

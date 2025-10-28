@@ -1,15 +1,14 @@
 /**
- * Centralized Notification Service
- * Consolidates all notification functionality into a single service
+ * Consolidated Notification Service for SwagGo
+ * Single implementation combining the best features from previous services
  */
 
 import toast from 'react-hot-toast';
-import authService from './AuthService';
 
 /**
  * Notification Types
  */
-const NOTIFICATION_TYPES = {
+export const NOTIFICATION_TYPES = {
   SUCCESS: 'success',
   ERROR: 'error', 
   WARNING: 'warning',
@@ -21,7 +20,7 @@ const NOTIFICATION_TYPES = {
 /**
  * Notification Categories
  */
-const NOTIFICATION_CATEGORIES = {
+export const NOTIFICATION_CATEGORIES = {
   AUTH: 'authentication',
   CHAT: 'chat',
   CALL: 'call',
@@ -33,7 +32,7 @@ const NOTIFICATION_CATEGORIES = {
 /**
  * Push Notification Permission States
  */
-const PERMISSION_STATES = {
+export const PERMISSION_STATES = {
   GRANTED: 'granted',
   DENIED: 'denied',
   DEFAULT: 'default',
@@ -41,25 +40,34 @@ const PERMISSION_STATES = {
 };
 
 /**
- * Notification Service Class
+ * Consolidated Notification Service Class
  */
 class NotificationService {
   constructor() {
-    // Browser notification support
-    this.isPushSupported = 'Notification' in window && 'serviceWorker' in navigator;
-    this.isServiceWorkerSupported = 'serviceWorker' in navigator;
+    // Environment detection
+    this.isBrowser = typeof window !== 'undefined' && typeof navigator !== 'undefined';
+    this.isServer = typeof window === 'undefined';
+    
+    // Core notification support
+    this.isPushSupported = this.isBrowser && 
+      'Notification' in window && 'serviceWorker' in navigator;
+    this.isServiceWorkerSupported = this.isBrowser && 'serviceWorker' in navigator;
     
     // Permission state
-    this.permissionState = this.isPushSupported 
+    this.permissionState = this.isBrowser && this.isPushSupported 
       ? Notification.permission 
       : PERMISSION_STATES.UNSUPPORTED;
+    
+    // Service Worker state
+    this.serviceWorkerRegistration = null;
+    this.pushSubscription = null;
     
     // Active notifications tracking
     this.activeNotifications = new Map();
     this.notificationHistory = [];
     this.maxHistorySize = 100;
     
-    // Configuration
+    // Configuration with safe defaults
     this.config = {
       defaultDuration: 4000,
       maxActiveToasts: 3,
@@ -69,13 +77,13 @@ class NotificationService {
       persistImportant: true
     };
     
-    // Event listeners
-    this.listeners = new Set();
+    // Event system
+    this.listeners = new Map();
     
     // Initialize service worker for push notifications
     this.initializeServiceWorker();
     
-    // Setup default notification handlers
+    // Setup default handlers
     this.setupDefaultHandlers();
   }
 
@@ -118,29 +126,20 @@ class NotificationService {
   }
 
   /**
-   * Setup default notification handlers for different services
+   * Setup default handlers
    */
   setupDefaultHandlers() {
-    // Authentication notifications
-    authService.addAuthListener((authState) => {
-      if (authState.isAuthenticated && authState.user) {
-        this.show({
-          type: NOTIFICATION_TYPES.SUCCESS,
-          title: 'Welcome back!',
-          message: `Hello ${authState.user.username}`,
-          category: NOTIFICATION_CATEGORIES.AUTH
-        });
-      }
-      
-      if (authState.error) {
-        this.show({
-          type: NOTIFICATION_TYPES.ERROR,
-          title: 'Authentication Error',
-          message: authState.error.message,
-          category: NOTIFICATION_CATEGORIES.AUTH
-        });
-      }
-    });
+    // Setup default notification click behavior
+    if (this.isBrowser) {
+      this.on('notificationClick', (data) => {
+        if (data?.chatId) {
+          // Try to focus existing window or open new one
+          if (typeof window !== 'undefined') {
+            window.focus();
+          }
+        }
+      });
+    }
   }
 
   /**
@@ -218,19 +217,14 @@ class NotificationService {
    */
   async sendSubscriptionToServer(subscription) {
     try {
-      const user = authService.getCurrentUser();
-      if (!user) return;
-      
-      const response = await fetch('/api/push/subscribe', {
+      // Get current user (this would depend on your auth system)
+      // For now, we'll assume there's a way to get the current user
+      const response = await fetch('/api/notifications/subscribe', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authService.getCurrentToken()}`
         },
-        body: JSON.stringify({
-          subscription,
-          userId: user.profileid || user.id
-        })
+        body: JSON.stringify({ subscription })
       });
       
       if (response.ok) {
@@ -247,12 +241,18 @@ class NotificationService {
    * Main notification display method
    */
   show(notification) {
+    // Check if we're in browser environment
+    if (!this.isBrowser) {
+      console.warn('⚠️ NotificationService: Not in browser environment');
+      return null;
+    }
+    
     const {
       type = NOTIFICATION_TYPES.INFO,
       title,
       message,
       category = NOTIFICATION_CATEGORIES.SYSTEM,
-      duration,
+      duration = this.config.defaultDuration,
       persistent = false,
       actions = [],
       data = {},
@@ -273,7 +273,7 @@ class NotificationService {
       title,
       message,
       category,
-      duration: duration || this.config.defaultDuration,
+      duration,
       persistent,
       actions,
       data,
@@ -285,11 +285,9 @@ class NotificationService {
 
     // Add to active notifications
     this.activeNotifications.set(id, notificationData);
-    
-    // Add to history
     this.addToHistory(notificationData);
     
-    // Show toast notification
+    // Show toast notification (always available)
     this.showToast(notificationData);
     
     // Play sound if enabled
@@ -298,11 +296,11 @@ class NotificationService {
     }
     
     // Vibrate if enabled and supported
-    if (vibration && navigator.vibrate) {
+    if (vibration && this.isBrowser && navigator.vibrate) {
       this.vibrateDevice(type);
     }
     
-    // Show push notification if enabled and user is not focused
+    // Show push notification if enabled and page is not focused
     if (push && this.shouldShowPush()) {
       this.showPushNotification(notificationData);
     }
@@ -321,9 +319,8 @@ class NotificationService {
     
     const toastContent = (
       <div 
-        className="notification-content"
+        className="notification-content cursor-pointer"
         onClick={() => onClick && onClick(notification)}
-        style={{ cursor: onClick ? 'pointer' : 'default' }}
       >
         {title && <div className="notification-title font-semibold">{title}</div>}
         {message && <div className="notification-message text-sm opacity-90">{message}</div>}
@@ -334,12 +331,7 @@ class NotificationService {
       id,
       duration: persistent ? Infinity : duration,
       position: 'top-right',
-      style: this.getToastStyle(type),
-      className: `notification-toast notification-${type}`,
-      ariaProps: {
-        role: 'status',
-        'aria-live': type === NOTIFICATION_TYPES.ERROR ? 'assertive' : 'polite'
-      }
+      style: this.getToastStyle(type)
     };
 
     switch (type) {
@@ -367,7 +359,9 @@ class NotificationService {
    * Show browser push notification
    */
   async showPushNotification(notification) {
-    if (!this.isPushSupported || this.permissionState !== PERMISSION_STATES.GRANTED) {
+    if (!this.isBrowser || 
+        !this.isPushSupported || 
+        this.permissionState !== PERMISSION_STATES.GRANTED) {
       return;
     }
     
@@ -396,12 +390,18 @@ class NotificationService {
       const pushNotification = new Notification(title, options);
       
       pushNotification.onclick = () => {
-        this.handleNotificationClick(notification);
+        if (notification.onClick) {
+          notification.onClick(notification);
+        }
+        this.emit('notificationClicked', notification);
         pushNotification.close();
       };
       
       pushNotification.onclose = () => {
-        this.handleNotificationClose(notification);
+        if (notification.onClose) {
+          notification.onClose(notification);
+        }
+        this.emit('notificationClosed', notification);
       };
       
       // Auto-close after duration if not persistent
@@ -483,7 +483,9 @@ class NotificationService {
       push: true,
       onClick: (notification) => {
         // Navigate to chat
-        window.location.href = `/chat/${chatId}`;
+        if (typeof window !== 'undefined') {
+          window.location.href = `/chat/${chatId}`;
+        }
       }
     });
   }
@@ -507,32 +509,6 @@ class NotificationService {
         callerId: caller.profileid,
         callerName: caller.username,
         callType 
-      }
-    });
-  }
-
-  callEnded(caller, duration) {
-    const durationText = this.formatDuration(duration);
-    return this.show({
-      type: NOTIFICATION_TYPES.INFO,
-      title: 'Call ended',
-      message: `Call with ${caller.username} lasted ${durationText}`,
-      category: NOTIFICATION_CATEGORIES.CALL,
-      data: { callerId: caller.profileid, duration }
-    });
-  }
-
-  missedCall(caller) {
-    return this.show({
-      type: NOTIFICATION_TYPES.WARNING,
-      title: 'Missed call',
-      message: `You missed a call from ${caller.username}`,
-      category: NOTIFICATION_CATEGORIES.CALL,
-      persistent: true,
-      data: { callerId: caller.profileid },
-      onClick: () => {
-        // Navigate to call history or chat
-        window.location.href = `/chat/${caller.profileid}`;
       }
     });
   }
@@ -565,57 +541,6 @@ class NotificationService {
       'Upload failed',
       `Failed to upload ${filename}: ${error}`,
       { category: NOTIFICATION_CATEGORIES.FILE }
-    );
-  }
-
-  // Authentication notifications
-  loginSuccess(username) {
-    return this.success(
-      'Login successful',
-      `Welcome back, ${username}!`,
-      { category: NOTIFICATION_CATEGORIES.AUTH }
-    );
-  }
-
-  loginError(error) {
-    return this.error(
-      'Login failed',
-      error.message || 'Invalid credentials',
-      { category: NOTIFICATION_CATEGORIES.AUTH }
-    );
-  }
-
-  sessionExpired() {
-    return this.warning(
-      'Session expired',
-      'Please log in again to continue',
-      { 
-        category: NOTIFICATION_CATEGORIES.AUTH,
-        persistent: true,
-        onClick: () => {
-          window.location.href = '/login';
-        }
-      }
-    );
-  }
-
-  // System notifications
-  connectionLost() {
-    return this.warning(
-      'Connection lost',
-      'Trying to reconnect...',
-      { 
-        category: NOTIFICATION_CATEGORIES.SYSTEM,
-        persistent: true 
-      }
-    );
-  }
-
-  connectionRestored() {
-    return this.success(
-      'Connection restored',
-      'You are back online',
-      { category: NOTIFICATION_CATEGORIES.SYSTEM }
     );
   }
 
@@ -664,43 +589,38 @@ class NotificationService {
   }
 
   /**
-   * Configuration methods
+   * Event system
    */
-  updateConfig(newConfig) {
-    this.config = { ...this.config, ...newConfig };
-    this.emit('configUpdated', this.config);
+  on(eventName, listener) {
+    if (!this.listeners.has(eventName)) {
+      this.listeners.set(eventName, []);
+    }
+    this.listeners.get(eventName).push(listener);
+    
+    return () => this.off(eventName, listener);
   }
-
-  getConfig() {
-    return { ...this.config };
-  }
-
-  /**
-   * Event handling
-   */
-  on(event, callback) {
-    this.listeners.add({ event, callback });
-    return () => this.listeners.delete({ event, callback });
-  }
-
-  off(event, callback) {
-    this.listeners = new Set(
-      Array.from(this.listeners).filter(l => 
-        l.event !== event || l.callback !== callback
-      )
-    );
-  }
-
-  emit(event, data) {
-    this.listeners.forEach(({ event: listenerEvent, callback }) => {
-      if (listenerEvent === event) {
-        try {
-          callback(data);
-        } catch (error) {
-          console.error('Error in notification listener:', error);
-        }
+  
+  off(eventName, listener) {
+    const listeners = this.listeners.get(eventName);
+    if (listeners) {
+      const index = listeners.indexOf(listener);
+      if (index > -1) {
+        listeners.splice(index, 1);
       }
-    });
+    }
+  }
+  
+  emit(eventName, data) {
+    const listeners = this.listeners.get(eventName);
+    if (listeners) {
+      listeners.forEach(listener => {
+        try {
+          listener(data);
+        } catch (error) {
+          console.error(`Error in event listener for '${eventName}':`, error);
+        }
+      });
+    }
   }
 
   /**
@@ -742,7 +662,7 @@ class NotificationService {
   }
 
   shouldShowPush() {
-    // Show push notifications when page is not focused or minimized
+    if (!this.isBrowser) return false;
     return document.hidden || !document.hasFocus();
   }
 
@@ -756,26 +676,11 @@ class NotificationService {
     };
 
     const typeStyles = {
-      [NOTIFICATION_TYPES.SUCCESS]: {
-        background: '#10b981',
-        color: 'white'
-      },
-      [NOTIFICATION_TYPES.ERROR]: {
-        background: '#ef4444',
-        color: 'white'
-      },
-      [NOTIFICATION_TYPES.WARNING]: {
-        background: '#f59e0b',
-        color: 'white'
-      },
-      [NOTIFICATION_TYPES.INFO]: {
-        background: '#3b82f6',
-        color: 'white'
-      },
-      [NOTIFICATION_TYPES.LOADING]: {
-        background: '#6b7280',
-        color: 'white'
-      }
+      [NOTIFICATION_TYPES.SUCCESS]: { background: '#10b981', color: 'white' },
+      [NOTIFICATION_TYPES.ERROR]: { background: '#ef4444', color: 'white' },
+      [NOTIFICATION_TYPES.WARNING]: { background: '#f59e0b', color: 'white' },
+      [NOTIFICATION_TYPES.INFO]: { background: '#3b82f6', color: 'white' },
+      [NOTIFICATION_TYPES.LOADING]: { background: '#6b7280', color: 'white' }
     };
 
     return {
@@ -785,34 +690,43 @@ class NotificationService {
   }
 
   playNotificationSound(type) {
+    if (!this.isBrowser) return;
+    
     try {
-      const audio = new Audio();
+      // Use Web Audio API for better control
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
       
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      // Different tones for different types
       switch (type) {
         case NOTIFICATION_TYPES.SUCCESS:
-          audio.src = '/sounds/success.mp3';
+          oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+          oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.1);
           break;
         case NOTIFICATION_TYPES.ERROR:
-          audio.src = '/sounds/error.mp3';
-          break;
-        case NOTIFICATION_TYPES.WARNING:
-          audio.src = '/sounds/warning.mp3';
+          oscillator.frequency.setValueAtTime(400, audioContext.currentTime);
+          oscillator.frequency.setValueAtTime(300, audioContext.currentTime + 0.2);
           break;
         default:
-          audio.src = '/sounds/notification.mp3';
+          oscillator.frequency.setValueAtTime(600, audioContext.currentTime);
       }
       
-      audio.volume = 0.5;
-      audio.play().catch(() => {
-        // Ignore autoplay policy errors
-      });
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+      
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.5);
     } catch (error) {
       console.warn('Could not play notification sound:', error);
     }
   }
 
   vibrateDevice(type) {
-    if (!navigator.vibrate) return;
+    if (!this.isBrowser || !navigator.vibrate) return;
     
     switch (type) {
       case NOTIFICATION_TYPES.SUCCESS:
@@ -847,17 +761,6 @@ class NotificationService {
     this.emit('notificationClosed', notification);
   }
 
-  formatDuration(seconds) {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    
-    if (minutes === 0) {
-      return `${remainingSeconds}s`;
-    } else {
-      return `${minutes}m ${remainingSeconds}s`;
-    }
-  }
-
   urlBase64ToUint8Array(base64String) {
     const padding = '='.repeat((4 - base64String.length % 4) % 4);
     const base64 = (base64String + padding)
@@ -874,30 +777,18 @@ class NotificationService {
   }
 
   /**
-   * Analytics and debugging
-   */
-  getStats() {
-    return {
-      permissionState: this.permissionState,
-      isPushSupported: this.isPushSupported,
-      activeNotifications: this.activeNotifications.size,
-      historySize: this.notificationHistory.length,
-      config: this.config
-    };
-  }
-
-  /**
-   * Cleanup
+   * Cleanup method
    */
   destroy() {
+    // Clear all notifications
     this.dismissAll();
+    
+    // Clear internal state
     this.listeners.clear();
     this.activeNotifications.clear();
     this.notificationHistory = [];
     
-    if (navigator.serviceWorker) {
-      navigator.serviceWorker.removeEventListener('message', this.handleServiceWorkerMessage);
-    }
+    console.log('🧹 NotificationService destroyed and cleaned up');
   }
 }
 
@@ -905,4 +796,4 @@ class NotificationService {
 const notificationService = new NotificationService();
 
 export default notificationService;
-export { NOTIFICATION_TYPES, NOTIFICATION_CATEGORIES, PERMISSION_STATES };
+// export { NOTIFICATION_TYPES, NOTIFICATION_CATEGORIES, PERMISSION_STATES };

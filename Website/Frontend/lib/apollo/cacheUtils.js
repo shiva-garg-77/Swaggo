@@ -57,9 +57,9 @@ export const clearProfileCache = (client) => {
     console.log('👤 Clearing profile cache...');
     
     // Clear profile-related queries
-    client.cache.evict({ fieldName: 'getProfile' });
-    client.cache.evict({ fieldName: 'getUserProfile' });
-    client.cache.evict({ fieldName: 'getCurrentUser' });
+    client.cache.evict({ fieldName: 'profile' });
+    client.cache.evict({ fieldName: 'profileByUsername' });
+    client.cache.evict({ fieldName: 'profiles' });
     
     // Garbage collect
     client.cache.gc();

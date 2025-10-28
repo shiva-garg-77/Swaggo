@@ -1,9 +1,6 @@
-import React, { useEffect } from 'react';
-import useKeyboardShortcuts from '../../hooks/useKeyboardShortcuts';
-import KeyboardShortcutService from '../../services/KeyboardShortcutService';
-import { useTheme } from '../Helper/ThemeProvider';
-import { useFixedSecureAuth } from '../../context/FixedSecureAuthContext';
-import { useRouter } from 'next/navigation';
+'use client';
+
+import React, { useEffect, useCallback } from 'react';
 
 /**
  * ⌨️ Keyboard Shortcut Integration Component
@@ -16,7 +13,7 @@ import { useRouter } from 'next/navigation';
  * - Theme integration
  */
 
-export default function KeyboardShortcutIntegration({ 
+const KeyboardShortcutIntegration = ({ 
   onOpenTemplates,
   onToggleTheme,
   onToggleSearch,
@@ -73,11 +70,37 @@ export default function KeyboardShortcutIntegration({
   onCloseModal,
   onQuitChat,
   onExitApp
-}) {
-  const { theme } = useTheme();
-  const { user } = useFixedSecureAuth();
-  const router = useRouter();
-  const { registerShortcut } = useKeyboardShortcuts('chat');
+}) => {
+  // Simple keyboard shortcut registration without external hooks
+  const registerShortcut = useCallback((keys, id, description, handler) => {
+    const handleKeyDown = (event) => {
+      const isCtrl = event.ctrlKey || event.metaKey;
+      const isShift = event.shiftKey;
+      const isAlt = event.altKey;
+      const key = event.key.toLowerCase();
+      
+      // Parse the shortcut keys
+      const shortcutParts = keys.toLowerCase().split('+');
+      const needsCtrl = shortcutParts.includes('ctrl');
+      const needsShift = shortcutParts.includes('shift');
+      const needsAlt = shortcutParts.includes('alt');
+      const targetKey = shortcutParts[shortcutParts.length - 1];
+      
+      // Check if the current key combination matches
+      if (
+        isCtrl === needsCtrl &&
+        isShift === needsShift &&
+        isAlt === needsAlt &&
+        (key === targetKey || event.key === targetKey)
+      ) {
+        event.preventDefault();
+        handler(event);
+      }
+    };
+    
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Register global shortcuts
   useEffect(() => {
@@ -519,4 +542,6 @@ export default function KeyboardShortcutIntegration({
   }, []);
 
   return null; // This component doesn't render anything visible
-}
+};
+
+export default KeyboardShortcutIntegration;

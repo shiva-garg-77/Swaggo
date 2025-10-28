@@ -7,13 +7,12 @@
 
 export default {
   // Test environment configuration
-  testEnvironment: './tests/PerfectTestEnvironment.js',
+  testEnvironment: 'node',
   
   // Test file patterns
   testMatch: [
-    '<rootDir>/tests/**/*.test.js',
-    '<rootDir>/tests/**/*.spec.js',
-    '<rootDir>/Controllers/__tests__/**/*.test.js'
+    '<rootDir>/__tests__/**/*.test.js',
+    '<rootDir>/__tests__/**/*.spec.js'
   ],
   
   // Ignored patterns
@@ -21,11 +20,12 @@ export default {
     '/node_modules/',
     '/dist/',
     '/build/',
-    '/coverage/'
+    '/coverage/',
+    '/__tests__/integration/test_.*\\.js$/'  // Ignore standalone test scripts
   ],
   
   // Setup files
-  setupFilesAfterEnv: ['<rootDir>/tests/jest.setup.js'],
+  setupFilesAfterEnv: [],
   
   // Coverage configuration
   collectCoverage: false, // Disable for speed in perfect mode
@@ -59,10 +59,6 @@ export default {
   
   // Reporter configuration
   reporters: [
-    'default',
-    ['jest-junit', {
-      outputDirectory: 'test-results',
-      outputName: 'junit.xml'
-    }]
+    'default'
   ]
 };

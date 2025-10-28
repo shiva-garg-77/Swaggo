@@ -1,7 +1,21 @@
 "use client";
 
 import { useState, useCallback, useRef } from 'react';
-import { useErrorHandler } from '../Components/ErrorBoundary';
+
+// Create useErrorHandler hook since it doesn't exist in ErrorBoundary
+const useErrorHandler = () => {
+  return useCallback((error, context = {}) => {
+    // Log error to console in development
+    if (process.env.NODE_ENV === 'development') {
+      console.error(' Error Handler:', error, context);
+    }
+    
+    // In production, send to monitoring service
+    if (typeof window !== 'undefined' && window.errorReporting) {
+      window.errorReporting.logError(error, context);
+    }
+  }, []);
+};
 
 /**
  * Hook for managing loading states and error handling

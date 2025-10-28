@@ -2,8 +2,8 @@ import { gql } from '@apollo/client';
 
 // Get user profile by username - EXACT match with backend schema
 export const GET_USER_BY_USERNAME = gql`
-  query GetUserByUsername($username: String) {
-    getUserbyUsername(username: $username) {
+  query GetUserByUsername($username: String!) {
+    profileByUsername(username: $username) {
       profileid
       profilePic
       isPrivate
@@ -21,7 +21,7 @@ export const GET_USER_BY_USERNAME = gql`
         username
         profilePic
       }
-      post {
+      posts {
         postid
         postUrl
         title
@@ -49,7 +49,7 @@ export const GET_USER_BY_USERNAME = gql`
 // Get all users (for suggestions)
 export const GET_ALL_USERS = gql`
   query GetAllUsers {
-    getUsers {
+    users {
       profileid
       profilePic
       username
@@ -67,9 +67,9 @@ export const GET_ALL_USERS = gql`
 
 // Get posts by user
 export const GET_USER_POSTS = gql`
-  query GetUserPosts($username: String) {
-    getUserbyUsername(username: $username) {
-      post {
+  query GetUserPosts($username: String!) {
+    profileByUsername(username: $username) {
+      posts {
         postid
         postUrl
         title
@@ -109,14 +109,14 @@ export const UPDATE_PROFILE = gql`
   mutation UpdateProfile(
     $id: String!
     $New_username: String
-    $profilesPic: String
+    $profilePic: String
     $name: String
     $bio: String
   ) {
     UpdateProfile(
       id: $id
       New_username: $New_username
-      profilesPic: $profilesPic
+      profilePic: $profilePic
       name: $name
       bio: $bio
     ) {
@@ -190,7 +190,7 @@ export const CREATE_DRAFT_MUTATION = gql`
 
 export const GET_DRAFTS_QUERY = gql`
   query GetDrafts($profileid: String!) {
-    getDrafts(profileid: $profileid) {
+    getDraftsByUser(profileid: $profileid) {
       draftid
       postUrl
       postType
@@ -265,12 +265,8 @@ export const DELETE_DRAFT_MUTATION = gql`
 `;
 
 export const PUBLISH_DRAFT_MUTATION = gql`
-  mutation PublishDraft(
-    $draftid: String!
-  ) {
-    PublishDraft(
-      draftid: $draftid
-    ) {
+  mutation PublishDraft($draftid: String!) {
+    publishDraftToPost(draftid: $draftid) {
       postid
       postUrl
       title
@@ -289,7 +285,7 @@ export const PUBLISH_DRAFT_MUTATION = gql`
 `;
 
 export const CREATE_POST_MUTATION = gql`
-  mutation CreatePost(
+  mutation CreatePostWithMedia(
     $profileid: String!
     $postUrl: String!
     $title: String
@@ -303,7 +299,7 @@ export const CREATE_POST_MUTATION = gql`
     $autoPlay: Boolean
     $isCloseFriendOnly: Boolean
   ) {
-    CreatePost(
+    createPostWithMedia(
       profileid: $profileid
       postUrl: $postUrl
       title: $title
@@ -376,8 +372,18 @@ export const GET_MEMORIES = gql`
 
 // Create memory - Fixed to handle optional parameters properly
 export const CREATE_MEMORY = gql`
-  mutation CreateMemory($profileid: String!, $title: String!, $coverImage: String, $postUrl: String) {
-    CreateMemory(profileid: $profileid, title: $title, coverImage: $coverImage, postUrl: $postUrl) {
+  mutation CreateMemory(
+    $profileid: String!
+    $title: String!
+    $coverImage: String
+    $postUrl: String
+  ) {
+    CreateMemory(
+      profileid: $profileid
+      title: $title
+      coverImage: $coverImage
+      postUrl: $postUrl
+    ) {
       memoryid
       title
       coverImage
@@ -396,8 +402,16 @@ export const CREATE_MEMORY = gql`
 
 // Add story to memory
 export const ADD_STORY_TO_MEMORY = gql`
-  mutation AddStoryToMemory($memoryid: String!, $mediaUrl: String!, $mediaType: String!) {
-    AddStoryToMemory(memoryid: $memoryid, mediaUrl: $mediaUrl, mediaType: $mediaType) {
+  mutation AddStoryToMemory(
+    $memoryid: String!
+    $mediaUrl: String!
+    $mediaType: String!
+  ) {
+    AddStoryToMemory(
+      memoryid: $memoryid
+      mediaUrl: $mediaUrl
+      mediaType: $mediaType
+    ) {
       memoryid
       title
       coverImage
@@ -464,8 +478,16 @@ export const IS_USER_RESTRICTED = gql`
 
 // Block and Restrict User Mutations
 export const BLOCK_USER = gql`
-  mutation BlockUser($profileid: String!, $targetprofileid: String!, $reason: String) {
-    BlockUser(profileid: $profileid, targetprofileid: $targetprofileid, reason: $reason) {
+  mutation BlockUser(
+    $profileid: String!
+    $targetprofileid: String!
+    $reason: String
+  ) {
+    BlockUser(
+      profileid: $profileid
+      targetprofileid: $targetprofileid
+      reason: $reason
+    ) {
       blockid
       profileid
       blockedprofileid
@@ -547,7 +569,10 @@ export const IS_CLOSE_FRIEND = gql`
 // Close Friends Mutations
 export const ADD_CLOSE_FRIEND = gql`
   mutation AddCloseFriend($profileid: String!, $targetprofileid: String!) {
-    AddCloseFriend(profileid: $profileid, targetprofileid: $targetprofileid) {
+    addToCloseFriends(
+      profileid: $profileid
+      targetProfileId: $targetprofileid
+    ) {
       closefriendid
       profileid
       status
@@ -565,7 +590,10 @@ export const ADD_CLOSE_FRIEND = gql`
 
 export const REMOVE_CLOSE_FRIEND = gql`
   mutation RemoveCloseFriend($profileid: String!, $targetprofileid: String!) {
-    RemoveCloseFriend(profileid: $profileid, targetprofileid: $targetprofileid) {
+    removeFromCloseFriends(
+      profileid: $profileid
+      targetProfileId: $targetprofileid
+    ) {
       closefriendid
       profileid
       status

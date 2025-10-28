@@ -233,23 +233,41 @@ class OptimizedJSON {
     
     res.json = (obj) => {
       try {
-        // Use optimized stringify
-        const jsonString = this.stringify(obj);
+        // Use the singleton instance
+        const optimizer = optimizedJSON;
         
-        // Set headers
-        res.setHeader('Content-Type', 'application/json');
-        res.setHeader('Content-Length', Buffer.byteLength(jsonString));
+        // Use optimized stringify
+        const jsonString = optimizer.stringify(obj);
         
         // For large responses, consider streaming
-        if (jsonString.length > this.config.streamBufferSize && this.config.enableStreaming) {
-          return this.stream(obj, res);
+        if (jsonString.length > optimizer.config.streamBufferSize && optimizer.config.enableStreaming) {
+          return optimizer.stream(obj, res);
         }
         
         // For normal responses, use standard approach
-        return originalJson.call(res, obj);
+        if (typeof originalJson === 'function') {
+          return originalJson.call(res, obj);
+        } else {
+          // Set headers only for fallback
+          res.setHeader('Content-Type', 'application/json');
+          res.setHeader('Content-Length', Buffer.byteLength(jsonString));
+          return res.send(jsonString);
+        }
       } catch (error) {
         console.error('Optimized JSON response error:', error);
-        return originalJson.call(res, { error: 'Failed to generate JSON response' });
+        // Check if headers have already been sent
+        if (res.headersSent) {
+          // If headers are already sent, we can't send another response
+          return;
+        }
+        
+        if (typeof originalJson === 'function') {
+          return originalJson.call(res, { error: 'Failed to generate JSON response' });
+        } else {
+          // Fallback to standard error response
+          res.setHeader('Content-Type', 'application/json');
+          return res.status(500).send(JSON.stringify({ error: 'Failed to generate JSON response' }));
+        }
       }
     };
     

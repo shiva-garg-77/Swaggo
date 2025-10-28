@@ -3,11 +3,11 @@ import { gql } from '@apollo/client';
 // ============ POSTS ============
 export const GET_ALL_POSTS = gql`
   query GetAllPosts {
-    getPosts {
+    posts {
       postid
       postUrl
       title
-      Description
+      description
       postType
       location
       tags
@@ -242,11 +242,11 @@ export const GET_USER_BY_USERNAME = gql`
         username
         profilePic
       }
-      post {
+      posts {
         postid
         postUrl
         title
-        Description
+        description
         postType
         likeCount
         commentCount
@@ -254,11 +254,11 @@ export const GET_USER_BY_USERNAME = gql`
         isSavedByUser
         createdAt
       }
-      likedpost {
+      likedPosts {
         postid
         postUrl
         title
-        Description
+        description
         postType
         likeCount
         commentCount
@@ -270,11 +270,11 @@ export const GET_USER_BY_USERNAME = gql`
           isVerified
         }
       }
-      savedpost {
+      savedPosts {
         postid
         postUrl
         title
-        Description
+        description
         postType
         likeCount
         commentCount
@@ -364,7 +364,10 @@ export const DELETE_POST = gql`
 
 export const HELLO_QUERY = gql`
   query Hello {
-    hello
+    health {
+      success
+      message
+    }
   }
 `;
 

@@ -1,5 +1,46 @@
 {
-  "dependencies": {
-    "@graphql-tools/load-files": "^7.0.1"
-  }
+    "name": "swaggo-monorepo",
+    "version": "1.0.0",
+    "private": true,
+    "workspaces": [
+        "Website/Frontend",
+        "Website/Backend"
+    ],
+    "engines": {
+        "node": ">=18.0.0",
+        "npm": ">=8.0.0"
+    },
+    "overrides": {
+        "graphql": "16.11.0",
+        "@graphql-tools/schema": "9.0.19",
+        "@graphql-tools/utils": "9.2.1",
+        "@graphql-tools/merge": "9.1.1",
+        "graphql-rate-limit": {
+            "graphql": "16.11.0",
+            "@graphql-tools/utils": "9.2.1"
+        },
+        "graphql-shield": {
+            "graphql": "16.11.0",
+            "@graphql-tools/schema": "9.0.19",
+            "@graphql-tools/utils": "9.2.1"
+        },
+        "graphql-middleware": {
+            "graphql": "16.11.0",
+            "@graphql-tools/schema": "9.0.19",
+            "@graphql-tools/utils": "9.2.1",
+            "@graphql-tools/delegate": "9.0.35"
+        },
+        "@apollo/server": {
+            "graphql": "16.11.0"
+        },
+        "@apollo/client": {
+            "graphql": "16.11.0"
+        }
+    },
+    "resolutions": {
+        "**/graphql": "16.11.0",
+        "**/@graphql-tools/schema": "9.0.19",
+        "**/@graphql-tools/utils": "9.2.1",
+        "**/@graphql-tools/merge": "9.1.1"
+    }
 }

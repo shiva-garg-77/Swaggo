@@ -140,10 +140,12 @@ class SecureEnvironment {
     this.environment = this.detectEnvironment();
     this.platform = this.detectPlatform();
     
-    console.log('🔒 SecureEnvironment: Initializing with:', {
-      environment: this.environment,
-      platform: this.platform
-    });
+    if (this.environment === 'development') {
+      console.log('🔒 SecureEnvironment: Initializing with:', {
+        environment: this.environment,
+        platform: this.platform
+      });
+    }
     
     this.loadAndValidateConfig();
   }
@@ -191,16 +193,22 @@ class SecureEnvironment {
    * Load and validate all environment variables
    */
   loadAndValidateConfig() {
-    console.log('🔍 SecureEnvironment: Loading configuration...');
+    if (this.environment === 'development') {
+      console.log('🔍 SecureEnvironment: Loading configuration...');
+    }
     
     for (const [key, schema] of Object.entries(ENV_SCHEMA)) {
       try {
         const value = this.loadEnvironmentVariable(key, schema);
         this.config[key] = value;
         
-        console.log(`✅ SecureEnvironment: ${key} = ${this.sanitizeLogValue(key, value)}`);
+        if (this.environment === 'development') {
+          console.log(`✅ SecureEnvironment: ${key} = ${this.sanitizeLogValue(key, value)}`);
+        }
       } catch (error) {
-        console.error(`❌ SecureEnvironment: Failed to load ${key}:`, error.message);
+        if (this.environment === 'development') {
+          console.error(`❌ SecureEnvironment: Failed to load ${key}:`, error.message);
+        }
         
         if (schema.required) {
           throw new Error(`Required environment variable ${key} is invalid: ${error.message}`);
@@ -218,7 +226,9 @@ class SecureEnvironment {
     this.applyPlatformOptimizations();
     
     this.isInitialized = true;
-    console.log('✅ SecureEnvironment: Configuration loaded successfully');
+    if (this.environment === 'development') {
+      console.log('✅ SecureEnvironment: Configuration loaded successfully');
+    }
   }
   
   /**
@@ -378,7 +388,9 @@ class SecureEnvironment {
         5 // More retries on Windows
       );
       
-      console.log('🪟 SecureEnvironment: Applied Windows optimizations');
+      if (this.environment === 'development') {
+        console.log('🪟 SecureEnvironment: Applied Windows optimizations');
+      }
     }
   }
   
@@ -450,7 +462,7 @@ class SecureEnvironment {
     const apiUrlParsed = new URL(apiUrl);
     
     // Warn if socket and API use different hosts
-    if (socketUrlParsed.host !== apiUrlParsed.host) {
+    if (socketUrlParsed.host !== apiUrlParsed.host && this.environment === 'development') {
       console.warn('⚠️ Socket and API URLs use different hosts - this may cause CORS issues');
     }
     
@@ -458,7 +470,9 @@ class SecureEnvironment {
       throw new Error(`Configuration validation failed:\n${errors.join('\n')}`);
     }
     
-    console.log('✅ SecureEnvironment: Configuration validation passed');
+    if (this.environment === 'development') {
+      console.log('✅ SecureEnvironment: Configuration validation passed');
+    }
     return true;
   }
   

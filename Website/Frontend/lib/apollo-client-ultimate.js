@@ -128,7 +128,8 @@ const authLink = setContext((operation, { headers }) => {
       
       if (match && match[1]) {
         const token = decodeURIComponent(match[1]);
-        if (token && token.length >= 8) { // Minimum token length
+        // SECURITY FIX: Check for valid token values
+        if (token && token !== 'undefined' && token !== 'null' && token.length >= 8) { // Minimum token length
           return token;
         }
       }
@@ -136,7 +137,7 @@ const authLink = setContext((operation, { headers }) => {
     
     return null;
   };
-  
+
   // 🔒 ULTIMATE ACCESS TOKEN DETECTION - Exact backend cookie matching
   const getAccessToken = () => {
     // These MUST match EXACTLY what your backend AuthenticationMiddleware sets
@@ -153,7 +154,8 @@ const authLink = setContext((operation, { headers }) => {
       
       if (match && match[1]) {
         const token = decodeURIComponent(match[1]);
-        if (token && token.length >= 16) { // JWT tokens are typically longer
+        // SECURITY FIX: Check for valid token values
+        if (token && token !== 'undefined' && token !== 'null' && token.length >= 16) { // JWT tokens are typically longer
           return token;
         }
       }
@@ -161,21 +163,51 @@ const authLink = setContext((operation, { headers }) => {
     
     return null;
   };
-  
+
   // Apply tokens to headers
   const csrfToken = getCsrfToken();
   const accessToken = getAccessToken();
-  
+
+  // 🔍 DEBUG: Log what we're sending
+  console.log('🔍 APOLLO CLIENT: Token info', {
+    hasCsrfToken: !!csrfToken,
+    hasAccessToken: !!accessToken,
+    csrfTokenLength: csrfToken?.length || 0,
+    accessTokenLength: accessToken?.length || 0,
+    isAccessTokenValid: accessToken && accessToken !== 'undefined' && accessToken.length > 16,
+    accessTokenPreview: accessToken ? accessToken.substring(0, 30) + '...' : 'none',
+    accessTokenValue: accessToken
+  });
+
+  // Extra debugging for undefined values
+  if (accessToken === 'undefined') {
+    console.error('🚨 CRITICAL ERROR: accessToken is literally the string "undefined"');
+  }
+
   // 🔒 CRITICAL: Add CSRF token (required for mutations)
   if (csrfToken) {
     authHeaders['X-CSRF-Token'] = csrfToken;
+    console.log('🔐 APOLLO CLIENT: Added CSRF token to headers');
   }
-  
+
   // 🔒 CRITICAL: Add Authorization header
-  if (accessToken) {
-    authHeaders['Authorization'] = `Bearer ${accessToken}`;
+  if (accessToken && accessToken !== 'undefined' && accessToken !== 'null') {
+    console.log('🔐 AUTH: Adding Authorization header and accessToken is -------------------------------', accessToken.substring(0, 30) + '...');
+    if (accessToken === 'undefined') {
+      console.error('🚨 CRITICAL SECURITY ERROR: Attempting to use "undefined" as accessToken!');
+    } else {
+      authHeaders['Authorization'] = `Bearer ${accessToken}`;
+    }
+  } else {
+    console.log('⚠️ APOLLO CLIENT: No valid access token available for Authorization header');
   }
-  
+
+  console.log('📤 APOLLO CLIENT: Final headers being sent', {
+    hasAuthorization: !!authHeaders['Authorization'],
+    hasCsrf: !!authHeaders['X-CSRF-Token'],
+    authorizationPreview: authHeaders['Authorization'] ? authHeaders['Authorization'].substring(0, 30) + '...' : 'none'
+  });
+
   return { headers: authHeaders };
 });
 

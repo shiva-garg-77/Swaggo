@@ -1,13 +1,15 @@
 /**
- * Poll Service - Frontend service for interacting with poll API
+ * Poll Service - Frontend service for managing polls
  * 
- * This service provides a unified interface for managing polls
- * including creation, voting, and analytics.
+ * This service provides a client-side interface for interacting with the backend
+ * poll API and managing local state.
  */
 
-import apiService from './ApiService';
-
 class PollService {
+  constructor() {
+    this.baseUrl = '/api/polls';
+  }
+
   /**
    * Create a new poll
    * @param {Object} pollData - Poll data
@@ -15,12 +17,22 @@ class PollService {
    */
   async createPoll(pollData) {
     try {
-      const response = await apiService.post('/api/polls', pollData);
-      if (response.success) {
-        return response.poll;
-      } else {
-        throw new Error(response.error || 'Failed to create poll');
+      const response = await fetch(`${this.baseUrl}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(pollData)
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to create poll');
       }
+      
+      return result.data;
     } catch (error) {
       console.error('Error creating poll:', error);
       throw error;
@@ -30,18 +42,27 @@ class PollService {
   /**
    * Get poll by ID
    * @param {string} pollId - Poll ID
-   * @returns {Promise} Poll data
+   * @returns {Promise} Poll
    */
   async getPoll(pollId) {
     try {
-      const response = await apiService.get(`/api/polls/${pollId}`);
-      if (response.success) {
-        return response.poll;
-      } else {
-        throw new Error(response.error || 'Failed to get poll');
+      const response = await fetch(`${this.baseUrl}/${pollId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to get poll');
       }
+      
+      return result.data;
     } catch (error) {
-      console.error('Error getting poll:', error);
+      console.error(`Error getting poll ${pollId}:`, error);
       throw error;
     }
   }
@@ -54,19 +75,24 @@ class PollService {
    */
   async getPollsByChat(chatId, options = {}) {
     try {
-      const queryParams = new URLSearchParams();
-      if (options.excludeClosed) queryParams.append('excludeClosed', options.excludeClosed);
-      if (options.limit) queryParams.append('limit', options.limit);
-      if (options.offset) queryParams.append('offset', options.offset);
+      const queryParams = new URLSearchParams(options).toString();
+      const response = await fetch(`${this.baseUrl}/chat/${chatId}${queryParams ? `?${queryParams}` : ''}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      });
+
+      const result = await response.json();
       
-      const response = await apiService.get(`/api/polls/chat/${chatId}?${queryParams}`);
-      if (response.success) {
-        return response.polls;
-      } else {
-        throw new Error(response.error || 'Failed to get polls');
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to get polls');
       }
+      
+      return result.data;
     } catch (error) {
-      console.error('Error getting polls:', error);
+      console.error(`Error getting polls for chat ${chatId}:`, error);
       throw error;
     }
   }
@@ -79,14 +105,24 @@ class PollService {
    */
   async vote(pollId, optionIds) {
     try {
-      const response = await apiService.post(`/api/polls/${pollId}/vote`, { optionIds });
-      if (response.success) {
-        return response.poll;
-      } else {
-        throw new Error(response.error || 'Failed to vote');
+      const response = await fetch(`${this.baseUrl}/${pollId}/vote`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ optionIds })
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to vote');
       }
+      
+      return result.data;
     } catch (error) {
-      console.error('Error voting:', error);
+      console.error(`Error voting in poll ${pollId}:`, error);
       throw error;
     }
   }
@@ -98,14 +134,23 @@ class PollService {
    */
   async getResults(pollId) {
     try {
-      const response = await apiService.get(`/api/polls/${pollId}/results`);
-      if (response.success) {
-        return response.results;
-      } else {
-        throw new Error(response.error || 'Failed to get results');
+      const response = await fetch(`${this.baseUrl}/${pollId}/results`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to get results');
       }
+      
+      return result.data;
     } catch (error) {
-      console.error('Error getting results:', error);
+      console.error(`Error getting results for poll ${pollId}:`, error);
       throw error;
     }
   }
@@ -117,14 +162,23 @@ class PollService {
    */
   async closePoll(pollId) {
     try {
-      const response = await apiService.put(`/api/polls/${pollId}/close`);
-      if (response.success) {
-        return response.poll;
-      } else {
-        throw new Error(response.error || 'Failed to close poll');
+      const response = await fetch(`${this.baseUrl}/${pollId}/close`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to close poll');
       }
+      
+      return result.data;
     } catch (error) {
-      console.error('Error closing poll:', error);
+      console.error(`Error closing poll ${pollId}:`, error);
       throw error;
     }
   }
@@ -136,14 +190,23 @@ class PollService {
    */
   async reopenPoll(pollId) {
     try {
-      const response = await apiService.put(`/api/polls/${pollId}/reopen`);
-      if (response.success) {
-        return response.poll;
-      } else {
-        throw new Error(response.error || 'Failed to reopen poll');
+      const response = await fetch(`${this.baseUrl}/${pollId}/reopen`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to reopen poll');
       }
+      
+      return result.data;
     } catch (error) {
-      console.error('Error reopening poll:', error);
+      console.error(`Error reopening poll ${pollId}:`, error);
       throw error;
     }
   }
@@ -155,38 +218,53 @@ class PollService {
    */
   async deletePoll(pollId) {
     try {
-      const response = await apiService.delete(`/api/polls/${pollId}`);
-      if (response.success) {
-        return response;
-      } else {
-        throw new Error(response.error || 'Failed to delete poll');
+      const response = await fetch(`${this.baseUrl}/${pollId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      });
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to delete poll');
       }
+      
+      return result;
     } catch (error) {
-      console.error('Error deleting poll:', error);
+      console.error(`Error deleting poll ${pollId}:`, error);
       throw error;
     }
   }
 
   /**
-   * Get poll analytics for a chat
+   * Get poll analytics
    * @param {string} chatId - Chat ID
    * @param {Object} options - Analytics options
    * @returns {Promise} Analytics data
    */
   async getAnalytics(chatId, options = {}) {
     try {
-      const queryParams = new URLSearchParams();
-      if (options.limit) queryParams.append('limit', options.limit);
-      if (options.offset) queryParams.append('offset', options.offset);
+      const queryParams = new URLSearchParams(options).toString();
+      const response = await fetch(`${this.baseUrl}/analytics/${chatId}${queryParams ? `?${queryParams}` : ''}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      });
+
+      const result = await response.json();
       
-      const response = await apiService.get(`/api/polls/chat/${chatId}/analytics?${queryParams}`);
-      if (response.success) {
-        return response.analytics;
-      } else {
-        throw new Error(response.error || 'Failed to get analytics');
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to get analytics');
       }
+      
+      return result.data;
     } catch (error) {
-      console.error('Error getting analytics:', error);
+      console.error(`Error getting analytics for chat ${chatId}:`, error);
       throw error;
     }
   }

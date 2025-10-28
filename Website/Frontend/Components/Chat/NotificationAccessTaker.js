@@ -77,7 +77,7 @@ export default function NotificationAccessTaker({
       } catch (error) {
         console.error('❌ Failed to initialize notification service:', error);
         console.error('Error stack:', error.stack);
-        console.error('Service object:', ChatNotificationService);
+        console.error('Service object:', notificationService);
         toast.error('Failed to initialize notifications: ' + error.message);
         setIsServiceReady(false);
       }

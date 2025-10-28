@@ -1,6 +1,5 @@
 "use client";
 import { lazy, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
 import SplashScreen from '../../../Components/shared/SplashScreen';
 
 // Lazy load MomentsContent for better performance

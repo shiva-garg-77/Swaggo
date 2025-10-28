@@ -153,7 +153,7 @@ export const EnhancedChatDashboard = ({ userId }) => {
       key: 'chats',
       query: GET_CHATS,
       variables: { profileid: userId },
-      transform: (data) => data.getChats || []
+      transform: (data) => data.getUserChats || []
     },
     // Add more queries as needed
     // {

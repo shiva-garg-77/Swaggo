@@ -130,7 +130,7 @@ export interface WebRTCAnswerPayload {
 
 export interface WebRTCIceCandidatePayload {
   chatid: string;
-  candidate: RTCIceCandidateInit | { candidate: string };
+  candidate: any | { candidate: string };
   sdpMid?: string | null;
   sdpMLineIndex?: number | null;
   callId?: string;
@@ -400,7 +400,7 @@ export interface ChatErrorPayload {
   debug?: string;
 }
 
-export interface OfflineMessagesDeliveredPayload {
+export type OfflineMessagesDeliveredPayload = {
   success: boolean;
   messageid: string;
   duplicate?: boolean;

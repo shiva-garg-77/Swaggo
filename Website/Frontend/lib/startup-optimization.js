@@ -6,24 +6,12 @@
  * while maintaining 10/10 security standards.
  */
 
-// 🚀 PERFORMANCE: Early resource preloading
+// 🔥 PERFORMANCE: Preload critical resources
 export const preloadCriticalResources = () => {
   if (typeof window === 'undefined') return;
   
-  // Preload critical fonts
-  const fontLinks = [
-    '/fonts/inter-var.woff2'
-  ];
-  
-  fontLinks.forEach(href => {
-    const link = document.createElement('link');
-    link.rel = 'preload';
-    link.as = 'font';
-    link.type = 'font/woff2';
-    link.crossOrigin = 'anonymous';
-    link.href = href;
-    document.head.appendChild(link);
-  });
+  // Next.js handles font loading automatically with next/font
+  // Remove direct font references to avoid 404 errors
   
   // Preload critical images
   const imageLinks = [

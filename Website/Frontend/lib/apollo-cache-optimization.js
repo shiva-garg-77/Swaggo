@@ -213,7 +213,7 @@ const optimizedCache = new InMemoryCache({
     }
   },
   // 🔒 Security: Additional cache security measures
-  canonizeResults: true, // Normalize cache results for security
+  // Note: canonizeResults is deprecated in Apollo Client 3.14.0+
   resultCaching: true, // Enable result caching for performance
   freezeResults: process.env.NODE_ENV === 'development' // Freeze results in development for debugging
 });

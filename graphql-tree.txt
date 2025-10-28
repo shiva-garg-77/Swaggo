@@ -1,0 +1,70 @@
+﻿swaggo-monorepo@1.0.0 C:\swaggo-testing\Swaggo
+Γö£ΓöÇΓö¼ swaggo-backend@1.0.0 -> .\Website\Backend
+Γöé Γö£ΓöÇΓö¼ @apollo/server@4.12.2
+Γöé Γöé Γö£ΓöÇΓö¼ @apollo/cache-control-types@1.0.3
+Γöé Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γöé Γö£ΓöÇΓö¼ @apollo/server-gateway-interface@1.1.1
+Γöé Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γöé Γö£ΓöÇΓö¼ @apollo/utils.usagereporting@2.1.0
+Γöé Γöé Γöé Γö£ΓöÇΓö¼ @apollo/utils.dropunuseddefinitions@2.0.1
+Γöé Γöé Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γöé Γöé Γö£ΓöÇΓö¼ @apollo/utils.printwithreducedwhitespace@2.0.1
+Γöé Γöé Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γöé Γöé Γö£ΓöÇΓö¼ @apollo/utils.removealiases@2.0.1
+Γöé Γöé Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γöé Γöé Γö£ΓöÇΓö¼ @apollo/utils.sortast@2.0.1
+Γöé Γöé Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γöé Γöé Γö£ΓöÇΓö¼ @apollo/utils.stripsensitiveliterals@2.0.1
+Γöé Γöé Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γö£ΓöÇΓö¼ @graphql-tools/load-files@7.0.1
+Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γö£ΓöÇΓö¼ @graphql-tools/merge@9.1.1
+Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γö£ΓöÇΓö¼ @graphql-tools/schema@9.0.19
+Γöé Γöé Γö£ΓöÇΓö¼ @graphql-tools/merge@8.4.2
+Γöé Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γöé Γö£ΓöÇΓö¼ @graphql-tools/utils@9.2.1
+Γöé Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γö£ΓöÇΓö¼ @graphql-tools/utils@10.9.1
+Γöé Γöé Γö£ΓöÇΓö¼ @graphql-typed-document-node/core@3.2.0
+Γöé Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γö£ΓöÇΓö¼ graphql-depth-limit@1.1.0
+Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γö£ΓöÇΓö¼ graphql-middleware@6.1.35 overridden
+Γöé Γöé Γö£ΓöÇΓö¼ @graphql-tools/delegate@8.8.1
+Γöé Γöé Γöé Γö£ΓöÇΓö¼ @graphql-tools/batch-execute@8.5.1
+Γöé Γöé Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γöé Γöé Γö£ΓöÇΓö¼ @graphql-tools/utils@8.9.0 overridden
+Γöé Γöé Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γöé Γö£ΓöÇΓö¼ @graphql-tools/schema@8.5.1
+Γöé Γöé Γöé Γö£ΓöÇΓö¼ @graphql-tools/merge@8.3.1
+Γöé Γöé Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γö£ΓöÇΓö¼ graphql-query-complexity@1.1.0
+Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γö£ΓöÇΓö¼ graphql-rate-limit@3.3.0 overridden
+Γöé Γöé Γö£ΓöÇΓö¼ @graphql-tools/utils@7.10.0 overridden
+Γöé Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γö£ΓöÇΓö¼ graphql-scalars@1.24.2
+Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γö£ΓöÇΓö¼ graphql-shield@7.6.5 overridden
+Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γö£ΓöÇΓö¼ graphql-subscriptions@3.0.0
+Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γö£ΓöÇΓö¼ graphql-tag@2.12.6
+Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé Γö£ΓöÇΓö¼ graphql-validation-complexity@0.4.2
+Γöé Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+Γöé ΓööΓöÇΓöÇ graphql@16.11.0 overridden
+ΓööΓöÇΓö¼ swaggo-frontend@1.0.0 -> .\Website\Frontend
+  Γö£ΓöÇΓö¼ @apollo/client@4.0.7
+  Γöé ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+  ΓööΓöÇΓöÇ graphql@16.11.0 deduped
+

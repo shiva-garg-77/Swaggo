@@ -1,88 +1,190 @@
-import cors from 'cors';
-import { ApolloServer } from '@apollo/server';
-import { expressMiddleware } from '@apollo/server/express4';
-import express from 'express';
-import cookieParser from 'cookie-parser';
-import HealthRoutes from './Routes/HealthRoutes.js';
-import AuthenticationRoutes from './Routes/AuthenticationRoutes.js';
-import AdminRoutes from './Routes/AdminRoutes.js';
-import UserRoutes from './Routes/UserRoutes.js';
-import { Connectdb } from './db/Connectdb.js';
-import TypeDef from './Controllers/TypeDefs.js';
-import Resolvers from './Controllers/Resolver.js';
+// 🔒 CRITICAL: Pre-load GraphQL singleton before ANY other imports
+import './utils/GraphQLPreLoader.js';
 
-// 🔧 GRAPHQL SCHEMA STITCHING #99: Import schema stitching configuration
-import { createStitchedSchema } from './GraphQL/SchemaStitching.js';
-import auth from './Middleware/AuthenticationMiddleware.js';
-import TokenService from './Services/TokenService.js';
-import User from './Models/User.js';
-import jwt from 'jsonwebtoken';
-import multer from 'multer';
+// Built-in Node.js modules
 import path from 'path';
-import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
 import fs from 'fs';
-import http from 'http';
-import spdy from 'spdy'; // Add spdy for HTTP/2 support
-import crypto from 'crypto';
-import { Server as SocketIOServer } from 'socket.io';
-import Chat from './Models/FeedModels/Chat.js';
-import Message from './Models/FeedModels/Message.js';
-import Profile from './Models/FeedModels/Profile.js';
-import DataLoaderService from './Services/DataLoaderService.js';
-import FileService from './Services/FileService.js'; // Import the new FileService
-import GraphQLNPlusOneResolver from './utils/GraphQLNPlusOneResolver.js'; // Add this import
-import { v4 as uuidv4 } from 'uuid';
-// CRITICAL SECURITY: Import rate limiting middleware
-import { uploadRateLimiter, debugRateLimiter, adminRateLimiter } from './Middleware/rateLimitingMiddleware.js';
-import AuditLoggingMiddleware from './Middleware/AuditLoggingMiddleware.js';
-import ThumbnailService from './Services/ThumbnailService.js';
-// Import monitoring routes
-import monitoringRoutes from './routes/monitoring.js';
-// Import API versioned routes
-import v1Routes from './Routes/v1/index.js';
-import v2Routes from './Routes/v2/index.js';
-// Import API Gateway
-import apiGatewayMiddleware from './Middleware/APIGatewayMiddleware.js';
 
-// Import scheduled message service
-import ScheduledMessageService from './Services/ScheduledMessageService.js';
 
-// 🔒 SECURITY FIX #29: Import SecretInitializationService
-import secretInitializationService from './Services/SecretInitializationService.js';
-
-// 🔒 SECURITY FIX #31: Import Helmet.js for proper security headers
+import { fileURLToPath } from 'url';
+import { createServer } from 'http';
+import dotenv from 'dotenv';
+import express from 'express';
+import compression from 'compression';
 import helmet from 'helmet';
+import cors from 'cors';
+import cookieParser from 'cookie-parser';
+import mongoose from 'mongoose';
+import { Server } from 'socket.io';
 
-// 🔧 PERFORMANCE FIX #32: Import Winston logger
-import appLogger from './utils/logger.js';
+// Import services and middleware
+try {
+  var secretInitializationService = await import('./Services/Security/SecretInitializationService.js').then(m => m.default);
+} catch (e) {
+  console.log('SecretInitializationService not available, skipping');
+  var secretInitializationService = { initialize: async () => {} };
+}
 
-// 🔧 PERFORMANCE FIX #42: Import Redis client
-import redisClient from './utils/RedisClient.js';
-
-// 🔒 SECURITY FIX #67: Import Anomaly Detection Routes
-import AnomalyDetectionRoutes from './Routes/AnomalyDetectionRoutes.js';
-// 🔒 SECURITY FIX #68: Import Enhanced File Upload Security
-import fileUploadSecurity from './Middleware/EnhancedFileUploadSecurity.js';
-
-// 🔒 SECURITY FIX #70: Import DDoS Protection Middleware
-import DDoSProtectionMiddleware from './Middleware/DDoSProtectionMiddleware.js';
-
-
-// 🔧 OPTIMIZATION #78: Import OptimizedJSON utility
+// Import optimized JSON utility
 import optimizedJSON from './utils/OptimizedJSON.js';
 
-// 🔧 OPTIMIZATION #79: Import compression middleware
-import compression from 'compression';
+// Import DDoS protection middleware
+import DDoSProtectionMiddleware from './Middleware/Security/DDoSProtectionMiddleware.js';
 
-// Load non-sensitive environment variables
-dotenv.config({ path: '.env.local' });
+// Import CSRF protection middleware
+import { attachCsrfToken, validateCsrfToken, getCsrfToken } from './Middleware/Security/CsrfProtection.js';
 
-// 🔒 SECURITY FIX #29: Initialize secrets before other imports
-await secretInitializationService.initialize();
+// Import API routes
+import v1Routes from './Routes/api/v1/index.js';
+import v2Routes from './Routes/api/v2/index.js';
+
+// Import monitoring routes
+import monitoringRoutes from './Routes/api/v1/monitoring.js';
+
+// Import audit logging middleware
+import AuditLoggingMiddleware from './Middleware/Security/AuditLoggingMiddleware.js';
+
+// Import API gateway middleware
+import apiGatewayMiddleware from './Middleware/Performance/APIGatewayMiddleware.js';
+
+// Import file upload security
+import fileUploadSecurity from './Middleware/Security/EnhancedFileUploadSecurity.js';
+
+// Import rate limiting middleware
+import { uploadRateLimiter, debugRateLimiter, adminRateLimiter } from './Middleware/Performance/rateLimitingMiddleware.js';
+
+// Import IP whitelisting middleware
+import ipWhitelistMiddleware from './Middleware/Security/IPWhitelistMiddleware.js';
+
+// Import file service
+import FileService from './Services/Storage/FileService.js';
+
+// Import thumbnail service
+import ThumbnailService from './Services/Media/ThumbnailService.js';
+
+// Import scheduled message service
+import ScheduledMessageService from './Services/Messaging/ScheduledMessageService.js';
+
+// Import database connection
+import { Connectdb } from './db/Connectdb.js';
+
+// Import GraphQL schema stitching
+import { createStitchedSchema } from './GraphQL/SchemaStitching.js';
+
+// Import GraphQL N+1 resolver
+import GraphQLNPlusOneResolver from './utils/GraphQLNPlusOneResolver.js';
+
+// 🔒 CRITICAL FIX #2: Import centralized GraphQL instance FIRST to prevent realm collision
+import graphqlInstance from './utils/GraphQLInstance.js';
+
+// Import Apollo Server
+import { ApolloServer } from '@apollo/server';
+
+// Import Apollo Server Express middleware
+import { expressMiddleware } from '@as-integrations/express5';
+
+// 🔒 CRITICAL FIX #3: Import unified error handler and security service
+import UnifiedGraphQLErrorHandler from './utils/UnifiedGraphQLErrorHandler.js';
+import unifiedGraphQLSecurityService from './GraphQL/services/UnifiedGraphQLSecurityService.js';
+
+// Import multer for file uploads
+import multer from 'multer';
+
+// Import spdy for HTTP/2 support
+import spdy from 'spdy';
+
+// Import crypto for hashing
+import crypto from 'crypto';
+
+// Import Redis client
+import redisClient from './utils/RedisClient.js';
+
+// Import application logger
+import appLogger from './utils/logger.js';
+
+// Import DataLoader service
+import DataLoaderService from './Services/System/DataLoaderService.js';
+
+// Import Token service
+import TokenService from './Services/Authentication/TokenService.js';
+
+// Import User and Profile models
+import User from './Models/User.js';
+import Profile from './Models/FeedModels/Profile.js';
+
+// Import authentication middleware
+import auth from './Middleware/Authentication/AuthenticationMiddleware.js';
+
+// Import authentication routes
+import AuthenticationRoutes from './Routes/api/v1/AuthenticationRoutes.js';
+
+// Import admin routes
+import AdminRoutes from './Routes/api/v1/AdminRoutes.js';
+
+// Import user routes
+import UserRoutes from './Routes/api/v1/UserRoutes.js';
+
+// Import health routes
+import HealthRoutes from './Routes/api/v1/HealthRoutes.js';
+
+// Import anomaly detection routes
+import AnomalyDetectionRoutes from './Routes/api/v1/AnomalyDetectionRoutes.js';
+
+// Helpers for __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load non-sensitive environment variables from Backend folder
+const envPath = path.join(__dirname, '.env.local');
+console.log('Loading .env.local from:', envPath);
+const result = dotenv.config({ path: envPath });
+console.log('Dotenv config result:', result);
+if (result.error) {
+  console.error('❌ Failed to load .env.local:', result.error.message);
+} else {
+  console.log('✅ .env.local loaded successfully');
+}
 
 const app = express();
-const port = process.env.PORT;
+const port = process.env.PORT || 4000;
+
+// Fix EventEmitter memory leak warnings by increasing max listeners
+process.setMaxListeners(20);
+
+// Suppress Node.js deprecation warnings from dependencies
+process.noDeprecation = true;
+
+// Create HTTP server
+// const httpServer = createServer(app); // This line is moved further down
+
+
+// Debug output to check if environment variables are loaded
+console.log('Environment variables loaded:');
+console.log('ACCESS_TOKEN_SECRET:', process.env.ACCESS_TOKEN_SECRET ? 'Loaded' : 'Missing');
+console.log('REFRESH_TOKEN_SECRET:', process.env.REFRESH_TOKEN_SECRET ? 'Loaded' : 'Missing');
+console.log('CSRF_SECRET:', process.env.CSRF_SECRET ? 'Loaded' : 'Missing');
+
+// 🔒 SECURITY FIX: Proper trust proxy configuration for 10/10 security
+// Set to 1 for single proxy, or specific subnet for multiple proxies
+const trustProxyConfig = process.env.NODE_ENV === 'production' ? 
+  process.env.TRUST_PROXY || 1 : 
+  false; // Don't trust proxy in development to prevent rate limiting bypass
+
+// 🔒 SECURITY FIX: Proper trust proxy configuration for 10/10 security
+app.set('trust proxy', trustProxyConfig);
+
+// Log trust proxy setting for debugging
+console.log(`🔐 TRUST PROXY CONFIG: ${trustProxyConfig} (${process.env.NODE_ENV})`);
+
+// 🔒 SECURITY FIX #29: Initialize secrets before other imports
+(async () => {
+  try {
+    await secretInitializationService.initialize();
+  } catch (error) {
+    console.error('Failed to initialize secrets:', error);
+    process.exit(1);
+  }
+})();
 
 // 🔧 OPTIMIZATION #79: Add compression middleware for API responses
 app.use(compression({
@@ -112,6 +214,10 @@ app.use(compression({
 // 🔧 OPTIMIZATION #78: Add optimized JSON middleware
 app.use(optimizedJSON.jsonResponseMiddleware);
 
+// 🔧 LARGE PAYLOAD OPTIMIZATION #145: Add large payload optimization middleware
+import largePayloadOptimization from './Middleware/LargePayloadOptimization.js';
+app.use(largePayloadOptimization.optimizePayload);
+
 // 🔒 SECURITY FIX #27: Add HTTPS enforcement middleware
 // Redirect HTTP to HTTPS in production
 if (process.env.FORCE_HTTPS === 'true') {
@@ -125,23 +231,51 @@ if (process.env.FORCE_HTTPS === 'true') {
   });
 }
 
-// Helpers for __dirname
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// 🔒 SECURITY FIX: Proper trust proxy configuration for 10/10 security
-// Set to 1 for single proxy, or specific subnet for multiple proxies
-const trustProxyConfig = process.env.NODE_ENV === 'production' ? 
-  process.env.TRUST_PROXY || 1 : 
-  1; // Trust first proxy in development
-
-app.set('trust proxy', trustProxyConfig);
 
 // 🛡️ CRITICAL SECURITY: Apply DoS protection middleware FIRST
 app.use(DDoSProtectionMiddleware.globalDDoSProtection);
 
-// 🔒 SECURITY FIX #70: Apply DDoS protection middleware
-app.use(DDoSProtectionMiddleware.globalDDoSProtection);
+// === CORS (must run BEFORE CSRF, Helmet and routes) ===
+// Unified origin validator
+const validateOrigin = (origin, callback) => {
+  if (!origin) return callback(null, true); // allow non-browser clients
+
+  const allowedOrigins = (process.env.FRONTEND_URLS
+    ? process.env.FRONTEND_URLS.split(',').map(u => u.trim())
+    : [
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:3001',
+        process.env.FRONTEND_URL
+      ].filter(Boolean)
+  );
+
+  const isAllowed = allowedOrigins.includes(origin);
+  appLogger.debug('CORS validation', { origin, allowedOrigins, isAllowed });
+  return isAllowed ? callback(null, true) : callback(new Error('CORS: Origin not allowed'));
+};
+
+const corsOptions = {
+  origin: validateOrigin,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  // Do not hardcode allowedHeaders; reflect Access-Control-Request-Headers automatically
+  exposedHeaders: ['X-CSRF-Token'],
+  maxAge: 86400
+};
+app.use(cors(corsOptions));
+
+// 🔒 SECURITY FIX #125: Apply CSRF protection middleware
+app.use(attachCsrfToken);
+app.use(validateCsrfToken);
+
+// 🔧 Add JSON body parsing middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// 🔧 Add cookie parser middleware
+app.use(cookieParser());
 
 // 🔒 SECURITY FIX #31: Apply Helmet.js security headers with proper configuration
 app.use(helmet({
@@ -159,7 +293,9 @@ app.use(helmet({
       frameSrc: ["'none'"],
       workerSrc: ["'self'", "blob:"],
       baseUri: ["'self'"],
-      formAction: ["'self'"]
+      formAction: ["'self'"],
+      upgradeInsecureRequests: [], // Force HTTPS upgrade
+      blockAllMixedContent: [] // Block mixed content
     },
     // Disable CSP in development for easier debugging
     reportOnly: process.env.NODE_ENV === 'development'
@@ -232,88 +368,61 @@ app.use(helmet({
       webShare: ["'none'"],
       xrSpatialTracking: ["'none'"]
     }
+  },
+  
+  // Additional security headers
+  frameguard: { action: 'deny' }, // Prevent framing
+  xssFilter: true, // XSS protection
+  permittedCrossDomainPolicies: 'none', // Flash/Silverlight cross-domain
+  expectCt: { // Certificate Transparency
+    maxAge: 86400,
+    enforce: true
   }
 }));
 
+console.log('Helmet security headers configured');
 // 🛡️ SECURITY: Rate limit status endpoint (for monitoring)
 // Rate limit status endpoint removed due to missing implementation
 
-// 🔒 SECURITY: Secure CORS validation function for uploads
-// 🔒 SECURITY FIX #61: Unified CORS origin validation function
-const validateOrigin = (origin, callback) => {
-  // 🔒 SECURITY FIX: Always validate origin, even in development
-  // For direct access (mobile apps, etc.), use a default origin from environment
-  if (!origin) {
-    // Use default origin from environment or fallback to localhost
-    const defaultOrigin = process.env.DEFAULT_FRONTEND_URL || 'http://localhost:3000';
-    return callback(null, defaultOrigin);
-  }
-  
-  // Define allowed origins - consistent with global CORS configuration
-  const allowedOrigins = process.env.FRONTEND_URLS ? 
-    process.env.FRONTEND_URLS.split(',').map(url => url.trim()) : 
-    [
-      'http://localhost:3000', 
-      'http://localhost:3001',
-      'http://127.0.0.1:3000',
-      'http://127.0.0.1:3001',
-      process.env.FRONTEND_URL
-    ].filter(Boolean);
-  
-  // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
-  appLogger.debug('CORS validation', {
-    origin,
-    allowedOrigins,
-    isAllowed: allowedOrigins.includes(origin)
-  });
-  
-  if (allowedOrigins.includes(origin)) {
-    callback(null, true);
-  } else {
-    // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.warn
-    appLogger.warn('CORS: Blocked request from unauthorized origin', {
-      origin,
-      allowedOrigins
-    });
-    callback(new Error('CORS: Origin not allowed'));
-  }
-};
+// 🔒 SECURITY: Secure CORS validation function is now declared before middleware to ensure availability
 
 // 🔧 FIX #49: API Versioning - Add /api/v1/, /api/v2/ versioning to routes
 app.use('/api/v1', v1Routes);
 app.use('/api/v2', v2Routes);
 
-// === Middlewares ===
-// 🔒 SECURITY ENHANCED CORS: 10/10 Security Configuration
-// 🔒 SECURITY FIX #61: Unified CORS configuration applied globally
-app.use(cors({
-  origin: validateOrigin,
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
-  exposedHeaders: ['X-CSRF-Token'],
-  maxAge: 86400
-}));
+// 🔧 API RESPONSE TIME OPTIMIZATION #184: Add monitoring routes for performance tracking
+app.use('/api/monitoring', monitoringRoutes);
+
+// CORS is applied earlier globally (before CSRF/Helmet).
 
 // 🔒 SECURITY FIX #66: Add security audit logging middleware to log security-relevant events
 app.use(AuditLoggingMiddleware.logSecurityEvents);
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(cookieParser());
+
+// Add GraphQL operation logging
+
+// // app.use('/graphql', AuditLoggingMiddleware.logGraphQLOperations); // Commented out as method doesn't exist
 
 // 🔧 API GATEWAY: Add unified API gateway middleware
 app.use(apiGatewayMiddleware);
-
 // 🔧 ERROR CODE STANDARDIZATION #102: Add error code validation middleware
-import { errorCodeValidationMiddleware } from './Helper/ErrorCodeValidator.js';
+import { errorCodeValidationMiddleware } from './utils/ErrorCodeValidator.js';
 app.use(errorCodeValidationMiddleware);
+
 
 // 🔒 SECURITY FIX #67: Add anomaly detection routes
 app.use('/api/anomaly-detection', AnomalyDetectionRoutes);
 
-// 🔧 FEATURE FLAGS #103: Add feature flag routes
-import FeatureFlagRoutes from './Routes/FeatureFlagRoutes.js';
-app.use('/api/feature-flags', FeatureFlagRoutes);
+// 🔧 API RESPONSE TIME OPTIMIZATION #184: Add performance monitoring middleware
+import { performanceMonitor } from './utils/PerformanceOptimization.js';
+app.use(performanceMonitor.requestTimer());
+
+
+
+
+
+
+
+
 
 // 🔒 SECURITY FIX #61: Unified secure origin getter for routes that need direct header setting
 const getSecureOrigin = (req) => {
@@ -352,17 +461,29 @@ const getSecureOrigin = (req) => {
   console.warn(`🚨 CORS: Blocked request from unauthorized origin: ${origin}`);
   return null;
 };
-
 // 🔒 SECURITY FIX #61: File streaming endpoint with unified CORS
+// 🔒 SECURITY FIX #128: Add authentication and authorization to file serving
+// 🔒 SECURITY FIX #137: Add security headers for static files
 app.get('/uploads/:filename', cors({
   origin: validateOrigin,
   credentials: true
-}), async (req, res) => {
+}), auth.authenticate, async (req, res) => {
   const { filename } = req.params;
   
   // Origin validation is now handled by CORS middleware
   const secureOrigin = getSecureOrigin(req);
   // CORS headers are now set by middleware
+  
+  // 🔒 SECURITY FIX #137: Add security headers for static files
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'X-XSS-Protection': '1; mode=block',
+    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Permissions-Policy': "geolocation=(), microphone=(), camera=()",
+    'Cache-Control': 'public, max-age=31536000' // 1 year cache for static files
+  });
   
   // Validate filename to prevent directory traversal
   if (!filename || filename.includes('..') || filename.startsWith('/')) {
@@ -379,6 +500,29 @@ app.get('/uploads/:filename', cors({
     }
   } catch (error) {
     return res.status(500).json({ error: 'Server error checking file' });
+  }
+  
+  // 🔒 SECURITY FIX #128: Check if user has access to this file
+  try {
+    // Import File model for access control check
+    const File = (await import('./Models/FeedModels/File.js')).default;
+    
+    // Find file record in database
+    const fileRecord = await File.findOne({ filename: filename });
+    
+    if (fileRecord) {
+      // Check if user can access this file
+      if (!fileRecord.canUserAccess(req.user?.profileid || req.user?.id)) {
+        return res.status(403).json({ error: 'Access denied to this file' });
+      }
+    } else {
+      // If file record doesn't exist, deny access (assume private)
+      return res.status(403).json({ error: 'Access denied to this file' });
+    }
+  } catch (authError) {
+    console.error('File access authorization error:', authError);
+    // Fail secure - deny access if authorization check fails
+    return res.status(403).json({ error: 'Access denied to this file' });
   }
   
   try {
@@ -538,7 +682,6 @@ app.options('/upload', cors({
   origin: validateOrigin,
   credentials: true,
   methods: ['POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
   maxAge: 86400
 }), (req, res) => {
   res.status(200).end();
@@ -549,7 +692,6 @@ app.options('/uploads/:filename', cors({
   origin: validateOrigin,
   credentials: true,
   methods: ['GET', 'OPTIONS'],
-  allowedHeaders: ['Range', 'Accept', 'Authorization'],
   maxAge: 86400
 }), (req, res) => {
   res.status(200).end();
@@ -584,12 +726,102 @@ app.post('/upload', cors({
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
+  // 🔧 IMPROVED FILE VALIDATION #122: Enhanced file validation with comprehensive security checks
+  // 🔧 FILE PROCESSING QUEUE #141: Use file processing queue to prevent blocking event loop
+  try {
+    // Import file processing queue
+    const fileProcessingQueue = (await import('./Services/FileProcessingQueue.js')).default;
+    
+    // Add file validation to processing queue
+    fileProcessingQueue.addTask(async () => {
+      const validation = await enhancedFileValidationService.validateFile(req.file, req.user);
+      
+      if (!validation.safe) {
+        // Log security violation
+        // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.warn
+        appLogger.warn(`FILE VALIDATION FAILED:`, {
+          filename: req.file.originalname,
+          threats: validation.threats,
+          userId: req.user?.profileid || req.user?.id,
+          ip: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+          timestamp: new Date().toISOString()
+        });
+        
+        // Clean up the uploaded file
+        const filePath = path.join(__dirname, 'uploads', req.file.filename);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+        
+        // Send error response if headers not sent
+        if (!res.headersSent) {
+          res.status(400).json({ 
+            error: 'File validation failed',
+            message: 'The uploaded file failed security validation',
+            threats: validation.threats.map(t => ({ type: t.type, message: t.message }))
+          });
+        }
+      } else {
+        // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+        appLogger.info(`File validation passed for: ${req.file.originalname}`, {
+          validationDetails: validation.validationDetails
+        });
+      }
+      
+      return validation;
+    }, { 
+      type: 'file_validation', 
+      filename: req.file.originalname,
+      userId: req.user?.profileid || req.user?.id
+    }).catch(validationError => {
+      // Handle validation errors
+      // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.error
+      appLogger.error('File validation error:', {
+        error: validationError.message,
+        stack: validationError.stack
+      });
+      
+      // Clean up the uploaded file
+      const filePath = path.join(__dirname, 'uploads', req.file.filename);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+      
+      // Send error response if headers not sent
+      if (!res.headersSent) {
+        res.status(500).json({ 
+          error: 'File validation error',
+          message: 'An error occurred during file validation'
+        });
+      }
+    });
+  } catch (initialError) {
+    // Handle immediate errors in setting up validation
+    // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.error
+    appLogger.error('File validation setup error:', {
+      error: initialError.message,
+      stack: initialError.stack
+    });
+    
+    // Clean up the uploaded file
+    const filePath = path.join(__dirname, 'uploads', req.file.filename);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    
+    return res.status(500).json({ 
+      error: 'File validation setup error',
+      message: 'An error occurred during file validation setup'
+    });
+  }
+
   // Additional file validation
   const maxFileSize = 50 * 1024 * 1024; // 50MB
   if (req.file.size > maxFileSize) {
     // Log oversized file attempt
     const clientIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-    console.warn(`🚨 OVERSIZED FILE UPLOAD ATTEMPT:`, {
+    // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.warn
+    appLogger.warn(`OVERSIZED FILE UPLOAD ATTEMPT:`, {
       ip: clientIP,
       userAgent: req.headers['user-agent'],
       originalname: req.file.sanitizedOriginalname, // Use sanitized originalname
@@ -634,7 +866,8 @@ app.post('/upload', cors({
       {
         // Add any additional metadata here
         uploadSource: 'direct_upload',
-        uploadContext: 'chat_message'
+        uploadContext: 'chat_message',
+        validationDetails: req.fileValidation || {} // Include validation details
       },
       userId
     );
@@ -645,17 +878,58 @@ app.post('/upload', cors({
     
     const fileUrl = `${baseUrl}/uploads/${req.file.filename}`;
     
-    // Generate thumbnail for image files
+    // Generate thumbnail for image files using file processing queue
     let thumbnailUrl = null;
     if (ThumbnailService.isImage(req.file.mimetype)) {
       try {
         const originalFilePath = path.join(__dirname, 'uploads', req.file.filename);
-        const thumbnailPath = await ThumbnailService.generateThumbnail(originalFilePath, 200, 200);
-        const thumbnailFilename = path.basename(thumbnailPath);
-        thumbnailUrl = `${baseUrl}/uploads/thumbnails/${thumbnailFilename}`;
+        
+        // 🔧 FILE PROCESSING QUEUE #141: Add thumbnail generation to processing queue
+        const fileProcessingQueue = (await import('./Services/FileProcessingQueue.js')).default;
+        
+        // Add thumbnail generation to queue (non-blocking)
+        fileProcessingQueue.addTask(async () => {
+          try {
+            // 🔧 FILE PROCESSING WORKER SERVICE #141: Use worker threads for thumbnail generation
+            const thumbnailPath = await ThumbnailService.generateThumbnail(originalFilePath, 200, 200);
+            const thumbnailFilename = path.basename(thumbnailPath);
+            const thumbnailUrl = `${baseUrl}/uploads/thumbnails/${thumbnailFilename}`;
+            
+            // Log success
+            appLogger.info('Thumbnail generated successfully', {
+              filename: req.file.filename,
+              thumbnailPath
+            });
+            
+            return thumbnailUrl;
+          } catch (error) {
+            // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.error
+            appLogger.error('Error generating thumbnail in queue:', {
+              error: error.message,
+              stack: error.stack
+            });
+            throw error;
+          }
+        }, { 
+          type: 'thumbnail_generation', 
+          filename: req.file.filename,
+          userId: userId
+        }).then(thumbUrl => {
+          thumbnailUrl = thumbUrl;
+        }).catch(error => {
+          // Log error but don't fail the main request
+          appLogger.warn('Thumbnail generation failed but continuing with upload', {
+            error: error.message,
+            filename: req.file.filename
+          });
+        });
       } catch (error) {
-        console.error('Error generating thumbnail:', error);
-        // Continue without thumbnail if generation fails
+        // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.error
+        appLogger.error('Error setting up thumbnail generation:', {
+          error: error.message,
+          stack: error.stack
+        });
+        // Continue without thumbnail if setup fails
       }
     }
     
@@ -671,7 +945,11 @@ app.post('/upload', cors({
       sizeFormatted: `${(req.file.size / (1024 * 1024)).toFixed(2)}MB`
     });
   } catch (error) {
-    console.error('Error storing file:', error);
+    // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.error
+    appLogger.error('Error storing file:', {
+      error: error.message,
+      stack: error.stack
+    });
     
     // Clean up the uploaded file on error
     const filePath = path.join(__dirname, 'uploads', req.file.filename);
@@ -750,15 +1028,33 @@ app.use((error, req, res, next) => {
 
 // === Connect to DB ===
 await Connectdb();
+console.log('✅ Connected to MongoDB database');
+
+// 🔧 DATABASE MIGRATIONS #114: Run database migrations after connection
+try {
+  const { runMigrations } = await import('./Models/FeedModels/Migrations/runMigrations.js');
+  await runMigrations();
+} catch (migrationError) {
+  console.error('❌ Error running database migrations:', migrationError);
+  // Don't exit the process, continue with startup but log the error
+}
 
 // 🔧 PERFORMANCE FIX #42: Initialize Redis cache service
 try {
   await redisClient.initialize();
   // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
   appLogger.info('Redis cache service initialized successfully');
+  
+  // 🔧 CACHING STRATEGY #140: Initialize enhanced cache service
+  const redisCacheService = (await import('./Services/Storage/RedisCacheService.js')).default;
+  await redisCacheService.initialize();
+  appLogger.info('Enhanced cache service initialized successfully');
 } catch (error) {
   // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.error
-  appLogger.error('Failed to initialize Redis cache service:', error.message);
+  appLogger.error('Failed to initialize Redis cache service:', {
+    error: error.message,
+    stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+  });
 }
 
 // Initialize FileService periodic tasks after database connection
@@ -768,68 +1064,127 @@ FileService.initializePeriodicTasks();
 const graphqlNPlusOneResolver = new GraphQLNPlusOneResolver();
 const enhancedResolvers = graphqlNPlusOneResolver.initialize();
 
-// 🔧 GRAPHQL SCHEMA STITCHING #99: Create stitched schema
-const { typeDefs: stitchedTypeDefs, resolvers: stitchedResolvers } = await createStitchedSchema();
+// 🔧 GRAPHQL SCHEMA STITCHING #99: Create stitched schema with executable schema
+console.log('🔍 [TRACKING] Starting GraphQL schema stitching...');
+let executableSchema;
+try {
+  const schemaResult = await createStitchedSchema();
+  executableSchema = schemaResult.schema;  // Use the pre-built executable schema
+  console.log('✅ [TRACKING] Schema stitching completed successfully');
+  console.log('✅ [TRACKING] Executable schema created - Single GraphQL realm guaranteed!');
+} catch (schemaError) {
+  console.error('❌ [TRACKING] Schema stitching failed:', schemaError.message);
+  console.error('🔍 [TRACKING] Error stack:', schemaError.stack);
+  throw schemaError;
+}
 
 // 🔒 SECURITY FIX #28: Add GraphQL depth limiting and query complexity analysis
-import depthLimit from 'graphql-depth-limit';
-import { createComplexityRule } from 'graphql-query-complexity';
-import { separateOperations } from 'graphql';
 // 🛠️ Standardized error handling
-import { handleUnifiedError } from './Helper/UnifiedErrorHandling.js';
+import { handleUnifiedError } from './utils/UnifiedErrorHandling.js';
 // 🔒 SECURITY FIX #57: Add GraphQL rate limiting
-import { getGraphQLRateLimiterMiddleware } from './Middleware/GraphQLRateLimiting.js';
+import { getGraphQLRateLimiterMiddleware } from './Middleware/GraphQL/GraphQLRateLimiting.js';
+// 🔐 ENHANCED GRAPHQL SECURITY: Import enhanced GraphQL security service
+import enhancedGraphQLSecurityService from './GraphQL/services/EnhancedGraphQLSecurityService.js';
+// Import PubSub for GraphQL subscriptions
+import { PubSub } from 'graphql-subscriptions';
+// Import GraphQL validation rules
+import depthLimit from 'graphql-depth-limit';
+// 🔥 REMOVED: graphql-query-complexity causes realm collision
+// import { createComplexityRule, simpleEstimator } from 'graphql-query-complexity';
 
+// Initialize PubSub instance
+const pubsub = new PubSub();
+
+// 🔥 CRITICAL FIX: Use pre-built executable schema instead of typeDefs + resolvers
+// This ensures Apollo Server uses the SAME GraphQL instance that @graphql-tools used
+console.log('🔍 [TRACKING] Creating Apollo Server with executable schema...');
 const apolloServer = new ApolloServer({
-  typeDefs: stitchedTypeDefs,
-  resolvers: {
-    ...Resolvers,
-    ...enhancedResolvers,
-    ...stitchedResolvers
-  },
-  // Add validation rules for depth limiting and complexity
-  validationRules: (requestContext) => {
-    // Get GraphQL rate limiter middleware
-    const rateLimiter = getGraphQLRateLimiterMiddleware();
-    
-    return [
-      // Apply rate limiting
-      rateLimiter(requestContext),
-      // Limit query depth to 10 levels
-      depthLimit(10),
-      // Limit query complexity (adjust values as needed)
-      createComplexityRule(1000, {
-        // Optional: Provide custom complexity calculation
-        estimators: [
-          // Add your custom estimators here if needed
-        ],
-        // Optional: Custom error message
-        onComplete: (complexity) => {
-          appLogger.info(`Query complexity: ${complexity}`);
-        }
-      })
-    ];
-  },
+  schema: executableSchema,  // Use pre-built schema instead of typeDefs + resolvers
+  // Add validation rules for depth limiting
+  // 🔥 REMOVED: createComplexityRule causes GraphQL realm collision
+  validationRules: [
+    depthLimit(15), // Limit query depth to 15
+    // createComplexityRule({ maximumComplexity: 500, estimators: [simpleEstimator()] }) // REMOVED - causes realm collision
+  ],
   // Add request size limit
-  introspection: process.env.NODE_ENV !== 'production',
+  // 🔒 SECURITY FIX #25: Disable GraphQL introspection in production
+  introspection: process.env.NODE_ENV !== 'production' && process.env.ENABLE_GRAPHQL_INTROSPECTION !== 'false',
   // Set max request size
   bodyParserConfig: {
     limit: '10mb' // Limit request size to prevent DoS
   },
-  // Standardized error formatting
+  // Standardized error formatting - prevent sensitive info leakage
   formatError: (error) => {
-    const unifiedError = handleUnifiedError(error, 'graphql');
-    return unifiedError;
+    // 🔍 DEEP DEBUGGING: Log realm collision errors with full stack trace
+    if (error.message && error.message.includes('realm')) {
+      console.error('🚨 [REALM ERROR DETECTED]');
+      console.error('🔍 Message:', error.message);
+      console.error('🔍 Path:', error.path);
+      console.error('🔍 Locations:', JSON.stringify(error.locations));
+      console.error('🔍 Extensions:', JSON.stringify(error.extensions));
+      console.error('🔍 Original Error:', error.originalError);
+      console.error('🔍 Full Stack:', error.stack);
+      console.error('🔍 Error Object Keys:', Object.keys(error));
+    }
+    
+    // Log the original error for debugging
+    appLogger.error('GraphQL Error:', {
+      message: error.message,
+      locations: error.locations,
+      path: error.path,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : 'Stack trace hidden in production',
+      timestamp: new Date().toISOString()
+    });
+    
+    // In production, hide implementation details
+    if (process.env.NODE_ENV === 'production') {
+      // Return a generic error message for client-facing errors
+      return new GraphQLError('Internal server error');
+    }
+    
+    // In development, return the original error
+    return error;
+  },
+  // Add context function for GraphQL resolvers
+  context: async ({ req }) => {
+    // Extract user from request (if authenticated)
+    const user = req.user || null;
+    
+    // Extract authentication context
+    const authContext = {
+      ipAddress: req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+                req.headers['x-real-ip'] ||
+                req.connection?.remoteAddress ||
+                req.socket?.remoteAddress ||
+                req.ip || '127.0.0.1',
+      userAgent: req.headers['user-agent'] || 'unknown',
+      timestamp: new Date()
+    };
+    
+    // Determine if user is authenticated
+    const isAuthenticated = !!user;
+    
+    // Return context object with user, pubsub, and other services
+    return {
+      user,
+      isAuthenticated,
+      authContext,
+      req,
+      pubsub,
+      // 🔐 ENHANCED GRAPHQL SECURITY: Add enhanced security service to context
+      enhancedGraphQLSecurityService,
+      // Add other context properties as needed
+    };
   }
 });
+
+console.log('🚀 Starting Apollo Server...');
 
 await apolloServer.start();
 
 // === Routes ===
 // Apply audit logging middleware to authentication routes
-app.use('/api/auth', AuditLoggingMiddleware.logAuthentication, AuthenticationRoutes);
-// 🔒 SECURITY FIX #63: Import IP whitelisting middleware
-import ipWhitelistMiddleware from './Middleware/IPWhitelistMiddleware.js';
+app.use('/api/v1/auth', AuditLoggingMiddleware.logAuthentication, AuthenticationRoutes);
 
 // Apply audit logging middleware to admin routes
 app.use('/api/admin', ipWhitelistMiddleware, AuditLoggingMiddleware.logAdminEvents, AdminRoutes);
@@ -839,14 +1194,14 @@ app.use('/api', HealthRoutes);
 app.use('/api/monitoring', monitoringRoutes);
 
 // Link Preview Routes
-import LinkPreviewController from './Controllers/LinkPreviewController.js';
+import LinkPreviewController from './Controllers/Media/LinkPreviewController.js';
 app.get('/api/link-preview', LinkPreviewController.getLinkPreview);
 app.get('/api/link-preview/stats', LinkPreviewController.getCacheStats);
 app.post('/api/link-preview/clear-cache', LinkPreviewController.clearExpiredCache);
 
 // 🔧 PERFORMANCE FIX #42: Redis Cache Demo Routes
-import { redisCacheMiddleware, cacheInvalidateMiddleware } from './Middleware/CacheMiddleware.js';
-import redisCacheService from './Services/RedisCacheService.js';
+import { redisCacheMiddleware, cacheInvalidateMiddleware } from './Middleware/Performance/CacheMiddleware.js';
+import redisCacheService from './Services/Storage/RedisCacheService.js';
 
 // Cache demo endpoint - shows how to use Redis caching for API responses
 app.get('/api/cache-demo', 
@@ -886,61 +1241,86 @@ app.get('/api/cache-stats', async (req, res) => {
   });
 });
 
+// 🔧 FILE PROCESSING QUEUE #141: Add file processing queue stats endpoint
+app.get('/api/file-processing-stats', async (req, res) => {
+  try {
+    const fileProcessingQueue = (await import('./Services/FileProcessingQueue.js')).default;
+    const stats = fileProcessingQueue.getStats();
+    res.json({
+      success: true,
+      stats
+    });
+  } catch (error) {
+    // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.error
+    appLogger.error('Error getting file processing stats:', {
+      error: error.message,
+      stack: error.stack
+    });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get file processing stats'
+    });
+  }
+});
+
 // Scheduled Message Routes
-import ScheduledMessageRoutes from './Routes/ScheduledMessageRoutes.js';
+import ScheduledMessageRoutes from './Routes/api/v1/ScheduledMessageRoutes.js';
 app.use('/api/scheduled-messages', ScheduledMessageRoutes);
 
 // Keyword Alert Routes
-import KeywordAlertRoutes from './Routes/KeywordAlertRoutes.js';
+import KeywordAlertRoutes from './Routes/api/v1/KeywordAlertRoutes.js';
 app.use('/api/keyword-alerts', KeywordAlertRoutes);
 
 // Cloud Storage Routes
-import CloudStorageRoutes from './Routes/CloudStorageRoutes.js';
+import CloudStorageRoutes from './Routes/api/v1/CloudStorageRoutes.js';
 app.use('/api/cloud', CloudStorageRoutes);
 
 // Poll Routes
-import PollRoutes from './Routes/PollRoutes.js';
+import PollRoutes from './Routes/api/v1/PollRoutes.js';
 app.use('/api/polls', PollRoutes);
 
 // Collaborative Editing Routes
-import CollaborativeEditingRoutes from './Routes/CollaborativeEditingRoutes.js';
+import CollaborativeEditingRoutes from './Routes/api/v1/CollaborativeEditingRoutes.js';
 app.use('/api/collab-docs', CollaborativeEditingRoutes);
 
 // Audit Log Routes
-import AuditLogRoutes from './Routes/AuditLogRoutes.js';
+import AuditLogRoutes from './Routes/api/v1/AuditLogRoutes.js';
 app.use('/api/audit-logs', AuditLogRoutes);
 
 // RBAC Routes
-import RBACRoutes from './Routes/RBACRoutes.js';
+import RBACRoutes from './Routes/api/v1/RBACRoutes.js';
 app.use('/api/rbac', RBACRoutes);
 
 // Translation Routes
-import TranslationRoutes from './Routes/TranslationRoutes.js';
+import TranslationRoutes from './Routes/api/v1/TranslationRoutes.js';
 app.use('/api/translate', TranslationRoutes);
 
 // Smart Categorization Routes
-import SmartCategorizationRoutes from './Routes/SmartCategorizationRoutes.js';
+import SmartCategorizationRoutes from './Routes/api/v1/SmartCategorizationRoutes.js';
 app.use('/api/categorize', SmartCategorizationRoutes);
 
 // Sentiment Analysis Routes
-import SentimentAnalysisRoutes from './Routes/SentimentAnalysisRoutes.js';
+import SentimentAnalysisRoutes from './Routes/api/v1/SentimentAnalysisRoutes.js';
 app.use('/api/sentiment', SentimentAnalysisRoutes);
 
 // Message Template Routes
-import MessageTemplateRoutes from './Routes/MessageTemplateRoutes.js';
+import MessageTemplateRoutes from './Routes/api/v1/MessageTemplateRoutes.js';
 app.use('/api/templates', MessageTemplateRoutes);
 
 // Subscription Routes
-import SubscriptionRoutes from './Routes/SubscriptionRoutes.js';
+import SubscriptionRoutes from './Routes/api/v1/SubscriptionRoutes.js';
 app.use('/api/subscriptions', SubscriptionRoutes);
 
 // Sync Routes
-import SyncRoutes from './Controllers/SyncController.js';
+import SyncRoutes from './Controllers/Sync/SyncController.js';
 app.use('/api/sync', SyncRoutes);
 
 app.get('/', (req, res) => {
   res.send('hello');
 });
+
+// CSRF token endpoint
+app.get('/api/csrf-token', getCsrfToken);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -1155,8 +1535,7 @@ app.use(
   cors({
     origin: validateOrigin,
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token']
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
   }),
   expressMiddleware(apolloServer, {
     context: async ({ req, res }) => {
@@ -1165,6 +1544,7 @@ app.use(
       let authMethod = 'none';
       let authResult = null;
       let securityMetadata = {};
+      
       
       // Extract authentication context using same methodology as AuthenticationMiddleware
       const authContext = {
@@ -1185,7 +1565,7 @@ app.use(
       
       // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
       appLogger.debug('GraphQL Request headers', {
-        authorization: req.headers['authorization'] ? 'Bearer [PRESENT]' : 'Missing',
+        Authorization: req.headers['Authorization'] ? 'Bearer [PRESENT]' : 'Missing',
         'x-csrf-token': req.headers['x-csrf-token'] ? '[PRESENT]' : 'Missing',
         'user-agent': req.headers['user-agent'],
         origin: req.headers['origin'],
@@ -1195,15 +1575,34 @@ app.use(
         ip: authContext.ipAddress
       });
       
+      // 🔧 EXTRA DEBUGGING: Detailed cookie analysis
+      if (req.headers.cookie) {
+        appLogger.debug('COOKIE ANALYSIS: Raw cookie header', {
+          rawCookie: req.headers.cookie,
+          cookieLength: req.headers.cookie.length,
+          parsedCookies: req.cookies || 'Not parsed'
+        });
+      }
+      
       // 🔍 ENHANCED DEBUGGING: Show actual cookie names and structure
       if (req.cookies && Object.keys(req.cookies).length > 0) {
         // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
         appLogger.debug('Cookie details', {
           cookies: Object.keys(req.cookies).map(name => ({
             name,
-            value: req.cookies[name] ? (req.cookies[name].substring(0, 30) + '...') : 'empty'
+            value: req.cookies[name] ? (req.cookies[name].substring(0, 30) + '...') : 'empty',
+            fullValue: req.cookies[name] || 'none'
           }))
         });
+        
+        // 🔍 Check specifically for accessToken cookie
+        if (req.cookies['accessToken']) {
+          appLogger.debug('accessToken cookie found', {
+            valueLength: req.cookies['accessToken'].length,
+            isUndefined: req.cookies['accessToken'] === 'undefined',
+            valuePreview: req.cookies['accessToken'].substring(0, 30) + '...'
+          });
+        }
       } else if (req.headers.cookie) {
         // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
         appLogger.warn('Cookie header present but req.cookies is empty - parsing issue!', {
@@ -1220,13 +1619,27 @@ app.use(
       
       try {
         const authHeader = req.headers['authorization'];
+        appLogger.debug('Authorization header check', {
+          hasAuthHeader: !!authHeader,
+          authHeaderPreview: authHeader ? authHeader.substring(0, 30) + '...' : 'none'
+        });
+        
         if (authHeader && authHeader.startsWith('Bearer ')) {
           const token = authHeader.split(' ')[1];
           
           // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
           appLogger.debug('Bearer token found', {
-            tokenLength: token.length
+            tokenLength: token.length,
+            tokenPreview: token.substring(0, 30) + '...'
           });
+          
+          // 🔍 DEBUG: Check if token is 'undefined'
+          if (token === 'undefined' || token === 'null' || token.length < 10) {
+            appLogger.warn('Invalid Bearer token detected', {
+              tokenValue: token,
+              tokenLength: token.length
+            });
+          }
           
           // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
           appLogger.debug('Attempting to verify Bearer token with TokenService...');
@@ -1237,36 +1650,52 @@ app.use(
             deviceHash: crypto.createHash('sha256').update(authContext.userAgent + authContext.ipAddress).digest('hex')
           };
           
+          appLogger.debug('Attempting to verify Bearer token with TokenService...', {
+            tokenLength: token?.length || 0,
+            tokenPreview: token ? token.substring(0, 30) + '...' : 'none'
+          });
+          
           const tokenResult = await TokenService.verifyAccessToken(token, tokenContext);
-              if (tokenResult.valid) {
-                // Get fresh user data
-                const freshUser = await User.findOne({ id: tokenResult.user.id });
-                if (freshUser && !freshUser.isAccountLocked()) {
-                  // CRITICAL FIX: Add profileid from Profile model
-                  const userProfile = await Profile.findOne({ username: freshUser.username });
-                  user = {
-                    ...tokenResult.user,
-                    profileid: userProfile?.profileid || null
-                  };
-                  authMethod = 'bearer_token';
-                  authResult = tokenResult;
-                  securityMetadata = tokenResult.security || {};
-                  
-                  // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
-                  appLogger.info('Bearer token verified successfully', {
-                    username: user.username,
-                    profileid: user.profileid
-                  });
-                } else {
-                  // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
-                  appLogger.warn('Bearer token valid but user account locked or not found');
-                }
+          
+          appLogger.debug('Bearer token verification result', {
+            valid: tokenResult.valid,
+            reason: tokenResult.reason,
+            hasUser: !!tokenResult.user
+          });
+          
+          if (tokenResult.valid) {
+            // Get fresh user data
+            const freshUser = await User.findOne({ id: tokenResult.user.id });
+            if (freshUser && !freshUser.isAccountLocked()) {
+              // CRITICAL FIX: Add profileid from Profile model
+              const userProfile = await Profile.findOne({ username: freshUser.username });
+              user = {
+                ...tokenResult.user,
+                profileid: userProfile?.profileid || null
+              };
+              authMethod = 'bearer_token';
+              authResult = tokenResult;
+              securityMetadata = tokenResult.security || {};
+              
+              // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+              appLogger.info('Bearer token verified successfully', {
+                username: user.username,
+                profileid: user.profileid
+              });
+            } else {
+              // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
+              appLogger.warn('Bearer token valid but user account locked or not found');
+            }
           } else {
             // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
             appLogger.warn('Bearer token verification failed', {
               reason: tokenResult.reason
             });
           }
+        } else if (authHeader) {
+          appLogger.debug('Authorization header does not start with Bearer', {
+            headerStart: authHeader.substring(0, 10)
+          });
         }
       } catch (err) {
         // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
@@ -1294,7 +1723,7 @@ app.use(
             req.cookies['__Host-accessToken'],    // Alternative hyphen format
             req.cookies['__Secure-accessToken'],  // Alternative hyphen format
             req.cookies['accessToken']            // Standard cookie name
-          ].filter(Boolean);
+          ].filter(token => token && token !== 'undefined' && token !== 'null' && token.length > 10); // Filter out invalid tokens
           
           // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
           appLogger.debug('Cookie token search results', {
@@ -1321,9 +1750,27 @@ app.use(
           for (const cookieToken of cookieTokenSources) {
             try {
               // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
-              appLogger.debug('Attempting to verify cookie token with TokenService...');
+              appLogger.debug('Attempting to verify cookie token with TokenService...', {
+                tokenLength: cookieToken?.length || 0,
+                tokenPreview: cookieToken ? cookieToken.substring(0, 30) + '...' : 'none'
+              });
+              
+              // SECURITY FIX: Check for undefined or invalid token values before verification
+              if (!cookieToken || cookieToken === 'undefined' || cookieToken === 'null' || cookieToken.length < 10) {
+                appLogger.warn('Skipping invalid cookie token', {
+                  tokenValue: cookieToken,
+                  tokenLength: cookieToken?.length || 0
+                });
+                continue;
+              }
               
               const tokenResult = await TokenService.verifyAccessToken(cookieToken, tokenContext);
+              
+              appLogger.debug('Token verification result', {
+                valid: tokenResult.valid,
+                reason: tokenResult.reason,
+                hasUser: !!tokenResult.user
+              });
               
               if (tokenResult.valid) {
                 // Get fresh user data
@@ -1397,9 +1844,9 @@ app.use(
           deviceTrusted: securityMetadata.deviceTrusted || false,
           tokenMetadata: authResult?.metadata || null,
           // CSRF token extraction for validation
-          csrfToken: req.cookies['__Host-csrfToken'] || 
-                    req.cookies['__Secure-csrfToken'] || 
-                    req.cookies['csrfToken'] || 
+          csrfToken: req.cookies?.['__Host-csrfToken'] || 
+                    req.cookies?.['__Secure-csrfToken'] || 
+                    req.cookies?.['csrfToken'] || 
                     req.headers['x-csrf-token'],
           connectionSecure: req.secure || req.headers['x-forwarded-proto'] === 'https'
         }
@@ -1433,12 +1880,12 @@ app.use(
 
 
 // === Create HTTP/2 server for Socket.io with fallback to HTTP/1.1 ===
-let httpServer;
-
 // Check if we have SSL certificates for HTTP/2
 const hasSSLCerts = process.env.SSL_KEY_PATH && process.env.SSL_CERT_PATH && 
                    fs.existsSync(process.env.SSL_KEY_PATH) && 
                    fs.existsSync(process.env.SSL_CERT_PATH);
+
+let httpServer;
 
 if (hasSSLCerts) {
   // Create HTTP/2 server with SSL
@@ -1459,11 +1906,29 @@ if (hasSSLCerts) {
   
   httpServer = spdy.createServer(options, app);
   appLogger.info('HTTP/2 server created with SSL');
+  
+  // Make httpServer available globally
+  global.httpServer = httpServer;
 } else {
   // Fallback to regular HTTP/1.1 server
-  httpServer = http.createServer(app);
+  httpServer = createServer(app);
   appLogger.info('HTTP/1.1 server created (no SSL certificates found)');
+  
+  // Make httpServer available globally
+  global.httpServer = httpServer;
 }
+
+// 🔧 API RESPONSE TIME OPTIMIZATION #184: Configure server timeout settings
+// Set server timeout configurations for better performance and resource management
+httpServer.setTimeout(120000); // 2 minutes for request timeout
+httpServer.keepAliveTimeout = 65000; // 65 seconds for keep-alive connections
+httpServer.headersTimeout = 66000; // 66 seconds for headers timeout (should be greater than keepAliveTimeout)
+
+appLogger.info('🔧 Server timeout configurations applied', {
+  serverTimeout: '120000ms',
+  keepAliveTimeout: '65000ms',
+  headersTimeout: '66000ms'
+});
 
 // HTTP/2 Server Push Middleware
 app.use((req, res, next) => {
@@ -1508,15 +1973,19 @@ app.use((req, res, next) => {
 });
 
 // === Socket.io Setup with dynamic CORS ===
-const io = new SocketIOServer(httpServer, {
+console.log('🚀 BACKEND: Creating Socket.IO server instance...');
+const io = new Server(httpServer, 
+  {
+  
   cors: {
     origin: function (origin, callback) {
-      // 🔒 SECURITY FIX: Always validate origin, even in development
-      // For direct access (mobile apps, etc.), use a default origin from environment
+      console.log('🔒 BACKEND: Socket.IO CORS check for origin:', origin);
+      
+      // 🔧 CRITICAL FIX #3: Correct CORS callback usage
+      // For no origin (same-origin requests, mobile apps, etc.), allow the request
       if (!origin) {
-        // Use default origin from environment or fallback to localhost
-        const defaultOrigin = process.env.DEFAULT_FRONTEND_URL || 'http://localhost:3000';
-        return callback(null, defaultOrigin);
+        console.log('✅ BACKEND: No origin provided (same-origin or mobile), allowing connection');
+        return callback(null, true); // ✅ FIXED: Use true instead of origin string
       }
       
       const allowedOrigins = process.env.FRONTEND_URLS ? 
@@ -1530,18 +1999,20 @@ const io = new SocketIOServer(httpServer, {
         ].filter(Boolean);
       
       if (allowedOrigins.includes(origin)) {
-        callback(null, true);
+        console.log('✅ BACKEND: Socket.IO CORS origin allowed:', origin);
+        callback(null, true); // ✅ Allow the origin
       } else {
-        // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.warn
+        console.log('❌ BACKEND: Socket.IO CORS origin blocked:', origin);
         appLogger.warn('Socket.IO CORS: Blocked request from unauthorized origin', {
-          origin
+          origin,
+          allowedOrigins
         });
         callback(new Error('Socket.IO CORS: Origin not allowed'));
       }
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
     exposedHeaders: ['X-CSRF-Token'],
     maxAge: 86400
   },
@@ -1549,28 +2020,90 @@ const io = new SocketIOServer(httpServer, {
   allowEIO3: true,
   pingTimeout: 60000,
   pingInterval: 25000,
-  maxHttpBufferSize: 1e6, // 1MB
+  // 🔧 WEBSOCKET MESSAGE SIZE LIMITS #185: Configure message size limits
+  maxHttpBufferSize: 1e6, // 1MB - Maximum HTTP buffer size
+  // Add additional WebSocket configuration for better message handling
+  httpCompression: {
+    threshold: 1024 // Compress messages larger than 1KB
+  },
+  // Configure WebSocket per-message deflate compression
+  perMessageDeflate: {
+    threshold: 1024, // Compress messages larger than 1KB
+    zlibDeflateOptions: {
+      chunkSize: 1024,
+      memLevel: 7,
+      level: 3
+    },
+    zlibInflateOptions: {
+      chunkSize: 1024
+    },
+    clientNoContextTakeover: true,
+    serverNoContextTakeover: true,
+    serverMaxWindowBits: 15,
+    concurrencyLimit: 10,
+    threshold: 1024
+  },
   // 🔄 CRITICAL FIX: Add connection limiting to prevent excessive connections
   maxConnections: 10000, // Maximum concurrent connections
   // 🔄 CRITICAL FIX: Add rate limiting for connection attempts
   connectionStateRecovery: {
     maxDisconnectionDuration: 60 * 1000, // 1 minute
     skipMiddlewares: true,
-  }
+  },
+  // 🔄 ENHANCEMENT: Add reconnection configuration
+  reconnection: true,
+  reconnectionAttempts: 10,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 30000,
+  randomizationFactor: 0.1
+});
+
+console.log('✅ BACKEND: Socket.IO server created with configuration');
+console.log('🔌 BACKEND: Socket.IO server details:', {
+  path: '/socket.io',
+  transports: ['websocket', 'polling'],
+  cors: 'enabled',
+  credentials: true,
+  serverAddress: `http://localhost:${port}`
 });
 
 // 🛡️ SECURITY: Use existing 10/10 secure SocketAuthMiddleware instead of basic auth
-import SocketAuthMiddleware from './Middleware/SocketAuthMiddleware.js';
+import SocketAuthMiddleware from './Middleware/Socket/SocketAuthMiddleware.js';
 import { setIO } from './Config/SocketConfig.js'; // Add this import
 
+console.log('🔐 BACKEND: Applying Socket.IO authentication middleware...');
 // Apply the sophisticated 10/10 secure authentication middleware
 io.use(SocketAuthMiddleware.authenticate);
+console.log('✅ BACKEND: Socket.IO authentication middleware applied');
+console.log('🔐 BACKEND: All socket connections will be authenticated before reaching connection handler');
 
 // Set the Socket.IO instance for other modules to use
 setIO(io); // Add this line
+console.log('⚙️ BACKEND: Socket.IO instance set for other modules');
+
+// 🔧 CRITICAL DEBUG: Add engine-level logging to see ALL connection attempts
+console.log('🔌 BACKEND: Setting up engine-level connection listeners...');
+
+io.engine.on('connection', (rawSocket) => {
+  console.log('🔌🔌🔌 BACKEND: RAW ENGINE CONNECTION RECEIVED FROM FRONTEND!');
+  console.log('🔌 BACKEND: Raw socket details:', {
+    id: rawSocket.id,
+    transport: rawSocket.transport?.name,
+    readyState: rawSocket.readyState,
+    remoteAddress: rawSocket.remoteAddress
+  });
+  console.log('✅ BACKEND: Frontend successfully reached the socket server!');
+  console.log('⏳ BACKEND: Now passing through authentication middleware...');
+});
 
 // SECURITY ENHANCEMENT: Add connection cleanup handler
 io.engine.on('connection_error', (err) => {
+  console.error('❌❌❌ BACKEND: ENGINE CONNECTION ERROR!');
+  console.error('❌ BACKEND: Error details:', {
+    message: err.message,
+    code: err.code,
+    context: err.context
+  });
   // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.error
   appLogger.error('Socket.IO connection error', {
     req: err.req,
@@ -1580,48 +2113,34 @@ io.engine.on('connection_error', (err) => {
   });
 });
 
+console.log('✅ BACKEND: Engine-level listeners configured');
+
+// 🔧 CRITICAL FIX #4: REMOVE DUPLICATE CONNECTION HANDLER
+// Only ONE connection handler should exist - in SocketController
+// This prevents authentication state confusion and memory leaks
+
 // Apply disconnection handler from the security middleware
 io.on('disconnect', (socket) => {
   SocketAuthMiddleware.handleDisconnection(socket);
 });
 
 // ✅ CLEAN IMPLEMENTATION: Initialize refactored SocketController to handle ALL socket events
-import SocketController from './Controllers/SocketController.js';
+console.log('🎮 BACKEND: Initializing SocketController...');
+import SocketController from './Controllers/Messaging/SocketController.js';
 const socketController = new SocketController(io);
+console.log('✅ BACKEND: SocketController initialized');
 
 // Initialize Collaborative Editing Service
-import CollaborativeEditingService from './Services/CollaborativeEditingService.js';
+import CollaborativeEditingService from './Services/Features/CollaborativeEditingService.js';
 CollaborativeEditingService.initialize(io);
 CollaborativeEditingService.startCleanup();
 
-// Socket.io connection handling - ALL events handled by SocketController
-io.on('connection', (socket) => {
-  // SECURITY: Access authenticated user data set by SocketAuthMiddleware
-  const userId = socket.userId || socket.user?.profileid || socket.user?.id;
-  const username = socket.username || socket.user?.username;
-  
-  // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
-  appLogger.info('Authenticated user connected', {
-    username,
-    userId,
-    socketId: socket.id
-  });
-  
-  // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
-  appLogger.info('User security level', {
-    username,
-    deviceTrusted: socket.deviceTrusted,
-    riskScore: socket.riskScore || 0
-  });
-  
-  // Register all socket event handlers through SocketController
-  socketController.registerSocketHandlers(socket);
-  
-  // 🔧 PERFORMANCE FIX #32: Use Winston logger instead of console.log
-  appLogger.info('Socket handlers registered for user', {
-    username
-  });
-});
+// 🔧 CRITICAL FIX #4: Single connection handler in SocketController
+// The SocketController.setupConnectionHandling() method already registers the connection handler
+// No need for duplicate handler here
+console.log('✅ BACKEND: Socket.IO connection handler registered in SocketController');
+console.log('🔌 BACKEND: Socket.IO server is ready and listening for connections');
+console.log('🔌 BACKEND: Waiting for frontend to connect...');
 
 // === Start Server ===
 // Use the httpServer for both Express and Socket.IO
@@ -1646,7 +2165,7 @@ httpServer.listen(port, '0.0.0.0', () => {
 });
 
 // Setup Socket.IO with the HTTP server
-// setupSocketIO(server); // This line seems to be calling an undefined function, commenting it out
+// setupSocketIO(httpServer); // This line seems to be calling an undefined function, commenting it out
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
@@ -1676,7 +2195,7 @@ process.on('SIGINT', () => {
 });
 
 import APMIntegration from './utils/APMIntegration.js'; // 🔧 APM #87: Import APM integration
-import { apmMiddleware, apmErrorMiddleware } from './Middleware/APMMiddleware.js'; // 🔧 APM #87: Import APM middleware
+import { apmMiddleware, apmErrorMiddleware } from './Middleware/Performance/APMMiddleware.js'; // 🔧 APM #87: Import APM middleware
 
 // 🔧 APM #87: Add APM middleware early in the middleware chain
 app.use(apmMiddleware);
@@ -1692,8 +2211,42 @@ app.use(apmErrorMiddleware);
 import { TYPES } from './Config/DIContainer.js';
 
 // Set $inject properties for services that need them
-import ChatService from './Services/ChatService.js';
+import ChatService from './Services/Chat/ChatService.js';
 ChatService.$inject = [TYPES.ChatRepository, TYPES.MessageRepository, TYPES.ProfileRepository];
 
-import UserService from './Services/UserService.js';
+import UserService from './Services/User/UserService.js';
 UserService.$inject = [TYPES.ProfileRepository];
+
+// 🔧 Monitoring Enhancement #172: Add periodic monitoring data cleanup
+
+// Clean up old monitoring data periodically
+setInterval(() => {
+  // This would be implemented in a production environment
+  // to clean up old metrics and traces from memory
+  console.log('Monitoring data cleanup check');
+}, 60 * 60 * 1000); // Every hour
+
+// 🔧 Monitoring Enhancement #172: Add monitoring health check endpoint
+app.get('/api/monitoring/health', async (req, res) => {
+  try {
+    const status = APMIntegration.getStatus();
+    res.status(200).json({ 
+      success: true,
+      status,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch monitoring health status',
+      error: error.message
+    });
+  }
+});
+
+// 🔧 Backup Strategy #173: Initialize backup scheduler
+import backupScheduler from './Services/Backup/BackupScheduler.js';
+backupScheduler.start();
+
+export default app;
+

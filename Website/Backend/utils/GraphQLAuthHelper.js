@@ -5,7 +5,7 @@
  * to ensure consistent security validation across all operations.
  */
 
-import TokenService from '../Services/TokenService.js';
+import TokenService from '../Services/Authentication/TokenService.js';
 
 class GraphQLAuthHelper {
   

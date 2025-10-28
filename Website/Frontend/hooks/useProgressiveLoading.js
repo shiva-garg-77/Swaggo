@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import ProgressiveLoadingService from '../Services/ProgressiveLoadingService';
+import ProgressiveLoadingService from '../services/ProgressiveLoadingService';
 
 /**
  * 🚀 Progressive Loading Hook

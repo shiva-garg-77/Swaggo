@@ -13,6 +13,7 @@ class APMIntegration {
     this.metrics = new Map();
     this.traces = new Map();
     this.logs = [];
+    this.frontendMetrics = new Map(); // For frontend monitoring data
     
     // Initialize APM provider
     this.initializeAPMProvider();
@@ -275,6 +276,17 @@ class APMIntegration {
     // Log metric
     this.logger.info('Custom metric recorded', metric);
     
+    // Store frontend metrics separately
+    if (name.startsWith('frontend.')) {
+      this.frontendMetrics.set(Date.now(), metric);
+      
+      // Clean up old frontend metrics (keep last 1000 entries)
+      if (this.frontendMetrics.size > 1000) {
+        const firstKey = this.frontendMetrics.keys().next().value;
+        this.frontendMetrics.delete(firstKey);
+      }
+    }
+    
     // Send to APM provider
     this.sendMetricToAPM(metric);
   }
@@ -307,6 +319,7 @@ class APMIntegration {
       provider: this.apmProvider,
       metricsCount: this.metrics.size,
       tracesCount: this.traces.size,
+      frontendMetricsCount: this.frontendMetrics.size,
       logsCount: this.logs.length
     };
   }
@@ -329,6 +342,52 @@ class APMIntegration {
   getRecentTraces(limit = 50) {
     const traces = Array.from(this.traces.values());
     return traces.slice(-limit);
+  }
+  
+  /**
+   * Get recent frontend metrics
+   * @param {number} limit - Number of metrics to return
+   * @returns {Array} Recent frontend metrics
+   */
+  getRecentFrontendMetrics(limit = 50) {
+    const metrics = Array.from(this.frontendMetrics.values());
+    return metrics.slice(-limit);
+  }
+  
+  /**
+   * Get frontend monitoring summary
+   * @returns {Object} Frontend monitoring summary
+   */
+  getFrontendMonitoringSummary() {
+    const metrics = Array.from(this.frontendMetrics.values());
+    
+    // Group metrics by type
+    const groupedMetrics = metrics.reduce((acc, metric) => {
+      if (!acc[metric.name]) {
+        acc[metric.name] = [];
+      }
+      acc[metric.name].push(metric);
+      return acc;
+    }, {});
+    
+    // Calculate summary statistics
+    const summary = {};
+    Object.keys(groupedMetrics).forEach(metricName => {
+      const metricValues = groupedMetrics[metricName].map(m => m.value);
+      summary[metricName] = {
+        count: metricValues.length,
+        sum: metricValues.reduce((a, b) => a + b, 0),
+        avg: metricValues.reduce((a, b) => a + b, 0) / metricValues.length,
+        min: Math.min(...metricValues),
+        max: Math.max(...metricValues)
+      };
+    });
+    
+    return {
+      summary,
+      totalMetrics: metrics.length,
+      metricTypes: Object.keys(groupedMetrics)
+    };
   }
 }
 

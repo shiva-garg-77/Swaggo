@@ -186,7 +186,7 @@ class UnifiedWindowsRefreshHandler {
         }
         
         // Also preserve authentication state
-        if (window.__UNIFIED_AUTH__) {
+        if (window.__UNIFIED_AUTH__ && typeof window.__UNIFIED_AUTH__.getTokens === 'function') {
           const authTokens = window.__UNIFIED_AUTH__.getTokens();
           if (authTokens.accessToken) {
             sessionStorage.setItem('auth-tokens-preserved', JSON.stringify({

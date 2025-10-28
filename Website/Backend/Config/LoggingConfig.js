@@ -52,6 +52,37 @@ async function ensureLogDirectory() {
 }
 
 /**
+ * Safe JSON stringify that handles circular references
+ */
+function safeStringify(obj, space = 0) {
+  const seen = new WeakSet();
+  return JSON.stringify(obj, (key, value) => {
+    // Handle undefined, functions, and symbols
+    if (value === undefined) return '[Undefined]';
+    if (typeof value === 'function') return '[Function]';
+    if (typeof value === 'symbol') return '[Symbol]';
+    
+    // Handle circular references
+    if (typeof value === 'object' && value !== null) {
+      // Skip certain types that are known to cause issues
+      if (value.constructor?.name === 'Socket' || 
+          value.constructor?.name === 'HTTPParser' ||
+          value.constructor?.name === 'WriteStream' ||
+          value.constructor?.name === 'ReadStream') {
+        return `[${value.constructor.name}]`;
+      }
+      
+      if (seen.has(value)) {
+        return '[Circular]';
+      }
+      seen.add(value);
+    }
+    
+    return value;
+  }, space);
+}
+
+/**
  * Custom log format for structured logging
  */
 const logFormat = winston.format.combine(
@@ -72,7 +103,7 @@ const logFormat = winston.format.combine(
       logEntry.stack = stack;
     }
 
-    return JSON.stringify(logEntry);
+    return safeStringify(logEntry);
   })
 );
 
@@ -85,7 +116,7 @@ const consoleFormat = winston.format.combine(
   }),
   winston.format.colorize({ all: true }),
   winston.format.printf(({ timestamp, level, message, ...meta }) => {
-    const metaStr = Object.keys(meta).length ? JSON.stringify(meta, null, 2) : '';
+    const metaStr = Object.keys(meta).length ? safeStringify(meta, 2) : '';
     return `${timestamp} [${level}]: ${message} ${metaStr}`;
   })
 );
@@ -144,7 +175,14 @@ async function createLogger() {
     level: process.env.LOG_LEVEL || 'info',
     format: logFormat,
     transports,
-    exitOnError: false
+    exitOnError: false,
+    // Handle uncaught exceptions and unhandled rejections
+    exceptionHandlers: [
+      new winston.transports.File({ filename: 'exceptions.log' })
+    ],
+    rejectionHandlers: [
+      new winston.transports.File({ filename: 'rejections.log' })
+    ]
   });
 
   return logger;
@@ -247,7 +285,7 @@ class PerformanceLogger {
       this.logger.warn('Slow Query Detected', {
         category: 'performance',
         eventType: 'slow_query',
-        query: typeof query === 'string' ? query : JSON.stringify(query),
+        query: typeof query === 'string' ? query : safeStringify(query),
         executionTime: `${executionTime}ms`,
         threshold: `${threshold}ms`,
         timestamp: new Date().toISOString()

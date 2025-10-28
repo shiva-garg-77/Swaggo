@@ -33,9 +33,9 @@ import {
 import MacOSEditProfile from './sections/MacOSEditProfile'
 import HelpSupportSection from './sections/HelpSupportSection'
 import EnhancedAccountSettings from './sections/EnhancedAccountSettings'
-import BlockedAccountsEnhanced from '../../components/settings/BlockedAccountsEnhanced';
-import RestrictedAccountsEnhanced from '../../components/settings/RestrictedAccountsEnhanced';
-import CloseFriends from './sections/CloseFriends'
+import BlockedAccountsEnhanced from './BlockedAccountsEnhanced';
+import RestrictedAccountsEnhanced from './RestrictedAccountsEnhanced';
+import CloseFriends from './sections/CloseFriendsComponent'
 import TagsMentions from './sections/TagsMentions'
 import {
   MacOSAccountSettings,

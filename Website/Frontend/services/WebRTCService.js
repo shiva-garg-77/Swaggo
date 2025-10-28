@@ -6,9 +6,7 @@
 import { EventEmitter } from 'events';
 import { useUnifiedStore } from '../store/useUnifiedStore';
 import notificationService from './UnifiedNotificationService';
-import { createLogger } from '../utils/logger';
-
-const logger = createLogger('WebRTC');
+import logger from '../utils/logger';
 
 /**
  * WebRTC Configuration Constants
@@ -199,71 +197,114 @@ class UnifiedWebRTCService extends EventEmitter {
 
   /**
    * Sync WebRTC service state with unified store
+   * ✅ FIX: Access store directly instead of using React hooks
    */
   syncWithUnifiedStore() {
-    // Get the unified store actions
-    const { useCallActions } = require('../store/useUnifiedStore');
-    const callActions = useCallActions.getState();
-    
-    // Listen for state changes and sync with unified store
-    this.on('callStateChanged', (state) => {
-      callActions.setCallState(state);
-    });
-    
-    this.on('callInitiated', (call) => {
-      callActions.initiateCall(call);
-    });
-    
-    this.on('incomingCall', (call) => {
-      callActions.incomingCall(call);
+    try {
+      // ✅ FIX: Import the store directly, not the hook
+      const { default: useUnifiedStore } = require('../store/useUnifiedStore');
       
-      // Show incoming call notification
-      if (call.caller) {
-        notificationService.incomingCall(call.caller, call.callType);
+      // ✅ FIX: Access store state directly using getState (Zustand API)
+      if (!useUnifiedStore || typeof useUnifiedStore.getState !== 'function') {
+        console.warn('⚠️ Unified store not available, skipping store sync');
+        return;
       }
-    });
-    
-    this.on('callAnswered', (call) => {
-      callActions.answerCall();
       
-      // Dismiss incoming call notification when call is answered
-      notificationService.dismissByCategory('call');
-    });
-    
-    this.on('callEnded', (data) => {
-      callActions.endCall();
+      const store = useUnifiedStore.getState();
       
-      // Dismiss call notifications and show call ended notification
-      notificationService.dismissByCategory('call');
+      // ✅ FIX: Validate store has required methods
+      if (!store || typeof store.initiateCall !== 'function') {
+        console.warn('⚠️ Store methods not available, skipping store sync');
+        return;
+      }
       
-      if (data.call && data.call.caller && data.duration) {
-        notificationService.callEnded(data.call.caller, data.duration);
-      }
-    });
-    
-    this.on('localStreamAcquired', (stream) => {
-      callActions.setLocalStream(stream);
-    });
-    
-    this.on('remoteStreamReceived', (stream) => {
-      callActions.setRemoteStream(stream);
-    });
-    
-    this.on('statsUpdated', (stats) => {
-      callActions.updateCallStats(stats);
-    });
-    
-    this.on('callStateRestored', (state) => {
-      // Sync restored state with unified store
-      if (state.callState) {
-        callActions.setCallState(state.callState);
-      }
-      if (state.currentCall) {
-        callActions.initiateCall(state.currentCall);
-      }
-    });
-    
-    logger.info('WebRTC service synced with unified store');
+      // Listen for state changes and sync with unified store
+      this.on('callStateChanged', (state) => {
+        const currentStore = useUnifiedStore.getState();
+        if (currentStore.setCallState) {
+          currentStore.setCallState(state);
+        }
+      });
+      
+      this.on('callInitiated', (call) => {
+        const currentStore = useUnifiedStore.getState();
+        if (currentStore.initiateCall) {
+          currentStore.initiateCall(call);
+        }
+      });
+      
+      this.on('incomingCall', (call) => {
+        const currentStore = useUnifiedStore.getState();
+        if (currentStore.incomingCall) {
+          currentStore.incomingCall(call);
+        }
+        
+        // Show incoming call notification
+        if (call.caller) {
+          notificationService.incomingCall(call.caller, call.callType);
+        }
+      });
+      
+      this.on('callAnswered', (call) => {
+        const currentStore = useUnifiedStore.getState();
+        if (currentStore.answerCall) {
+          currentStore.answerCall();
+        }
+        
+        // Dismiss incoming call notification when call is answered
+        notificationService.dismissByCategory('call');
+      });
+      
+      this.on('callEnded', (data) => {
+        const currentStore = useUnifiedStore.getState();
+        if (currentStore.endCall) {
+          currentStore.endCall();
+        }
+        
+        // Dismiss call notifications and show call ended notification
+        notificationService.dismissByCategory('call');
+        
+        if (data.call && data.call.caller && data.duration) {
+          notificationService.callEnded(data.call.caller, data.duration);
+        }
+      });
+      
+      this.on('localStreamAcquired', (stream) => {
+        const currentStore = useUnifiedStore.getState();
+        if (currentStore.setLocalStream) {
+          currentStore.setLocalStream(stream);
+        }
+      });
+      
+      this.on('remoteStreamReceived', (stream) => {
+        const currentStore = useUnifiedStore.getState();
+        if (currentStore.setRemoteStream) {
+          currentStore.setRemoteStream(stream);
+        }
+      });
+      
+      this.on('statsUpdated', (stats) => {
+        const currentStore = useUnifiedStore.getState();
+        if (currentStore.updateCallStats) {
+          currentStore.updateCallStats(stats);
+        }
+      });
+      
+      this.on('callStateRestored', (state) => {
+        const currentStore = useUnifiedStore.getState();
+        // Sync restored state with unified store
+        if (state.callState && currentStore.setCallState) {
+          currentStore.setCallState(state.callState);
+        }
+        if (state.currentCall && currentStore.initiateCall) {
+          currentStore.initiateCall(state.currentCall);
+        }
+      });
+      
+      console.log('✅ WebRTC service synced with unified store');
+    } catch (error) {
+      console.error('❌ Error syncing WebRTC service with unified store:', error);
+    }
   }
 
   /**

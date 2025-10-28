@@ -165,8 +165,8 @@ const authLink = setContext(async (operation, { headers }) => {
   // Get access token
   const accessToken = getAuthToken();
   if (accessToken) {
+    console.log(`🔍 AUTH: Access token status: ${accessToken ? 'valid' : 'missing'}, ${accessToken}`);
     authHeaders['Authorization'] = `Bearer ${accessToken}`;
-    console.log('🔐 AUTH: Added Authorization header');
   } else {
     const operationType = operation.query?.definitions?.[0]?.operation;
     if (operationType === 'mutation' || operationType === 'subscription') {

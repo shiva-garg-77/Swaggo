@@ -17,6 +17,7 @@ const AuditLogSchema = new mongoose.Schema({
       'PASSWORD_RESET',
       'TOKEN_REFRESH',
       'TOKEN_THEFT',
+      'SESSION_STATUS_CHECK',
       'MESSAGE_SENT',
       'MESSAGE_EDITED',
       'MESSAGE_DELETED',

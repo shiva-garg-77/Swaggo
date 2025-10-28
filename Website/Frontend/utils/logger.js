@@ -4,6 +4,8 @@
  * Provides environment-aware logging with multiple log levels
  * and optional integration with monitoring services
  * 
+ * This is now a wrapper around the StandardizedLoggingService for backward compatibility
+ * 
  * Usage:
  * ```javascript
  * import { logger } from '@/utils/logger';
@@ -14,6 +16,30 @@
  * logger.error('Failed to load', error);
  * ```
  */
+
+// Use dynamic import to avoid circular dependency
+let standardizedLoggingService = null;
+
+// Lazy initialization function
+const getLoggingService = async () => {
+  if (!standardizedLoggingService) {
+    try {
+      const serviceModule = await import('../services/StandardizedLoggingService.js');
+      standardizedLoggingService = serviceModule.default;
+    } catch (error) {
+      console.error('Failed to load StandardizedLoggingService:', error);
+      // Fallback to basic console logging
+      standardizedLoggingService = {
+        debug: (...args) => console.debug(...args),
+        info: (...args) => console.info(...args),
+        warn: (...args) => console.warn(...args),
+        error: (...args) => console.error(...args),
+        fatal: (...args) => console.error('[FATAL]', ...args)
+      };
+    }
+  }
+  return standardizedLoggingService;
+};
 
 const isDevelopment = process.env.NODE_ENV === 'development';
 const isProduction = process.env.NODE_ENV === 'production';
@@ -34,47 +60,19 @@ const MIN_LOG_LEVEL = process.env.NEXT_PUBLIC_LOG_LEVEL
   : (isProduction ? LogLevels.INFO : LogLevels.DEBUG);
 
 /**
- * Format log message with timestamp and level
- */
-const formatMessage = (level, message, ...args) => {
-  const timestamp = new Date().toISOString();
-  const prefix = `[${timestamp}] [${level}]`;
-  return { prefix, message, args };
-};
-
-/**
- * Send error to monitoring service (e.g., Sentry)
- */
-const sendToMonitoring = (level, message, error, context) => {
-  if (!isProduction) return;
-  
-  // TODO: Integrate with your monitoring service
-  // Example for Sentry:
-  // if (window.Sentry && level >= LogLevels.ERROR) {
-  //   window.Sentry.captureException(error || new Error(message), {
-  //     level: level === LogLevels.FATAL ? 'fatal' : 'error',
-  //     extra: context
-  //   });
-  // }
-  
-  // Example for LogRocket:
-  // if (window.LogRocket) {
-  //   window.LogRocket.log(level, message, context);
-  // }
-};
-
-/**
  * Main logger object
+ * 
+ * This is maintained for backward compatibility with existing code
  */
 export const logger = {
   /**
    * Debug level logging - only in development
    * Use for detailed troubleshooting information
    */
-  debug: (message, ...args) => {
+  debug: async (message, ...args) => {
     if (LogLevels.DEBUG >= MIN_LOG_LEVEL && !isProduction) {
-      const { prefix, message: msg, args: logArgs } = formatMessage('DEBUG', message, ...args);
-      console.log(`${prefix} ${msg}`, ...logArgs);
+      const service = await getLoggingService();
+      service.debug(message, args[0] || {});
     }
   },
 
@@ -82,10 +80,10 @@ export const logger = {
    * Info level logging
    * Use for general informational messages
    */
-  info: (message, ...args) => {
+  info: async (message, ...args) => {
     if (LogLevels.INFO >= MIN_LOG_LEVEL) {
-      const { prefix, message: msg, args: logArgs } = formatMessage('INFO', message, ...args);
-      console.log(`${prefix} ${msg}`, ...logArgs);
+      const service = await getLoggingService();
+      service.info(message, args[0] || {});
     }
   },
 
@@ -93,15 +91,10 @@ export const logger = {
    * Warning level logging
    * Use for potentially harmful situations
    */
-  warn: (message, ...args) => {
+  warn: async (message, ...args) => {
     if (LogLevels.WARN >= MIN_LOG_LEVEL) {
-      const { prefix, message: msg, args: logArgs } = formatMessage('WARN', message, ...args);
-      console.warn(`${prefix} ${msg}`, ...logArgs);
-      
-      // Send warnings to monitoring in production
-      if (isProduction) {
-        sendToMonitoring(LogLevels.WARN, message, null, args[0]);
-      }
+      const service = await getLoggingService();
+      service.warn(message, args[0] || {});
     }
   },
 
@@ -109,13 +102,10 @@ export const logger = {
    * Error level logging
    * Use for error events that might still allow the application to continue
    */
-  error: (message, error, ...args) => {
+  error: async (message, error, ...args) => {
     if (LogLevels.ERROR >= MIN_LOG_LEVEL) {
-      const { prefix, message: msg } = formatMessage('ERROR', message);
-      console.error(`${prefix} ${msg}`, error, ...args);
-      
-      // Always send errors to monitoring
-      sendToMonitoring(LogLevels.ERROR, message, error, args[0]);
+      const service = await getLoggingService();
+      service.error(message, error, args[0] || {});
     }
   },
 
@@ -123,73 +113,56 @@ export const logger = {
    * Fatal level logging
    * Use for severe errors that cause application termination
    */
-  fatal: (message, error, ...args) => {
-    const { prefix, message: msg } = formatMessage('FATAL', message);
-    console.error(`${prefix} ${msg}`, error, ...args);
-    
-    // Always send fatal errors to monitoring
-    sendToMonitoring(LogLevels.FATAL, message, error, args[0]);
+  fatal: async (message, error, ...args) => {
+    const service = await getLoggingService();
+    service.fatal(message, error, args[0] || {});
   },
 
   /**
    * Trace execution time of a function
    */
-  trace: (label, fn) => {
-    if (!isDevelopment) {
-      return fn();
-    }
-
-    const start = performance.now();
-    console.time(label);
-    
-    try {
-      const result = fn();
-      
-      // Handle promises
-      if (result && typeof result.then === 'function') {
-        return result.finally(() => {
-          const duration = performance.now() - start;
-          console.timeEnd(label);
-          logger.debug(`${label} took ${duration.toFixed(2)}ms`);
-        });
-      }
-      
-      const duration = performance.now() - start;
-      console.timeEnd(label);
-      logger.debug(`${label} took ${duration.toFixed(2)}ms`);
-      return result;
-    } catch (error) {
-      console.timeEnd(label);
-      logger.error(`Error in ${label}`, error);
-      throw error;
-    }
+  trace: async (label, fn) => {
+    const service = await getLoggingService();
+    return service.trace(label, fn);
   },
 
   /**
    * Group related log messages
    */
-  group: (label, fn) => {
-    if (!isDevelopment) {
-      return fn();
-    }
-
-    console.group(label);
-    try {
-      return fn();
-    } finally {
-      console.groupEnd();
-    }
+  group: async (label, fn) => {
+    const service = await getLoggingService();
+    return service.group(label, fn);
   },
 
   /**
    * Log table data (development only)
    */
-  table: (data, columns) => {
-    if (isDevelopment && data) {
-      console.table(data, columns);
-    }
+  table: async (data, columns) => {
+    const service = await getLoggingService();
+    service.table(data, columns);
   }
 };
+
+// Make logger methods synchronous by creating a proxy
+const createSyncLogger = () => {
+  return new Proxy(logger, {
+    get(target, prop) {
+      if (typeof target[prop] === 'function' && prop !== 'then') {
+        return (...args) => {
+          // Call the async method but don't await it to keep it synchronous
+          target[prop](...args).catch(err => {
+            // Log any errors that occur during async logging
+            console.error('Logging error:', err);
+          });
+        };
+      }
+      return target[prop];
+    }
+  });
+};
+
+// Export the synchronous version of the logger
+export const syncLogger = createSyncLogger();
 
 /**
  * Create a namespaced logger for specific modules
@@ -200,17 +173,9 @@ export const logger = {
  * chatLogger.info('Message sent'); // [INFO] [Chat] Message sent
  * ```
  */
-export const createLogger = (namespace) => {
-  return {
-    debug: (message, ...args) => logger.debug(`[${namespace}] ${message}`, ...args),
-    info: (message, ...args) => logger.info(`[${namespace}] ${message}`, ...args),
-    warn: (message, ...args) => logger.warn(`[${namespace}] ${message}`, ...args),
-    error: (message, error, ...args) => logger.error(`[${namespace}] ${message}`, error, ...args),
-    fatal: (message, error, ...args) => logger.fatal(`[${namespace}] ${message}`, error, ...args),
-    trace: (label, fn) => logger.trace(`[${namespace}] ${label}`, fn),
-    group: (label, fn) => logger.group(`[${namespace}] ${label}`, fn),
-    table: (data, columns) => logger.table(data, columns)
-  };
+export const createLogger = async (namespace) => {
+  const service = await getLoggingService();
+  return service.createLogger(namespace);
 };
 
 /**
@@ -237,7 +202,7 @@ export const configureLogger = (config = {}) => {
   // - Custom log levels
   // - Custom formatting
   // - Custom output destinations
-  return logger;
+  return syncLogger;
 };
 
-export default logger;
+export default syncLogger;

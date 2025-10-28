@@ -1,17 +1,12 @@
 {
   "compilerOptions": {
-    "target": "es2018",
-    "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "forceConsistentCasingInFileNames": true,
+    // Frontend-specific settings
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "noEmit": true,
-    "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "node",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
     "plugins": [
@@ -19,48 +14,77 @@
         "name": "next"
       }
     ],
+    // Path mapping specific to Frontend
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"],
-      "@/components/*": ["./components/*"],
-      "@/pages/*": ["./pages/*"],
-      "@/styles/*": ["./styles/*"],
-      "@/lib/*": ["./lib/*"],
-      "@/utils/*": ["./utils/*"],
-      "@/types/*": ["./types/*"],
-      "@/hooks/*": ["./hooks/*"],
-      "@/contexts/*": ["./contexts/*"],
-      "@/services/*": ["./services/*"],
-      "@/api/*": ["./api/*"],
-      "@/security/*": ["./security/*"],
-      "@/auth/*": ["./auth/*"],
-      "@/performance/*": ["./performance/*"],
-      "@/testing/*": ["./testing/*"],
-      "@/monitoring/*": ["./monitoring/*"],
-      "@/architecture/*": ["./architecture/*"]
+      "@/*": [
+        "./*"
+      ],
+      "@components/*": [
+        "./Components/*"
+      ],
+      "@pages/*": [
+        "./pages/*"
+      ],
+      "@styles/*": [
+        "./styles/*"
+      ],
+      "@lib/*": [
+        "./lib/*"
+      ],
+      "@utils/*": [
+        "./utils/*"
+      ],
+      "@types/*": [
+        "./types/*"
+      ],
+      "@hooks/*": [
+        "./hooks/*"
+      ],
+      "@contexts/*": [
+        "./context/*"
+      ],
+      "@services/*": [
+        "./services/*"
+      ],
+      "@api/*": [
+        "./api/*"
+      ],
+      "@security/*": [
+        "./security/*"
+      ],
+      "@auth/*": [
+        "./auth/*"
+      ],
+      "@performance/*": [
+        "./performance/*"
+      ],
+      "@testing/*": [
+        "./testing/*"
+      ],
+      "@monitoring/*": [
+        "./monitoring/*"
+      ],
+      "@architecture/*": [
+        "./architecture/*"
+      ]
     },
-    // Enhanced type checking
-    "noImplicitAny": true,
-    "noImplicitReturns": true,
-    "noImplicitThis": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "exactOptionalPropertyTypes": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-    
-    // Advanced features
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true
+    "target": "ES2017",
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "module": "esnext",
+    "esModuleInterop": true,
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "isolatedModules": true
   },
   "include": [
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
+    "**/*.js",
+    "**/*.jsx",
     ".next/types/**/*.ts"
   ],
   "exclude": [

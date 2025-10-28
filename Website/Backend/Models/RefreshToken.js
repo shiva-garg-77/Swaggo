@@ -173,8 +173,7 @@ const RefreshTokenSchema = new mongoose.Schema({
     
     expiresAt: {
       type: Date,
-      required: true,
-      index: true
+      required: true
     },
     
     // Grace period for clock drift

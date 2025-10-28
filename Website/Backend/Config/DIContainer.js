@@ -2,14 +2,14 @@ import { Container } from 'inversify';
 import 'reflect-metadata';
 
 // Import services
-import ChatService from '../Services/ChatService.js';
-import MessageService from '../Services/MessageService.js';
-import UserService from '../Services/UserService.js';
-import AuthService from '../Services/AuthService.js';
-import FileService from '../Services/FileService.js';
-import EventBus from '../Services/EventBus.js';
-import SystemMonitoringService from '../Services/SystemMonitoringService.js';
-import APIGatewayService from '../Services/APIGatewayService.js';
+import ChatService from '../Services/Chat/ChatService.js';
+import MessageService from '../Services/Messaging/MessageService.js';
+import UserService from '../Services/User/UserService.js';
+import AuthService from '../Services/Authentication/AuthService.js';
+import FileService from '../Services/Storage/FileService.js';
+import EventBus from '../Services/CQRS/EventBus.js';
+import SystemMonitoringService from '../Services/System/SystemMonitoringService.js';
+import APIGatewayService from '../Services/System/APIGatewayService.js';
 
 // Import repositories
 import ChatRepository from '../Repositories/ChatRepository.js';
@@ -17,10 +17,10 @@ import MessageRepository from '../Repositories/MessageRepository.js';
 import ProfileRepository from '../Repositories/ProfileRepository.js';
 
 // Import controllers
-import SocketConnectionService from '../Services/SocketConnectionService.js';
-import SocketMessagingService from '../Services/SocketMessagingService.js';
-import SocketCallService from '../Services/SocketCallService.js';
-import SocketRoomService from '../Services/SocketRoomService.js';
+import SocketConnectionService from '../Services/Chat/SocketConnectionService.js';
+import SocketMessagingService from '../Services/Messaging/SocketMessagingService.js';
+import SocketCallService from '../Services/Chat/SocketCallService.js';
+import SocketRoomService from '../Services/Chat/SocketRoomService.js';
 
 // Define service identifiers
 const TYPES = {

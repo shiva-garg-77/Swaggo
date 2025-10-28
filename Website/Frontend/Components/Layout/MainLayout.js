@@ -7,8 +7,7 @@ import ThemeToggle from '../Helper/ThemeToggle';
 import { useInvisibleSpeedBoost, InvisiblePreloader } from '../Helper/InvisibleSpeedBoost';
 
 // 🚀 Enhanced Performance & Accessibility Integration
-import { useAccessibility } from '../Accessibility/AccessibilityFramework';
-import { usePerformanceMonitoring } from '../Performance/PerformanceMonitoringDashboard';
+import { useAccessibilityUtils } from '../Accessibility/AccessibilityUtils.jsx';
 import './compact-sidebar.css';
 
 export default function MainLayout({ children }) {
@@ -19,8 +18,7 @@ export default function MainLayout({ children }) {
   const { fastNavigate, preloadOnHover } = useInvisibleSpeedBoost();
   
   // 🚀 Enhanced Performance & Accessibility Hooks
-  const { announceToScreenReader, setSkipTarget, addKeyboardShortcut } = useAccessibility();
-  const { updateMetric } = usePerformanceMonitoring();
+  const { announce } = useAccessibilityUtils();
   
   // State for accessibility and performance tracking
   const [navigationHistory, setNavigationHistory] = useState([]);
@@ -46,12 +44,6 @@ export default function MainLayout({ children }) {
   const isFullScreenPage = pathname === '/message';
   
 
-  // 🚀 Enhanced performance tracking for component renders
-  useEffect(() => {
-    updateMetric('MainLayout_lastRender', Date.now());
-    updateMetric('MainLayout_currentPath', pathname);
-  }, [pathname, theme, updateMetric]);
-  
   // ♿ Enhanced accessibility announcements for route changes
   useEffect(() => {
     const routeNames = {
@@ -67,36 +59,28 @@ export default function MainLayout({ children }) {
     };
     
     const routeName = routeNames[pathname] || 'Page';
-    announceToScreenReader(`Navigated to ${routeName}`);
-    setSkipTarget('main-content');
-  }, [pathname, announceToScreenReader, setSkipTarget]);
+    announce(`Navigated to ${routeName}`);
+  }, [pathname, announce]);
 
   const handleLogout = useCallback(async () => {
-    updateMetric('user_logout', Date.now());
-    announceToScreenReader('Logging out...');
+    announce('Logging out...');
     await logout();
     router.push('/');
-  }, [logout, router, updateMetric, announceToScreenReader]);
+  }, [logout, router, announce]);
 
   const handleNavigation = useCallback((route) => {
     const startTime = performance.now();
-    
-    // Track navigation performance
-    updateMetric('lastNavigation', route);
-    updateMetric('lastNavigationTime', startTime);
     
     // Update navigation history for analytics
     setNavigationHistory(prev => [...prev.slice(-9), { route, timestamp: Date.now() }]);
     setLastNavigationTime(startTime);
     
     fastNavigate(route);
-  }, [fastNavigate, pathname, updateMetric]);
+  }, [fastNavigate]);
 
   const handleNavHover = useCallback((route) => {
     preloadOnHover(route);
-    // Track hover for preloading analytics
-    updateMetric('lastHoveredRoute', route);
-  }, [preloadOnHover, pathname, updateMetric]);
+  }, [preloadOnHover]);
 
   // All navigation items (shown in compact mode as icons only)
   const navItems = [
@@ -113,7 +97,7 @@ export default function MainLayout({ children }) {
   
   return (
     <>
-      {/* Invisible background optimization - no UI changes */}
+      {/* ✅ FIX: Only preload authenticated routes when user is authenticated */}
       <InvisiblePreloader routes={['/home', '/Profile', '/create', '/reel', '/message', '/dashboard']} />
       
       <div className={`min-h-screen h-screen flex transition-colors duration-300 overflow-hidden ${

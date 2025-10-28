@@ -1,7 +1,6 @@
 /**
- * Unified Notification Service for SwagGo
- * Resolves conflicts between multiple notification services
- * Combines features from both implementations with proper initialization
+ * Consolidated Notification Service for SwagGo
+ * Single implementation combining features from previous services
  */
 
 import toast from 'react-hot-toast';

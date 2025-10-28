@@ -1,0 +1,366 @@
+# 🧪 STAGING DOCKER COMPOSE CONFIGURATION
+# For testing and pre-production environments
+
+version: '3.8'
+
+# Global configuration for staging
+x-restart-policy: &restart-policy
+  restart: unless-stopped
+
+x-security-opts: &security-opts
+  security_opt:
+    - no-new-privileges:true
+  read_only: false  # Less restrictive for debugging
+  tmpfs:
+    - /tmp:size=100M,mode=1777
+  cap_drop:
+    - ALL
+  cap_add:
+    - CHOWN
+    - DAC_OVERRIDE
+    - SETGID
+    - SETUID
+
+services:
+  # 📊 MongoDB Database - Staging
+  mongodb:
+    image: mongo:7.0.6-jammy
+    container_name: swaggo-mongodb-staging
+    <<: *restart-policy
+    user: "999:999"
+    ports:
+      - "127.0.0.1:27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-swaggo_staging_password}
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-swaggo_staging}
+    volumes:
+      - mongodb_data_staging:/data/db
+      - mongodb_config_staging:/data/configdb
+      - ./security/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+      - ./security/mongodb.conf:/etc/mongo/mongod.conf:ro
+    networks:
+      - database-tier
+    command: >
+      mongod --auth
+             --config /etc/mongo/mongod.conf
+             --logpath /data/db/mongodb.log
+             --logappend
+             --bind_ip_all
+    healthcheck:
+      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    <<: *security-opts
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+    labels:
+      - "swaggo.service=database"
+      - "swaggo.environment=staging"
+
+  # 📊 Redis Cache - Staging
+  redis:
+    image: redis:7.2.4-alpine
+    container_name: swaggo-redis-staging
+    <<: *restart-policy
+    user: "999:999"
+    ports:
+      - "127.0.0.1:6379:6379"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-swaggo_staging_redis}
+    volumes:
+      - redis_data_staging:/data
+      - ./security/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - cache-tier
+    command: >
+      redis-server /usr/local/etc/redis/redis.conf
+      --requirepass ${REDIS_PASSWORD}
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    <<: *security-opts
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 64M
+    labels:
+      - "swaggo.service=cache"
+      - "swaggo.environment=staging"
+
+  # 🚀 SwagGo Backend API - Staging
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+      args:
+        - NODE_ENV=staging
+        - BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+        - VCS_REF=$(git rev-parse --short HEAD)
+    image: swaggo/api:${API_VERSION:-staging}
+    container_name: swaggo-api-staging
+    <<: *restart-policy
+    ports:
+      - "127.0.0.1:${PORT:-45800}:45800"
+    environment:
+      # Application Configuration
+      NODE_ENV: ${NODE_ENV:-staging}
+      PORT: 45800
+      
+      # Database Configuration
+      MONGOURI: mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongodb:27017/${MONGO_DATABASE:-swaggo_staging}?authSource=admin
+      REDIS_URL: redis://default:${REDIS_PASSWORD}@redis:6379
+      
+      # Security Configuration
+      ACCESS_TOKEN_SECRET: ${ACCESS_TOKEN_SECRET:-swaggo_staging_access_secret}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET:-swaggo_staging_refresh_secret}
+      CSRF_SECRET: ${CSRF_SECRET:-swaggo_staging_csrf_secret}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-swaggo_staging_encryption_key}
+      
+      # Application URLs
+      FRONTEND_URLS: ${FRONTEND_URLS:-https://staging.swaggo.com,http://localhost:3000}
+      API_BASE_URL: ${API_BASE_URL:-https://staging-api.swaggo.com}
+      
+      # Security Settings
+      RATE_LIMIT_WINDOW: ${RATE_LIMIT_WINDOW:-900000}
+      RATE_LIMIT_MAX_REQUESTS: ${RATE_LIMIT_MAX_REQUESTS:-200}
+      SESSION_TIMEOUT: ${SESSION_TIMEOUT:-3600000}
+      ADMIN_IP_WHITELIST: ${ADMIN_IP_WHITELIST:-127.0.0.1,::1,192.168.0.0/16}
+      
+      # Monitoring
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      ENABLE_METRICS: ${ENABLE_METRICS:-true}
+      
+      # Performance
+      UV_THREADPOOL_SIZE: 4
+      NODE_OPTIONS: "--max-old-space-size=512 --no-deprecation --inspect=0.0.0.0:9229"
+    volumes:
+      - uploads_data_staging:/app/uploads:rw
+      - logs_data_staging:/app/logs:rw
+      - temp_data_staging:/app/temp:rw
+      - /tmp:/tmp:rw
+    tmpfs:
+      - /tmp:size=100M,mode=1777
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-tier
+      - database-tier
+      - cache-tier
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:45800/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    <<: *security-opts
+    cap_add:
+      - NET_BIND_SERVICE
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+        labels: "service,environment,version"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`staging-api.swaggo.com`)"
+      - "traefik.http.routers.api.tls=true"
+      - "traefik.http.services.api.loadbalancer.server.port=45800"
+      - "swaggo.service=api"
+      - "swaggo.environment=staging"
+
+  # 🔬 Data Science Server - Staging
+  data-science:
+    image: python:3.11-alpine
+    container_name: swaggo-data-science-staging
+    <<: *restart-policy
+    ports:
+      - "127.0.0.1:5001:5001"
+    environment:
+      DS_PORT: 5001
+      DS_ENV: ${NODE_ENV:-staging}
+      API_BASE_URL: http://api:45800
+    volumes:
+      - ./data-science:/app:ro
+      - ds_cache_staging:/app/cache:rw
+      - ds_models_staging:/app/models:rw
+    working_dir: /app
+    command: >
+      sh -c "
+        pip install --no-cache-dir flask pandas numpy scikit-learn &&
+        python app.py
+      "
+    networks:
+      - app-tier
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    <<: *security-opts
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+    labels:
+      - "swaggo.service=data-science"
+      - "swaggo.environment=staging"
+
+  # 🔒 Nginx Reverse Proxy - Staging
+  nginx:
+    image: nginx:1.25.4-alpine
+    container_name: swaggo-nginx-staging
+    <<: *restart-policy
+    user: "101:101"
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    volumes:
+      - ./security/nginx/nginx-staging.conf:/etc/nginx/nginx.conf:ro
+      - ./security/nginx/conf.d.staging:/etc/nginx/conf.d:ro
+      - ./security/ssl:/etc/nginx/ssl:ro
+      - uploads_data_staging:/var/www/uploads:ro
+      - nginx_cache_staging:/var/cache/nginx:rw
+      - nginx_logs_staging:/var/log/nginx:rw
+    environment:
+      NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx/conf.d
+      NGINX_ENVSUBST_TEMPLATE_DIR: /etc/nginx/templates
+      API_HOST: api
+      API_PORT: 45800
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - app-tier
+      - proxy-tier
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    <<: *security-opts
+    cap_add:
+      - NET_BIND_SERVICE
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+        reservations:
+          memory: 32M
+    labels:
+      - "swaggo.service=nginx"
+      - "swaggo.environment=staging"
+
+# 💾 Volume Configuration - Staging
+volumes:
+  mongodb_data_staging:
+    driver: local
+  mongodb_config_staging:
+    driver: local
+  redis_data_staging:
+    driver: local
+  uploads_data_staging:
+    driver: local
+  logs_data_staging:
+    driver: local
+  temp_data_staging:
+    driver: local
+  nginx_cache_staging:
+    driver: local
+  nginx_logs_staging:
+    driver: local
+  ds_cache_staging:
+    driver: local
+  ds_models_staging:
+    driver: local
+
+# 🌐 Network Configuration - Staging
+networks:
+  # Frontend tier - public facing
+  proxy-tier:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: "swaggo-proxy-staging"
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+  
+  # Application tier - internal services
+  app-tier:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: "swaggo-app-staging"
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
+  
+  # Database tier - most restricted
+  database-tier:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: "swaggo-db-staging"
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.32.0.0/24
+  
+  # Cache tier
+  cache-tier:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: "swaggo-cache-staging"
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.33.0.0/24

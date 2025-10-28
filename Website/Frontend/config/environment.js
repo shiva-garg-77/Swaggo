@@ -126,10 +126,14 @@ export default config;
 export const validateEnvironment = () => {
   try {
     secureEnvironment.validateConfiguration();
-    console.log('✅ Environment configuration validated with 10/10 security');
+    if (isDevelopment) {
+      console.log('✅ Environment configuration validated with 10/10 security');
+    }
     return true;
   } catch (error) {
-    console.error('❌ Environment validation failed:', error.message);
+    if (isDevelopment) {
+      console.error('❌ Environment validation failed:', error.message);
+    }
     return false;
   }
 };
@@ -175,4 +179,7 @@ if (isProduction) {
   }
 }
 
-console.log(`🔒 Environment configuration loaded with 10/10 security (${getEnvironment()} mode)`);
+// Only log in development
+if (isDevelopment && typeof window !== 'undefined') {
+  console.log(`🔒 Environment configuration loaded with 10/10 security (${getEnvironment()} mode)`);
+}

@@ -137,6 +137,15 @@ class SanitizedLogger {
   }
 
   /**
+   * Logs debug messages with sanitization
+   * @param {*} message - The message to log
+   * @param {...*} args - Additional arguments to log
+   */
+  static debug(message, ...args) {
+    this.log('log', message, ...args);
+  }
+
+  /**
    * Creates a sanitized logger with custom sensitive fields
    * @param {Array} customSensitiveFields - Custom sensitive fields to redact
    * @returns {Object} - Logger object with sanitized methods
@@ -147,6 +156,7 @@ class SanitizedLogger {
       info: (message, ...args) => this.info(message, ...args),
       warn: (message, ...args) => this.warn(message, ...args),
       error: (message, ...args) => this.error(message, ...args),
+      debug: (message, ...args) => this.debug(message, ...args),
       sanitize: (data) => this.sanitize(data),
       withCustomFields: (fields) => this.createLogger([...customSensitiveFields, ...fields])
     };

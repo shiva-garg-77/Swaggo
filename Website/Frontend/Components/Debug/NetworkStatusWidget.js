@@ -17,7 +17,7 @@ export default function NetworkDiagnosticHelper() {
 
   const checkBackendStatus = async () => {
     try {
-      const response = await fetch('http://localhost:45799/health', {
+      const response = await fetch('/api/health', {
         method: 'GET'
       });
       
@@ -40,7 +40,7 @@ export default function NetworkDiagnosticHelper() {
       const response = await fetch('/graphql', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: 'query { hello }' })
+        body: JSON.stringify({ query: '{ __typename }' })
       });
       
       if (response.ok) {

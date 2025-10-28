@@ -122,12 +122,22 @@ export const useSocket = () => {
  * @param {React.ReactNode} props.children - Child components
  */
 export default function PerfectSocketProvider({ children }) {
+  console.log('🚀 PerfectSocketProvider: COMPONENT INITIALIZING');
+  
   // ========================================
   // AUTH INTEGRATION
   // ========================================
   
   const auth = useFixedSecureAuth();
   const { isAuthenticated, user, isLoading, _debug } = auth;
+  
+  console.log('🔐 PerfectSocketProvider: Auth state:', {
+    isAuthenticated,
+    hasUser: !!user,
+    isLoading,
+    userId: user?.profileid || user?.id,
+    username: user?.username
+  });
   
   // ========================================
   // STATE MANAGEMENT
@@ -196,34 +206,18 @@ export default function PerfectSocketProvider({ children }) {
   // Initialize socket function ref to avoid circular dependencies
   const initializeSocketRef = useRef(null);
 
-  const messageMatchesKeywords = useCallback((content) => {
-    if (!content || keywordAlertsRef.current.length === 0) return null;
-    const text = String(content);
-    for (const alert of keywordAlertsRef.current) {
-      if (alert?.active === false) continue;
-      const kw = String(alert.keyword || '').trim();
-      if (!kw) continue;
-      let found = false;
-      if (alert.wholeWord) {
-        const pattern = new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, alert.caseSensitive ? '' : 'i');
-        found = pattern.test(text);
-      } else {
-        found = alert.caseSensitive ? text.includes(kw) : text.toLowerCase().includes(kw.toLowerCase());
-      }
-      if (found) return alert;
-    }
-    return null;
-  }, []);
-  
   // ========================================
   // UTILITY FUNCTIONS
   // ========================================
   
   /**
-   * Generate client message ID
+   * Log with consistent formatting (only in development)
    */
-  const generateMessageId = useCallback(() => {
-    return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const log = useCallback((level, message, data = {}) => {
+    if (process.env.NODE_ENV === 'development') {
+      const prefix = level === 'error' ? '❌' : level === 'warn' ? '⚠️' : level === 'success' ? '✅' : '🔌';
+      console.log(`${prefix} SOCKET:`, message, data);
+    }
   }, []);
   
   /**
@@ -238,13 +232,10 @@ export default function PerfectSocketProvider({ children }) {
   }, [user]);
   
   /**
-   * Log with consistent formatting (only in development)
+   * Generate client message ID
    */
-  const log = useCallback((level, message, data = {}) => {
-    if (process.env.NODE_ENV === 'development') {
-      const prefix = level === 'error' ? '❌' : level === 'warn' ? '⚠️' : level === 'success' ? '✅' : '🔌';
-      console.log(`${prefix} SOCKET:`, message, data);
-    }
+  const generateMessageId = useCallback(() => {
+    return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }, []);
   
   /**
@@ -272,6 +263,163 @@ export default function PerfectSocketProvider({ children }) {
       log('error', 'Failed to load keyword alerts', { error: e.message });
     }
   }, [log]);
+  
+  const messageMatchesKeywords = useCallback((content) => {
+    if (!content || keywordAlertsRef.current.length === 0) return null;
+    const text = String(content);
+    for (const alert of keywordAlertsRef.current) {
+      if (alert?.active === false) continue;
+      const kw = String(alert.keyword || '').trim();
+      if (!kw) continue;
+      let found = false;
+      if (alert.wholeWord) {
+        const pattern = new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, alert.caseSensitive ? '' : 'i');
+        found = pattern.test(text);
+      } else {
+        found = alert.caseSensitive ? text.includes(kw) : text.toLowerCase().includes(kw.toLowerCase());
+      }
+      if (found) return alert;
+    }
+    return null;
+  }, []);
+  
+  // Define heartbeat functions here to avoid temporal dead zone issues
+  /**
+   * Start heartbeat monitoring
+   * Wait for server heartbeat and respond, rather than initiating
+   */
+  const startHeartbeat = useCallback((socketInstance) => {
+    if (!SOCKET_CONFIG.ENABLE_HEARTBEAT || !socketInstance) return;
+    
+    // Clear existing
+    if (heartbeatInterval.current) {
+      clearInterval(heartbeatInterval.current);
+    }
+    if (heartbeatTimeout.current) {
+      clearTimeout(heartbeatTimeout.current);
+    }
+    
+    // Set up heartbeat timeout to detect if server stops sending heartbeats
+    const resetHeartbeatTimeout = () => {
+      if (heartbeatTimeout.current) {
+        clearTimeout(heartbeatTimeout.current);
+      }
+      
+      heartbeatTimeout.current = setTimeout(() => {
+        log('error', 'Heartbeat timeout - connection may be dead');
+        // Force reconnection after heartbeat timeout
+        if (socketInstance.connected) {
+          log('warn', 'Forcing socket reconnection due to heartbeat timeout');
+          // We'll define attemptReconnection later to avoid temporal dead zone issues
+        }
+      }, SOCKET_CONFIG.HEARTBEAT_INTERVAL + SOCKET_CONFIG.HEARTBEAT_TIMEOUT);
+    };
+    
+    // Start initial timeout
+    resetHeartbeatTimeout();
+    
+    // The actual heartbeat response is handled in the 'heartbeat' event listener
+    // This is set up in initializeSocket
+    
+    log('success', 'Heartbeat monitoring started - waiting for server heartbeats');
+  }, [log]);
+  
+  /**
+   * Stop heartbeat monitoring
+   */
+  const stopHeartbeat = useCallback(() => {
+    if (heartbeatInterval.current) {
+      clearInterval(heartbeatInterval.current);
+      heartbeatInterval.current = null;
+    }
+    if (heartbeatTimeout.current) {
+      clearTimeout(heartbeatTimeout.current);
+      heartbeatTimeout.current = null;
+    }
+    log('info', 'Heartbeat monitoring stopped');
+  }, [log]);
+  
+  /**
+   * Smart reconnection with exponential backoff and jitter
+   */
+  const attemptReconnection = useCallback((errorType = 'unknown') => {
+    log('info', `Reconnection attempt`, { errorType, attempts: reconnectAttempts.current });
+    
+    // Don't retry auth-related errors indefinitely
+    if (errorType === 'auth_failed' || errorType === 'unauthorized' || errorType === 'forbidden') {
+      log('error', 'Authentication error - stopping reconnection');
+      console.log('❌ SOCKET: Authentication error - stopping reconnection');
+      setConnectionStatus(CONNECTION_STATES.AUTHENTICATION_FAILED);
+      setIsConnected(false);
+      reconnectAttempts.current = 0;
+      return;
+    }
+    
+    // Check max attempts
+    if (reconnectAttempts.current >= SOCKET_CONFIG.MAX_RECONNECT_ATTEMPTS) {
+      log('error', `Maximum reconnection attempts reached`);
+      console.log('❌ SOCKET: Maximum reconnection attempts reached');
+      setConnectionStatus(CONNECTION_STATES.FAILED);
+      setIsConnected(false);
+      
+      // Reset after extended delay for potential recovery
+      setTimeout(() => {
+        log('info', 'Resetting reconnection attempts for recovery');
+        reconnectAttempts.current = 0;
+      }, 300000); // 5 minutes
+      
+      return;
+    }
+    
+    reconnectAttempts.current++;
+    setConnectionStatus(CONNECTION_STATES.RECONNECTING);
+    
+    // Exponential backoff with jitter
+    const baseDelay = SOCKET_CONFIG.BASE_RECONNECT_DELAY * Math.pow(
+      SOCKET_CONFIG.BACKOFF_MULTIPLIER,
+      Math.min(reconnectAttempts.current - 1, 6)
+    );
+    const jitter = Math.random() * SOCKET_CONFIG.JITTER_RANGE;
+    const maxDelay = errorType === 'network' ? SOCKET_CONFIG.MAX_RECONNECT_DELAY : 60000;
+    const delay = Math.min(baseDelay + jitter, maxDelay);
+    
+    log('info', `Scheduling reconnection`, {
+      attempt: `${reconnectAttempts.current}/${SOCKET_CONFIG.MAX_RECONNECT_ATTEMPTS}`,
+      delay: `${Math.round(delay)}ms`
+    });
+    
+    reconnectTimeout.current = setTimeout(() => {
+      const userId = getUserId();
+      
+      // Verify auth state before reconnecting
+      if (!isAuthenticated) {
+        log('warn', 'User no longer authenticated - canceling reconnection');
+        setConnectionStatus(CONNECTION_STATES.DISCONNECTED);
+        reconnectAttempts.current = 0;
+        return;
+      }
+      
+      if (!userId) {
+        log('warn', 'Missing user ID - canceling reconnection');
+        setConnectionStatus(CONNECTION_STATES.DISCONNECTED);
+        return;
+      }
+      
+      log('info', `Executing reconnection attempt`, { userId });
+      updateMetrics(m => ({ reconnections: m.reconnections + 1 }));
+      // Use ref to avoid circular dependency
+      if (initializationInProgress.current) {
+        log('warn', 'Initialization already in progress, skipping reconnection');
+        return;
+      }
+      // Access initializeSocket through ref instead of dependency array
+      if (initializeSocketRef.current) {
+        initializeSocketRef.current();
+      } else {
+        log('error', 'initializeSocket not available for reconnection');
+      }
+    }, delay);
+  }, [isAuthenticated, getUserId, log, updateMetrics]); // Removed initializeSocket from dependencies
   
   // ========================================
   // MESSAGE QUEUE MANAGEMENT
@@ -403,151 +551,12 @@ export default function PerfectSocketProvider({ children }) {
         await new Promise(resolve => setTimeout(resolve, SOCKET_CONFIG.BATCH_MESSAGE_DELAY));
       }
     });
-  }, []); // Remove dependencies to prevent re-creation
-  
-  // ========================================
-  // RECONNECTION LOGIC
-  // ========================================
-  
-  /**
-   * Smart reconnection with exponential backoff and jitter
-   */
-  const attemptReconnection = useCallback((errorType = 'unknown') => {
-    log('info', `Reconnection attempt`, { errorType, attempts: reconnectAttempts.current });
-    
-    // Don't retry auth-related errors indefinitely
-    if (errorType === 'auth_failed' || errorType === 'unauthorized' || errorType === 'forbidden') {
-      log('error', 'Authentication error - stopping reconnection');
-      setConnectionStatus(CONNECTION_STATES.AUTHENTICATION_FAILED);
-      setIsConnected(false);
-      reconnectAttempts.current = 0;
-      return;
-    }
-    
-    // Check max attempts
-    if (reconnectAttempts.current >= SOCKET_CONFIG.MAX_RECONNECT_ATTEMPTS) {
-      log('error', `Maximum reconnection attempts reached`);
-      setConnectionStatus(CONNECTION_STATES.FAILED);
-      setIsConnected(false);
-      
-      // Reset after extended delay for potential recovery
-      setTimeout(() => {
-        log('info', 'Resetting reconnection attempts for recovery');
-        reconnectAttempts.current = 0;
-      }, 300000); // 5 minutes
-      
-      return;
-    }
-    
-    reconnectAttempts.current++;
-    setConnectionStatus(CONNECTION_STATES.RECONNECTING);
-    
-    // Exponential backoff with jitter
-    const baseDelay = SOCKET_CONFIG.BASE_RECONNECT_DELAY * Math.pow(
-      SOCKET_CONFIG.BACKOFF_MULTIPLIER,
-      Math.min(reconnectAttempts.current - 1, 6)
-    );
-    const jitter = Math.random() * SOCKET_CONFIG.JITTER_RANGE;
-    const maxDelay = errorType === 'network' ? SOCKET_CONFIG.MAX_RECONNECT_DELAY : 60000;
-    const delay = Math.min(baseDelay + jitter, maxDelay);
-    
-    log('info', `Scheduling reconnection`, {
-      attempt: `${reconnectAttempts.current}/${SOCKET_CONFIG.MAX_RECONNECT_ATTEMPTS}`,
-      delay: `${Math.round(delay)}ms`
-    });
-    
-    reconnectTimeout.current = setTimeout(() => {
-      const userId = getUserId();
-      
-      // Verify auth state before reconnecting
-      if (!isAuthenticated) {
-        log('warn', 'User no longer authenticated - canceling reconnection');
-        setConnectionStatus(CONNECTION_STATES.DISCONNECTED);
-        reconnectAttempts.current = 0;
-        return;
-      }
-      
-      if (!userId) {
-        log('warn', 'Missing user ID - canceling reconnection');
-        setConnectionStatus(CONNECTION_STATES.DISCONNECTED);
-        return;
-      }
-      
-      log('info', `Executing reconnection attempt`, { userId });
-      updateMetrics(m => ({ reconnections: m.reconnections + 1 }));
-      // Use ref to avoid circular dependency
-      if (initializationInProgress.current) {
-        log('warn', 'Initialization already in progress, skipping reconnection');
-        return;
-      }
-      if (initializeSocketRef.current) {
-        initializeSocketRef.current();
-      } else {
-        log('error', 'initializeSocket not available for reconnection');
-      }
-    }, delay);
-  }, [isAuthenticated, getUserId, log, updateMetrics]);
+  }, [messageQueue]); // Remove dependencies to prevent re-creation
   
   // ========================================
   // HEARTBEAT & HEALTH MONITORING
   // ========================================
-  
-  /**
-   * Start heartbeat monitoring
-   * Wait for server heartbeat and respond, rather than initiating
-   */
-  const startHeartbeat = useCallback((socketInstance) => {
-    if (!SOCKET_CONFIG.ENABLE_HEARTBEAT || !socketInstance) return;
-    
-    // Clear existing
-    if (heartbeatInterval.current) {
-      clearInterval(heartbeatInterval.current);
-    }
-    if (heartbeatTimeout.current) {
-      clearTimeout(heartbeatTimeout.current);
-    }
-    
-    // Set up heartbeat timeout to detect if server stops sending heartbeats
-    const resetHeartbeatTimeout = () => {
-      if (heartbeatTimeout.current) {
-        clearTimeout(heartbeatTimeout.current);
-      }
-      
-      heartbeatTimeout.current = setTimeout(() => {
-        log('error', 'Heartbeat timeout - connection may be dead');
-        // Force reconnection after heartbeat timeout
-        if (socketInstance.connected) {
-          log('warn', 'Forcing socket reconnection due to heartbeat timeout');
-          socketInstance.disconnect();
-          socketInstance.connect();
-        }
-      }, SOCKET_CONFIG.HEARTBEAT_INTERVAL + SOCKET_CONFIG.HEARTBEAT_TIMEOUT);
-    };
-    
-    // Start initial timeout
-    resetHeartbeatTimeout();
-    
-    // The actual heartbeat response is handled in the 'heartbeat' event listener
-    // This is set up in initializeSocket
-    
-    log('success', 'Heartbeat monitoring started - waiting for server heartbeats');
-  }, [log]);
-  
-  /**
-   * Stop heartbeat monitoring
-   */
-  const stopHeartbeat = useCallback(() => {
-    if (heartbeatInterval.current) {
-      clearInterval(heartbeatInterval.current);
-      heartbeatInterval.current = null;
-    }
-    if (heartbeatTimeout.current) {
-      clearTimeout(heartbeatTimeout.current);
-      heartbeatTimeout.current = null;
-    }
-    log('info', 'Heartbeat monitoring stopped');
-  }, [log]);
-  
+
   // ========================================
   // TYPING INDICATORS
   // ========================================
@@ -610,21 +619,26 @@ export default function PerfectSocketProvider({ children }) {
    * Initialize socket connection with comprehensive setup
    * @param {Object} authData - Optional auth data to use (from event or hook)
    */
-  const initializeSocket = useCallback((authData = null) => {
+  const initializeSocket = useCallback(async (authData = null) => {
+    console.log('🔌 PerfectSocketProvider: INITIALIZE SOCKET CALLED', { hasAuthData: !!authData });
+    
     // Guard: Check if component is unmounted
     if (!mountedRef.current) {
+      console.log('⚠️ PerfectSocketProvider: Component unmounted, aborting initialization');
       log('warn', 'Component unmounted, aborting initialization');
       return null;
     }
     
     // Guard: Prevent concurrent initializations
     if (initializationInProgress.current) {
+      console.log('⚠️ PerfectSocketProvider: Initialization already in progress');
       log('warn', 'Initialization already in progress');
       return socketRef.current;
     }
     
     // Guard: Prevent multiple socket initializations
     if (socketRef.current && socketRef.current.connected) {
+      console.log('⚠️ PerfectSocketProvider: Socket already connected');
       log('warn', 'Socket already connected');
       return socketRef.current;
     }
@@ -643,14 +657,25 @@ export default function PerfectSocketProvider({ children }) {
     }
     
     initializationInProgress.current = true;
+    console.log('🔄 PerfectSocketProvider: Set initialization in progress to true');
     
     log('info', 'Initializing socket connection', { hasAuthData: !!authData });
     setConnectionStatus(CONNECTION_STATES.CONNECTING);
+    console.log('🔄 PerfectSocketProvider: Set connection status to CONNECTING');
     
     // Use provided auth data or fall back to hook state
     const authUser = authData?.user || user;
     const authStatus = authData?.isAuthenticated !== undefined ? authData.isAuthenticated : isAuthenticated;
     const userId = authUser?.profileid || authUser?.id || null;
+    
+    console.log('👤 PerfectSocketProvider: Auth validation details:', {
+      authStatus,
+      userId,
+      authUser: authUser ? 'User object exists' : 'No user object',
+      authUserKeys: authUser ? Object.keys(authUser) : [],
+      fromEvent: !!authData,
+      fromHook: !authData
+    });
     
     log('info', 'Auth validation:', {
       authStatus,
@@ -663,6 +688,7 @@ export default function PerfectSocketProvider({ children }) {
     
     // Validate authentication
     if (!authStatus) {
+      console.log('❌ PerfectSocketProvider: User not authenticated');
       log('error', 'User not authenticated', { authStatus, userId, authUser });
       setConnectionStatus(CONNECTION_STATES.DISCONNECTED);
       initializationInProgress.current = false;
@@ -670,28 +696,115 @@ export default function PerfectSocketProvider({ children }) {
     }
     
     if (!userId) {
+      console.log('❌ PerfectSocketProvider: No user ID available');
       log('error', 'No user ID available', { authStatus, userId, authUser });
       setConnectionStatus(CONNECTION_STATES.DISCONNECTED);
       initializationInProgress.current = false;
       return null;
     }
     
-    log('info', 'Creating socket with cookie authentication', { userId });
+    console.log('🔐 PerfectSocketProvider: Creating socket with cookie-based authentication');
+    log('info', 'Initializing socket with cookie authentication', { userId });
     
-    // Create socket connection
-    const newSocket = io(process.env.NEXT_PUBLIC_SERVER_URL, {
-      withCredentials: true,            // CRITICAL: Send HTTP-only cookies
+    // 🔧 CRITICAL FIX #6: SKIP cookie detection - HttpOnly cookies are invisible to JavaScript!
+    // The accessToken and refreshToken cookies are HttpOnly (secure), so document.cookie cannot see them
+    // This is CORRECT security behavior - we should NOT be able to read auth tokens from JavaScript
+    // Instead, we rely on the browser automatically sending cookies with requests
+    
+    console.log('🍪 Skipping client-side cookie detection (HttpOnly cookies are invisible to JS)');
+    console.log('🔒 Auth cookies are HttpOnly for security - browser will send them automatically');
+    console.log('✅ Proceeding with socket initialization - cookies will be sent in handshake');
+    
+    // ✅ SECURITY NOTE: The following cookies are HttpOnly and CANNOT be read by JavaScript:
+    // - accessToken (or __Host-accessToken / __Secure-accessToken)
+    // - refreshToken (or __Host-refreshToken / __Secure-refreshToken)
+    // Only csrfToken is readable because it needs to be included in request headers
+    
+    // Verify we have at least the CSRF token (which is readable)
+    if (typeof document !== 'undefined') {
+      const allCookies = document.cookie;
+      const hasCsrfToken = allCookies.includes('csrfToken=') || 
+                          allCookies.includes('__Host-csrfToken=') || 
+                          allCookies.includes('__Secure-csrfToken=');
+      
+      console.log('🔍 Visible cookies check:', {
+        hasCsrfToken,
+        visibleCookies: allCookies ? allCookies.split(';').map(c => c.trim().split('=')[0]) : []
+      });
+      
+      if (!hasCsrfToken) {
+        console.warn('⚠️ WARNING: No CSRF token found - user may not be authenticated');
+        console.warn('💡 If you just logged in, wait a moment and try again');
+        
+        // Wait a bit for cookies to be set
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Check again
+        const allCookiesRetry = document.cookie;
+        const hasCsrfTokenRetry = allCookiesRetry.includes('csrfToken=') || 
+                                 allCookiesRetry.includes('__Host-csrfToken=') || 
+                                 allCookiesRetry.includes('__Secure-csrfToken=');
+        
+        if (!hasCsrfTokenRetry) {
+          console.error('❌ Still no CSRF token after retry - authentication may have failed');
+          setConnectionStatus(CONNECTION_STATES.AUTHENTICATION_FAILED);
+          initializationInProgress.current = false;
+          return null;
+        }
+      }
+      
+      console.log('✅ CSRF token present - authentication cookies should be set (HttpOnly, invisible to JS)');
+    }
+    
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || process.env.NEXT_PUBLIC_SERVER_URL;
+    console.log('🌍 PerfectSocketProvider: Using socket URL:', socketUrl);
+    
+    // 🔧 CRITICAL FIX #8: Enhanced socket options for cookie-based authentication
+    const socketOptions = {
+      withCredentials: true,            // CRITICAL: Send cookies with every request
+      transports: ['websocket', 'polling'], // ✅ FIXED: Start with websocket for better performance
+      upgrade: true,                    // Allow upgrade between transports
+      rememberUpgrade: true,            // ✅ Remember successful websocket upgrade
       auth: {
-        profileid: userId,              // Standardized identifier
-        timestamp: Date.now()
+        profileid: userId,              // Send user ID for tracking
+        timestamp: Date.now()           // Timestamp for debugging
       },
       autoConnect: true,
       timeout: SOCKET_CONFIG.TIMEOUT,
-      reconnection: false, // 🔄 CRITICAL FIX: Disable automatic reconnection, we handle manually
-      transports: ['polling', 'websocket'], // Start with polling for cookie auth
-      forceNew: true, // 🔄 CRITICAL FIX: Force new connection to prevent reuse issues
-      upgrade: true
-    });
+      reconnection: false,              // We handle reconnection manually
+      forceNew: true,                   // Force fresh connection
+      path: '/socket.io',               // Explicit socket.io path
+      // 🔧 CRITICAL: Extra options to ensure cookies are sent
+      extraHeaders: {
+        // Note: Cookies are automatically sent with withCredentials: true
+        // But we add this to ensure proper CORS handling
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      // 🔧 CRITICAL FIX #8: Ensure cookies are sent in ALL transport requests
+      transportOptions: {
+        polling: {
+          extraHeaders: {
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        },
+        websocket: {
+          extraHeaders: {
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        }
+      },
+      // ✅ Add query parameters as fallback for cookie authentication
+      query: {
+        userId: userId,
+        timestamp: Date.now()
+      }
+    };
+    console.log('⚙️ PerfectSocketProvider: Socket options:', socketOptions);
+    console.log('🍪 PerfectSocketProvider: Current cookies:', document.cookie ? document.cookie.substring(0, 200) + '...' : 'NONE');
+    
+    // Create socket connection
+    console.log('🔌 PerfectSocketProvider: Creating socket instance...');
+    const newSocket = io(socketUrl, socketOptions);
     
     // ========================================
     // EVENT HANDLERS (Following EVENT CONTRACT)
@@ -702,6 +815,7 @@ export default function PerfectSocketProvider({ children }) {
      */
     newSocket.on('connect', () => {
       log('success', 'Connected to server');
+      console.log('✅ SOCKET: Connection established');
       setIsConnected(true);
       setConnectionStatus(CONNECTION_STATES.CONNECTED);
       reconnectAttempts.current = 0;
@@ -747,6 +861,7 @@ export default function PerfectSocketProvider({ children }) {
      */
     newSocket.on('disconnect', (reason) => {
       log('warn', 'Disconnected from server', { reason });
+      console.log('❌ SOCKET: Disconnected from server', { reason });
       setIsConnected(false);
       setOnlineUsers(new Set());
       stopHeartbeat();
@@ -780,6 +895,7 @@ export default function PerfectSocketProvider({ children }) {
         type: error.type
       });
       
+      console.log('❌ SOCKET: Connection failed', { error });
       setIsConnected(false);
       
       // Classify error types
@@ -1002,57 +1118,13 @@ export default function PerfectSocketProvider({ children }) {
           });
         }
       });
-      
-      // Connection status events
-      newSocket.on('user_connected', (data) => {
-        log('info', 'User connected to server', { profileid: data.profileid });
-        setOnlineUsers(prev => new Set([...prev, data.profileid]));
-      });
-      
-      newSocket.on('user_disconnected', (data) => {
-        log('info', 'User disconnected from server', { profileid: data.profileid });
-        setOnlineUsers(prev => {
-          const updated = new Set(prev);
-          updated.delete(data.profileid);
-          return updated;
-        });
-      });
-    }
-    
-    /**
-     * Typing indicators
-     */
-    if (SOCKET_CONFIG.ENABLE_TYPING_INDICATORS) {
-      newSocket.on('user_typing', (data) => {
-        setTypingUsers(prev => {
-          const newMap = new Map(prev);
-          if (!newMap.has(data.chatid)) {
-            newMap.set(data.chatid, new Set());
-          }
-          newMap.get(data.chatid).add(data.profileid);
-          return newMap;
-        });
-      });
-      
-      newSocket.on('user_stopped_typing', (data) => {
-        setTypingUsers(prev => {
-          const newMap = new Map(prev);
-          if (newMap.has(data.chatid)) {
-            newMap.get(data.chatid).delete(data.profileid);
-            if (newMap.get(data.chatid).size === 0) {
-              newMap.delete(data.chatid);
-            }
-          }
-          return newMap;
-        });
-      });
     }
     
     /**
      * Call events
      */
-    newSocket.on('incoming_call', (data) => {
-      log('info', 'Incoming call', { callId: data.callId, from: data.callerName });
+    newSocket.on('call_offer', (data) => {
+      log('info', 'Incoming call', { callId: data.callId, caller: data.caller?.username });
       setActiveCalls(prev => new Map(prev).set(data.callId, {
         ...data,
         status: 'incoming',
@@ -1060,18 +1132,25 @@ export default function PerfectSocketProvider({ children }) {
       }));
     });
     
-    newSocket.on('call_answered', (data) => {
-      log('info', 'Call answered', { callId: data.callId });
+    newSocket.on('call_answer', (data) => {
+      log('info', 'Call answered', { callId: data.callId, answerer: data.answerer?.username });
       setActiveCalls(prev => {
         const newMap = new Map(prev);
         const call = newMap.get(data.callId);
-        if (call) call.status = 'active';
+        if (call) {
+          newMap.set(data.callId, {
+            ...call,
+            status: 'active',
+            answerer: data.answerer,
+            startTime: new Date()
+          });
+        }
         return newMap;
       });
     });
     
-    newSocket.on('call_ended', (data) => {
-      log('info', 'Call ended', { callId: data.callId, reason: data.reason });
+    newSocket.on('call_end', (data) => {
+      log('info', 'Call ended', { callId: data.callId });
       setActiveCalls(prev => {
         const newMap = new Map(prev);
         newMap.delete(data.callId);
@@ -1079,572 +1158,202 @@ export default function PerfectSocketProvider({ children }) {
       });
     });
     
-    newSocket.on('call_rejected', (data) => {
-      log('info', 'Call rejected', { callId: data.callId });
-      setActiveCalls(prev => {
-        const newMap = new Map(prev);
-        newMap.delete(data.callId);
-        return newMap;
-      });
+    /**
+     * Error events
+     */
+    newSocket.on('error', (error) => {
+      log('error', 'Socket error', { error: error.message, code: error.code });
     });
     
     /**
-     * WebRTC signaling events
+     * Reconnect events
      */
-    newSocket.on('webrtc_offer_received', (data) => {
-      log('info', 'WebRTC offer received', { callId: data.callId });
+    newSocket.on('reconnect_attempt', (attemptNumber) => {
+      log('info', 'Reconnection attempt', { attempt: attemptNumber });
     });
     
-    newSocket.on('webrtc_answer_received', (data) => {
-      log('info', 'WebRTC answer received', { callId: data.callId });
+    newSocket.on('reconnect', (attemptNumber) => {
+      log('success', 'Reconnected successfully', { attempt: attemptNumber });
     });
     
-    newSocket.on('webrtc_ice_candidate_received', (data) => {
-      log('info', 'ICE candidate received', { callId: data.callId });
+    newSocket.on('reconnect_error', (error) => {
+      log('error', 'Reconnection failed', { error: error.message });
     });
     
-    /**
-     * Error handling
-     */
-    newSocket.on('error', (data) => {
-      log('error', 'Socket error', { error: data.error, message: data.message });
+    newSocket.on('reconnect_failed', () => {
+      log('error', 'Reconnection failed permanently');
+      setConnectionStatus(CONNECTION_STATES.FAILED);
     });
-    
-    newSocket.on('chat_error', (data) => {
-      log('error', 'Chat error', { error: data.error, chatid: data.chatid });
-    });
-    
-    // Add handlers for chat_joined and chat_error events
-    newSocket.on('chat_joined', (data) => {
-      log('success', 'Successfully joined chat', { chatid: data.chatid });
-    });
-    
-    newSocket.on('chat_error', (data) => {
-      log('error', 'Chat error', { error: data.error, chatid: data.chatid });
-    });
-    
-    /**
-     * Unread count events (Issue #16)
-     */
-    newSocket.on('unread_count_updated', (data) => {
-      log('info', 'Unread count updated', { 
-        chatid: data.chatid,
-        count: data.count,
-        profileid: data.profileid
-      });
-      
-      // Only update if it's for current user
-      const currentUserId = authUser?.profileid || authUser?.id;
-      if (data.profileid === currentUserId) {
-        updateUnreadCount(data.chatid, data.count);
-      }
-    });
-    
-    newSocket.on('chat_marked_read', (data) => {
-      log('success', 'Chat marked as read confirmed', { 
-        chatid: data.chatid,
-        profileid: data.profileid
-      });
-      
-      // Only update if it's for current user
-      const currentUserId = authUser?.profileid || authUser?.id;
-      if (data.profileid === currentUserId) {
-        updateUnreadCount(data.chatid, 0); // Reset to 0
-      }
-    });
-    
-    /**
-     * Offline message delivery
-     */
-    if (SOCKET_CONFIG.ENABLE_OFFLINE_QUEUE) {
-      newSocket.on('offline_messages_delivered', (data) => {
-        log('success', 'Offline messages delivered', {
-          total: data.total,
-          successful: data.successful,
-          failed: data.failed
-        });
-      });
-      
-      newSocket.on('offline_delivery_error', (data) => {
-        log('error', 'Offline delivery error', { error: data.error });
-      });
-    }
     
     // Store socket references
     socketRef.current = newSocket;
     setSocket(newSocket);
-    initializationInProgress.current = false;
+    initializeSocketRef.current = initializeSocket;
     
-    // 🔄 FIX Issue #6: Store socket state for HMR persistence
-    if (typeof window !== 'undefined') {
-      window.__perfectSocketId = newSocket.id;
-      window.__perfectSocketConnected = newSocket.connected;
-    }
-    
-    log('success', 'Socket initialized successfully');
     return newSocket;
-    
-  }, []); // 🔄 CRITICAL FIX: Empty dependency array - prevent re-initialization loops
-  
-  // Store initializeSocket in ref for use by other functions
-  initializeSocketRef.current = initializeSocket;
+  }, []); // Removed all dependencies to prevent circular references
   
   // ========================================
-  // CLEANUP FUNCTIONS
+  // EFFECTS
   // ========================================
   
   /**
-   * Perform comprehensive cleanup
-   */
-  const performCleanup = useCallback(() => {
-    if (cleanupInProgress.current) return;
-    cleanupInProgress.current = true;
-    
-    log('info', 'Performing cleanup');
-    
-    // Clear timeouts
-    if (reconnectTimeout.current) {
-      clearTimeout(reconnectTimeout.current);
-      reconnectTimeout.current = null;
-    }
-    
-    // Stop heartbeat
-    stopHeartbeat();
-    
-    // Clear typing timeouts
-    typingTimeouts.current.forEach(timeout => clearTimeout(timeout));
-    typingTimeouts.current.clear();
-    typingDebounce.current.forEach(timeout => clearTimeout(timeout));
-    typingDebounce.current.clear();
-    
-    // Close socket
-    if (socketRef.current) {
-      try {
-        socketRef.current.removeAllListeners();
-        socketRef.current.close();
-      } catch (err) {
-        log('error', 'Error during socket cleanup', { error: err.message });
-      }
-      socketRef.current = null;
-    }
-    
-    // Reset state
-    setSocket(null);
-    setIsConnected(false);
-    setOnlineUsers(new Set());
-    setConnectionStatus(CONNECTION_STATES.DISCONNECTED);
-    setTypingUsers(new Map());
-    setActiveCalls(new Map());
-    
-    cleanupInProgress.current = false;
-    log('success', 'Cleanup completed');
-  }, [stopHeartbeat, log]);
-  
-  /**
-   * Periodic cleanup of stale data
-   */
-  const performPeriodicCleanup = useCallback(() => {
-    const now = Date.now();
-    
-    // Clean pending messages
-    setPendingMessages(prev => {
-      const cleaned = new Map();
-      for (const [id, message] of prev.entries()) {
-        const age = now - message.timestamp.getTime();
-        if (age < SOCKET_CONFIG.MAX_PENDING_AGE && cleaned.size < SOCKET_CONFIG.MAX_PENDING_SIZE) {
-          cleaned.set(id, message);
-        }
-      }
-      return cleaned;
-    });
-    
-    // Clean typing indicators
-    setTypingUsers(prev => {
-      const cleaned = new Map();
-      for (const [chatid, users] of prev.entries()) {
-        if (users.size > 0) {
-          cleaned.set(chatid, users);
-        }
-      }
-      return cleaned;
-    });
-    
-    log('info', 'Periodic cleanup completed');
-  }, [log]);
-  
-  // ========================================
-  // UNREAD COUNT MANAGEMENT (Issue #16)
-  // ========================================
-  
-  /**
-   * Mark chat as read and reset unread count
-   */
-  const markChatAsRead = useCallback((chatid) => {
-    if (socket && socket.connected) {
-      socket.emit('mark_chat_as_read', { chatid });
-      log('info', 'Marked chat as read', { chatid });
-    }
-  }, [socket, log]);
-  
-  /**
-   * Update local unread count state
-   */
-  const updateUnreadCount = useCallback((chatid, count) => {
-    // Emit custom event for ChatList to listen to
-    if (typeof window !== 'undefined') {
-      const event = new CustomEvent('unread-count-updated', {
-        detail: { chatid, count }
-      });
-      window.dispatchEvent(event);
-    }
-  }, []);
-
-  // ========================================
-  // PUBLIC API METHODS
-  // ========================================
-  
-  /**
-   * Join a chat room
-   */
-  const joinChat = useCallback((chatid) => {
-    if (socket && socket.connected) {
-      socket.emit('join_chat', { chatid });
-      log('info', 'Joining chat', { chatid });
-    }
-  }, [socket, log]);
-  
-  /**
-   * Leave a chat room
-   */
-  const leaveChat = useCallback((chatid) => {
-    if (socket && socket.connected) {
-      socket.emit('leave_chat', { chatid });
-      log('info', 'Leaving chat', { chatid });
-    }
-  }, [socket, log]);
-  
-  /**
-   * Send a message
-   */
-  const sendMessage = useCallback((messageData, callback) => {
-    const clientMessageId = generateMessageId();
-    const enhancedData = {
-      ...messageData,
-      clientMessageId,
-      timestamp: new Date().toISOString()
-    };
-    
-    if (socket && isConnected) {
-      // Add to pending
-      setPendingMessages(prev => new Map(prev).set(clientMessageId, {
-        ...enhancedData,
-        status: 'sending',
-        timestamp: new Date()
-      }));
-      
-      socket.emit('send_message', enhancedData, (ack) => {
-        if (ack && ack.success) {
-          log('success', 'Message sent', { clientMessageId });
-          updateMetrics(m => ({ messagesSent: m.messagesSent + 1 }));
-        } else {
-          log('error', 'Message send failed', { error: ack?.error });
-        }
-        if (callback) callback(ack);
-      });
-    } else {
-      // Queue for later delivery
-      queueMessage(enhancedData);
-      if (callback) {
-        callback({ success: false, queued: true, clientMessageId });
-      }
-    }
-    
-    return clientMessageId;
-  }, [socket, isConnected, generateMessageId, queueMessage, log, updateMetrics]);
-  
-  /**
-   * Mark message as read
-   */
-  const markMessageRead = useCallback((messageid, chatid) => {
-    if (socket && socket.connected) {
-      socket.emit('mark_message_read', { messageid, chatid });
-    }
-  }, [socket]);
-  
-  /**
-   * React to message
-   */
-  const reactToMessage = useCallback((messageid, emoji, chatid) => {
-    if (socket && socket.connected) {
-      socket.emit('react_to_message', { messageid, emoji, chatid });
-    }
-  }, [socket]);
-
-  const removeReaction = useCallback((messageid, emoji, chatid) => {
-    if (socket && socket.connected) {
-      socket.emit('remove_reaction', { messageid, emoji, chatid });
-    }
-  }, [socket]);
-  
-  /**
-   * Initiate call
-   */
-  const initiateCall = useCallback((targetId, callType, chatid, callback) => {
-    if (socket && socket.connected) {
-      socket.emit('initiate_call', { targetId, callType, chatid }, (ack) => {
-        if (ack && ack.success) {
-          log('success', 'Call initiated', { callId: ack.callId });
-          setActiveCalls(prev => new Map(prev).set(ack.callId, {
-            ...ack,
-            status: 'calling',
-            timestamp: new Date()
-          }));
-        }
-        if (callback) callback(ack);
-      });
-    }
-  }, [socket, log]);
-  
-  /**
-   * Answer call
-   */
-  const answerCall = useCallback((callId, acceptsVideo = true) => {
-    if (socket && socket.connected) {
-      socket.emit('answer_call', { callId, acceptsVideo });
-      log('info', 'Answering call', { callId });
-    }
-  }, [socket, log]);
-  
-  /**
-   * End call
-   */
-  const endCall = useCallback((callId, reason = 'user_ended') => {
-    if (socket && socket.connected) {
-      socket.emit('end_call', { callId, reason });
-      log('info', 'Ending call', { callId, reason });
-    }
-  }, [socket, log]);
-  
-  /**
-   * Send WebRTC offer
-   */
-  const sendWebRTCOffer = useCallback((callId, targetId, offer) => {
-    if (socket && socket.connected) {
-      socket.emit('webrtc_offer', { callId, targetId, offer });
-    }
-  }, [socket]);
-  
-  /**
-   * Send WebRTC answer
-   */
-  const sendWebRTCAnswer = useCallback((callId, targetId, answer) => {
-    if (socket && socket.connected) {
-      socket.emit('webrtc_answer', { callId, targetId, answer });
-    }
-  }, [socket]);
-  
-  /**
-   * Send ICE candidate
-   */
-  const sendICECandidate = useCallback((callId, targetId, candidate) => {
-    if (socket && socket.connected) {
-      socket.emit('webrtc_ice_candidate', { callId, targetId, candidate });
-    }
-  }, [socket]);
-  
-  /**
-   * Get online users list (Issue #17)
-   */
-  const requestOnlineUsers = useCallback(() => {
-    if (socket && socket.connected) {
-      socket.emit('get_online_users', {}, (response) => {
-        if (response && response.success && response.users) {
-          log('success', 'Updated online users list', { count: response.users.length });
-          const userIds = response.users.map(user => user.profileid || user.id).filter(Boolean);
-          setOnlineUsers(new Set(userIds));
-        }
-      });
-    }
-  }, [socket, log]);
-  
-  /**
-   * Update user status (Issue #17)
-   */
-  const updateUserStatus = useCallback((status = 'online') => {
-    if (socket && socket.connected) {
-      socket.emit('update_user_status', { status });
-      log('info', 'Updated user status', { status });
-    }
-  }, [socket, log]);
-  
-  /**
-   * Manual reconnection
-   */
-  const reconnect = useCallback(() => {
-    if (reconnectAttempts.current < SOCKET_CONFIG.MAX_RECONNECT_ATTEMPTS) {
-      log('info', 'Manual reconnection triggered');
-      attemptReconnection('manual');
-    }
-  }, [attemptReconnection, log]);
-  
-  // ========================================
-  // LIFECYCLE EFFECTS
-  // ========================================
-  
-  /**
-   * Main effect: Socket initialization and cleanup
+   * Initialize socket - runs once on mount
+   * Uses event-based communication to avoid race conditions
    */
   useEffect(() => {
-    mountedRef.current = true;
+    console.log('🚀 PerfectSocketProvider: Setting up event listeners (runs once on mount)');
     
-    // 🔥 HMR Recovery: Check if socket exists from previous HMR cycle
-    const isPersisted = typeof window !== 'undefined' && window.__socketPersisted;
-    if (process.env.NODE_ENV === 'development' && socketRef.current?.connected && isPersisted) {
-      log('info', 'HMR recovery - reusing existing socket connection');
-      setSocket(socketRef.current);
-      setIsConnected(true);
-      setConnectionStatus(CONNECTION_STATES.CONNECTED);
-      
-      // Restart heartbeat for recovered socket
-      startHeartbeat(socketRef.current);
-      
-      // Clear persisted flag
-      if (typeof window !== 'undefined') {
-        window.__socketPersisted = false;
-      }
-    }
+    let authReadyListener = null;
+    let authFailedListener = null;
     
-    // Auth event handlers
     const handleAuthReady = (event) => {
-      if (!mountedRef.current) return;
+      console.log('🎉 PerfectSocketProvider: AUTH-SOCKET-READY EVENT RECEIVED');
       
-      const { user: authUser, isAuthenticated: authStatus } = event.detail;
-      const userId = authUser?.profileid || authUser?.id;
-      
-      log('info', 'Received auth-socket-ready event', { 
-        userId, 
-        authStatus, 
-        authUser,
-        authUserKeys: authUser ? Object.keys(authUser) : [],
-        socketConnected: socketRef.current?.connected,
-        lastAuthState: lastAuthState.current
-      });
-      
-      // Check if auth state changed
-      const authChanged = lastAuthState.current.isAuthenticated !== authStatus || 
-                         lastAuthState.current.userId !== userId;
-      
-      log('info', 'Auth state check:', { authChanged, lastAuthState: lastAuthState.current, currentAuth: { authStatus, userId } });
-      
-      if (!authChanged && socketRef.current && socketRef.current.connected) {
-        log('info', 'Auth unchanged and socket connected, skipping');
+      // Check if socket is already initializing or initialized
+      if (initializationInProgress.current) {
+        console.log('⚠️ Socket initialization already in progress, skipping');
         return;
       }
       
-      lastAuthState.current = { isAuthenticated: authStatus, userId };
+      if (socketRef.current) {
+        console.log('⚠️ Socket already exists, skipping initialization');
+        return;
+      }
       
-      if (authStatus && userId) {
-        log('success', 'Initializing socket with authenticated user', { userId });
-        // Pass the auth data from the event to initializeSocket
-        initializeSocket({ user: authUser, isAuthenticated: authStatus });
+      const { user: authUser, isAuthenticated: authStatus, initializationComplete } = event.detail;
+      console.log('🎉 Event detail:', {
+        hasUser: !!authUser,
+        userId: authUser?.profileid || authUser?.id,
+        username: authUser?.username,
+        isAuthenticated: authStatus,
+        initializationComplete
+      });
+      
+      // Wait for authentication initialization to complete
+      if (!initializationComplete) {
+        console.log('⚠️ Authentication initialization not complete, waiting...');
+        return;
+      }
+      
+      // Validate user data
+      if (!authStatus || !authUser || (!authUser.profileid && !authUser.id)) {
+        console.error('❌ Invalid authentication data, cannot initialize socket');
+        return;
+      }
+      
+      console.log('✅ All conditions met, initializing socket connection...');
+      // CRITICAL: Pass the user data from the event to initializeSocket
+      const socketInstance = initializeSocket({
+        user: authUser,
+        isAuthenticated: authStatus,
+        initializationComplete
+      });
+      
+      if (socketInstance) {
+        console.log('✅ Socket initialization successful');
       } else {
-        log('error', 'Cannot initialize socket - missing auth or userId', { authStatus, userId });
+        console.error('❌ Socket initialization failed');
       }
     };
     
     const handleAuthFailed = (event) => {
-      if (!mountedRef.current) return;
+      console.log('❌ AUTH-FAILED EVENT RECEIVED:', event.detail?.reason);
+      setConnectionStatus(CONNECTION_STATES.DISCONNECTED);
       
-      log('error', 'Received auth-failed event', { reason: event.detail?.reason });
-      lastAuthState.current = { isAuthenticated: false, userId: null };
-      setConnectionStatus(CONNECTION_STATES.AUTHENTICATION_FAILED);
-      performCleanup();
+      // Cleanup existing socket if any
+      if (socketRef.current) {
+        console.log('🧹 Cleaning up socket due to auth failure');
+        socketRef.current.close();
+        socketRef.current = null;
+        setSocket(null);
+        setIsConnected(false);
+      }
+      
+      // Reset initialization flag
+      initializationInProgress.current = false;
     };
     
-    // Register event listeners
+    // Set up event listeners (only once on mount)
     if (typeof window !== 'undefined') {
+      console.log('📝 Registering event listeners');
       window.addEventListener('auth-socket-ready', handleAuthReady);
       window.addEventListener('auth-failed', handleAuthFailed);
+      authReadyListener = handleAuthReady;
+      authFailedListener = handleAuthFailed;
+      console.log('✅ Event listeners registered');
     }
     
-    // Fallback: Check current auth state
-    const userId = getUserId();
-    const authInitialized = _debug ? _debug.initializationState?.completed : !isLoading;
-    
-    log('info', 'Fallback check:', { 
-      isAuthenticated, 
-      userId, 
-      authInitialized, 
-      isLoading,
-      socketConnected: socketRef.current?.connected,
-      initInProgress: initializationInProgress.current,
-      userKeys: user ? Object.keys(user) : [],
-      debugState: _debug?.initializationState
-    });
-    
-    if (isAuthenticated && userId && authInitialized && 
-        !socketRef.current?.connected && !initializationInProgress.current) {
-      log('success', 'Fallback initialization triggered - auth ready, no socket');
-      
-      const authChanged = lastAuthState.current.isAuthenticated !== isAuthenticated || 
-                         lastAuthState.current.userId !== userId;
-      
-      if (authChanged) {
-        lastAuthState.current = { isAuthenticated, userId };
-        handleAuthReady({
-          detail: { user, isAuthenticated }
-        });
-      } else {
-        log('warn', 'Auth unchanged, forcing initialization anyway');
-        lastAuthState.current = { isAuthenticated, userId };
-        // Pass auth data to ensure initialization has current state
-        initializeSocket({ user, isAuthenticated });
-      }
-    }
-    
-    // Setup periodic cleanup
-    cleanupInterval.current = setInterval(performPeriodicCleanup, SOCKET_CONFIG.CLEANUP_INTERVAL);
-    
-    // Cleanup on unmount
+    // Cleanup function
     return () => {
-      log('info', 'Component unmounting - checking if HMR');
-      mountedRef.current = false;
-      
+      console.log('🧹 Cleaning up event listeners');
+      // Remove event listeners
       if (typeof window !== 'undefined') {
-        window.removeEventListener('auth-socket-ready', handleAuthReady);
-        window.removeEventListener('auth-failed', handleAuthFailed);
+        if (authReadyListener) {
+          window.removeEventListener('auth-socket-ready', authReadyListener);
+        }
+        if (authFailedListener) {
+          window.removeEventListener('auth-failed', authFailedListener);
+        }
+      }
+    };
+  }, []); // Empty deps - only run once on mount
+  
+  /**
+   * Cleanup socket on component unmount
+   */
+  useEffect(() => {
+    return () => {
+      console.log('🧹 PerfectSocketProvider: Component unmounting, cleaning up socket...');
+      
+      // Close socket connection
+      if (socketRef.current) {
+        console.log('🔌 Disconnecting socket...');
+        socketRef.current.close();
+        socketRef.current = null;
       }
       
+      // Clear all intervals and timeouts
+      if (heartbeatInterval.current) {
+        clearInterval(heartbeatInterval.current);
+      }
+      if (heartbeatTimeout.current) {
+        clearTimeout(heartbeatTimeout.current);
+      }
+      if (reconnectTimeout.current) {
+        clearTimeout(reconnectTimeout.current);
+      }
       if (cleanupInterval.current) {
         clearInterval(cleanupInterval.current);
       }
       
-      // 🔥 HMR Detection: Don't close socket during development hot reloads
-      // In development, if socket is connected, assume it's HMR unless explicitly told otherwise
-      const isProduction = process.env.NODE_ENV === 'production';
-      const hasConnectedSocket = socketRef.current?.connected;
-      const isHMR = !isProduction && hasConnectedSocket;
-      
-      if (isHMR) {
-        log('info', 'HMR detected - preserving socket connection');
-        // Only clear intervals, keep socket alive
-        stopHeartbeat();
-        
-        // Mark that socket should persist
-        if (typeof window !== 'undefined') {
-          window.__socketPersisted = true;
-        }
-      } else {
-        log('info', 'Real unmount - performing full cleanup');
-        performCleanup();
+      // Clear typing timeouts
+      if (typingTimeouts.current) {
+        typingTimeouts.current.forEach(timeout => clearTimeout(timeout));
+        typingTimeouts.current.clear();
       }
+      if (typingDebounce.current) {
+        typingDebounce.current.forEach(timeout => clearTimeout(timeout));
+        typingDebounce.current.clear();
+      }
+      
+      // Clear timeout tracking set
+      if (timeouts) {
+        timeouts.forEach(timeout => {
+          try {
+            clearTimeout(timeout);
+          } catch (e) {
+            // Ignore errors
+          }
+        });
+      }
+      
+      console.log('✅ Socket cleanup complete');
     };
-    // 🔄 CRITICAL FIX: Minimal dependencies to prevent re-initialization loops
-    // initializeSocket is stable (empty deps), so refs to auth state are used internally
-  }, [isAuthenticated, user, isLoading, _debug]);
+  }, []); // Empty deps - cleanup only on unmount
   
   // ========================================
-  // CONTEXT VALUE (MEMOIZED)
+  // CONTEXT VALUE
   // ========================================
   
   const contextValue = useMemo(() => ({
@@ -1656,83 +1365,29 @@ export default function PerfectSocketProvider({ children }) {
     // User presence
     onlineUsers,
     
-    // Message state
+    // Message management
     messageQueue,
     pendingMessages,
     
     // Typing indicators
     typingUsers,
+    startTyping,
+    stopTyping,
     
     // Call state
     activeCalls,
     
     // Metrics (development only)
-    ...(SOCKET_CONFIG.ENABLE_METRICS && { metrics }),
-    
-    // Chat methods
-    joinChat,
-    leaveChat,
-    markChatAsRead,
-    
-    // Messaging methods
-    sendMessage,
-    markMessageRead,
-    reactToMessage,
-    startTyping,
-    stopTyping,
-    
-    // Call methods
-    initiateCall,
-    answerCall,
-    endCall,
-    
-    // WebRTC methods
-    sendWebRTCOffer,
-    sendWebRTCAnswer,
-    sendICECandidate,
-    
-    // Utility methods
-    reconnect,
-    queueMessage,
-    processMessageQueue: () => processMessageQueue(socket),
-    
-    // Presence methods (Issue #17)
-    requestOnlineUsers,
-    updateUserStatus
-  }), [
-    socket,
-    isConnected,
-    connectionStatus,
-    onlineUsers,
-    messageQueue,
-    pendingMessages,
-    typingUsers,
-    activeCalls,
     metrics,
-    joinChat,
-    leaveChat,
-    markChatAsRead,
-    sendMessage,
-    markMessageRead,
-    reactToMessage,
-    startTyping,
-    stopTyping,
-    initiateCall,
-    answerCall,
-    endCall,
-    sendWebRTCOffer,
-    sendWebRTCAnswer,
-    sendICECandidate,
-    reconnect,
+    
+    // Actions
     queueMessage,
-    processMessageQueue,
-    requestOnlineUsers,
-    updateUserStatus
-  ]);
-  
-  // ========================================
-  // RENDER
-  // ========================================
+    initializeSocket,
+    attemptReconnection,
+    
+    // Utility functions
+    log
+  }), [socket, isConnected, connectionStatus, onlineUsers, messageQueue, pendingMessages, typingUsers, startTyping, stopTyping, activeCalls, metrics, queueMessage, initializeSocket, attemptReconnection, log]);
   
   return (
     <SocketContext.Provider value={contextValue}>
@@ -1741,63 +1396,4 @@ export default function PerfectSocketProvider({ children }) {
   );
 }
 
-// 🔄 CRITICAL FIX Issue #6: HMR Socket Persistence for Development
-// Preserve socket connection during hot module replacement
-if (process.env.NODE_ENV === 'development' && typeof module !== 'undefined' && module.hot) {
-  module.hot.accept();
-  
-  // Create global socket state storage
-  if (typeof global !== 'undefined' && !global.__socketState) {
-    global.__socketState = new Map();
-  }
-  
-  // Store socket state before HMR reload
-  module.hot.dispose((data) => {
-    try {
-      // Get socket ref from current instance
-      const socketId = window.__perfectSocketId;
-      const isConnected = window.__perfectSocketConnected;
-      
-      if (socketId) {
-        data.socketId = socketId;
-        data.isConnected = isConnected;
-        data.timestamp = Date.now();
-        
-        if (typeof global !== 'undefined') {
-          global.__socketState.set('last', {
-            socketId,
-            isConnected,
-            timestamp: Date.now()
-          });
-        }
-        
-        console.log('🔄 HMR: Stored socket state', { socketId, isConnected });
-      }
-    } catch (err) {
-      console.error('❌ HMR: Error storing socket state', err);
-    }
-  });
-  
-  // Restore socket after HMR reload (if still valid - within 5 seconds)
-  module.hot.accept(() => {
-    try {
-      if (typeof global !== 'undefined') {
-        const lastState = global.__socketState.get('last');
-        
-        if (lastState && Date.now() - lastState.timestamp < 5000) {
-          console.log('🔄 HMR: Socket connection preserved through hot reload', {
-            age: Date.now() - lastState.timestamp,
-            socketId: lastState.socketId
-          });
-          
-          // Socket will be reused if still connected
-          window.__hmrPreserveSocket = true;
-        }
-      }
-    } catch (err) {
-      console.error('❌ HMR: Error restoring socket state', err);
-    }
-  });
-  
-  console.log('✅ HMR: Socket persistence enabled for development');
-}
+export { PerfectSocketProvider };

@@ -1,7 +1,67 @@
+/**
+ * @fileoverview Mongoose model for chat conversations
+ * @module Chat
+ * @version 1.0.0
+ * @author Swaggo Development Team
+ * @since 1.0.0
+ * 
+ * @description
+ * This model represents chat conversations in the Swaggo application.
+ * It supports different chat types (direct, group, broadcast, channel)
+ * and includes participant management, permissions, and settings.
+ * 
+ * Key features:
+ * - Participant roles and permissions
+ * - Chat settings and configurations
+ * - Message tracking and unread counts
+ * - Archive and mute functionality
+ * - Performance optimized with multiple indexes
+ */
+
 import mongoose from "mongoose";
+import XSSSanitizer from '../../Utils/XSSSanitizer.js';
+
+/**
+ * @typedef {Object} ParticipantPermission
+ * @property {boolean} canSendMessages - Whether participant can send messages
+ * @property {boolean} canAddMembers - Whether participant can add members
+ * @property {boolean} canRemoveMembers - Whether participant can remove members
+ * @property {boolean} canEditChat - Whether participant can edit chat settings
+ * @property {boolean} canDeleteMessages - Whether participant can delete messages
+ * @property {boolean} canPinMessages - Whether participant can pin messages
+ */
+
+/**
+ * @typedef {Object} Participant
+ * @property {string} profileid - Profile ID of the participant
+ * @property {string} role - Role of the participant (owner, admin, moderator, member, guest)
+ * @property {Date} joinedAt - When the participant joined the chat
+ * @property {ParticipantPermission} permissions - Permissions for this participant
+ * @property {number} unreadCount - Unread message count for this participant
+ * @property {Date} lastReadAt - When the participant last read messages
+ */
+
+/**
+ * @typedef {Object} ChatSetting
+ * @property {boolean} onlyAdminsCanSend - Whether only admins can send messages
+ * @property {boolean} onlyAdminsCanAddMembers - Whether only admins can add members
+ * @property {boolean} allowMemberInvites - Whether members can invite others
+ * @property {boolean} messageHistoryVisible - Whether message history is visible
+ * @property {number} autoDeleteMessages - Auto-delete messages after time (0 = never)
+ * @property {number} maxMembers - Maximum number of members allowed
+ */
 
 const ChatSchema = new mongoose.Schema({
+    /**
+     * Unique identifier for the chat
+     * @type {string}
+     */
     chatid: { type: String, required: true, unique: true },
+    
+    /**
+     * List of participants in the chat
+     * @type {Participant[]}
+     */
     participants: [{
         profileid: {
             type: String,
@@ -34,42 +94,93 @@ const ChatSchema = new mongoose.Schema({
             default: null
         }
     }],
+    
+    /**
+     * Type of chat
+     * @type {string}
+     * @default 'direct'
+     */
     chatType: { 
         type: String, 
         enum: ['direct', 'group', 'broadcast', 'channel'], 
         default: 'direct' 
     },
+    
+    /**
+     * Name of the chat (for group chats)
+     * @type {string}
+     */
     chatName: { 
         type: String,
         default: function() {
             return this.chatType === 'group' ? 'New Group' : null;
         }
     },
+    
+    /**
+     * Avatar URL for the chat
+     * @type {string}
+     */
     chatAvatar: { 
         type: String,
-        default: null
+        default:' https://static.vecteezy.com/system/resources/previews/018/742/015/original/minimal-profile-account-symbol-user-interface-theme-3d-icon-rendering-illustration-isolated-in-transparent-background-png.png'
     },
+    
+    /**
+     * ID of the last message in the chat
+     * @type {string}
+     */
     lastMessage: {
         type: String
     },
+    
+    /**
+     * Timestamp of the last message
+     * @type {Date}
+     */
     lastMessageAt: {
         type: Date,
         default: Date.now
     },
+    
+    /**
+     * Whether the chat is active
+     * @type {boolean}
+     */
     isActive: {
         type: Boolean,
         default: true
     },
+    
+    /**
+     * List of profile IDs who have muted this chat
+     * @type {string[]}
+     */
     mutedBy: [{ 
         type: String
-    }], // Array of profile IDs who muted this chat
+    }],
+    
+    /**
+     * Profile ID of the chat creator
+     * @type {string}
+     */
     createdBy: {
         type: String,
         required: true
     },
+    
+    /**
+     * List of profile IDs with admin privileges
+     * @type {string[]}
+     */
     adminIds: [{
         type: String
-    }], // For group chats - array of profile IDs with admin privileges
+    }],
+    
+    /**
+     * Chat settings and configurations
+     * @type {ChatSetting}
+     */
     chatSettings: {
         onlyAdminsCanSend: { type: Boolean, default: false },
         onlyAdminsCanAddMembers: { type: Boolean, default: false },
@@ -78,20 +189,69 @@ const ChatSchema = new mongoose.Schema({
         autoDeleteMessages: { type: Number, default: 0 }, // 0 = never, time in ms
         maxMembers: { type: Number, default: 256 }
     },
+    
+    /**
+     * Whether the chat is archived
+     * @type {boolean}
+     */
     isArchived: {
         type: Boolean,
         default: false
     },
+    
+    /**
+     * List of profile IDs who archived this chat
+     * @type {string[]}
+     */
     archivedBy: [{
         type: String
     }],
+    
     // Add unreadCount field for Issue #16
+    /**
+     * Total unread message count for the chat
+     * @type {number}
+     */
     unreadCount: {
         type: Number,
         default: 0
+    },
+    
+    // 🔧 SOFT DELETE #115: Add isDeleted field for soft delete functionality
+    /**
+     * Whether the chat is deleted (soft delete)
+     * @type {boolean}
+     */
+    isDeleted: {
+        type: Boolean,
+        default: false
+    },
+    
+    /**
+     * Timestamp when the chat was deleted
+     * @type {Date}
+     */
+    deletedAt: {
+        type: Date,
+        default: null
     }
 }, {
     timestamps: true
+});
+
+// Pre-save middleware to sanitize chat content and prevent XSS attacks
+ChatSchema.pre('save', function(next) {
+  // Sanitize chat name
+  if (this.chatName && typeof this.chatName === 'string') {
+    this.chatName = XSSSanitizer.sanitizeChatName(this.chatName);
+  }
+  
+  // Sanitize chat avatar URL
+  if (this.chatAvatar && typeof this.chatAvatar === 'string') {
+    this.chatAvatar = XSSSanitizer.sanitizeURL(this.chatAvatar);
+  }
+  
+  next();
 });
 
 // Indexes for better performance
@@ -117,6 +277,11 @@ ChatSchema.index({ 'participants.profileid': 1, 'participants.unreadCount': -1 }
 ChatSchema.index({ 'participants.profileid': 1, 'chatType': 1, 'isActive': 1 }); // Optimized for participant queries
 ChatSchema.index({ 'createdBy': 1, 'isActive': 1 }); // For user-created active chats
 ChatSchema.index({ 'lastMessageAt': -1, 'isActive': 1 }); // For active chat sorting
+
+// 🔧 SOFT DELETE #115: Add indexes for soft delete queries
+ChatSchema.index({ isDeleted: 1 }); // For soft delete queries
+ChatSchema.index({ 'participants.profileid': 1, isDeleted: 1 }); // For participant queries with soft delete
+ChatSchema.index({ createdBy: 1, isDeleted: 1 }); // For user-created chats with soft delete
 
 // Instance Methods for Authorization
 ChatSchema.methods.getParticipant = function(profileId) {
@@ -307,8 +472,39 @@ ChatSchema.methods.getDefaultPermissions = function(role) {
 ChatSchema.statics.findByParticipant = function(profileId) {
     return this.find({ 
         'participants.profileid': profileId, 
-        isActive: true 
+        isActive: true,
+        isDeleted: false  // 🔧 SOFT DELETE #115: Exclude deleted chats
     }).populate('participants.profileid', 'username profilePic');
+};
+
+// 🔧 SOFT DELETE #115: Add method to soft delete a chat
+ChatSchema.methods.softDelete = function(deletedByProfileId) {
+    this.isDeleted = true;
+    this.deletedAt = new Date();
+    // Remove the chat from participants' muted and archived lists
+    this.mutedBy = this.mutedBy.filter(id => id !== deletedByProfileId);
+    this.archivedBy = this.archivedBy.filter(id => id !== deletedByProfileId);
+    return this.save();
+};
+
+// 🔧 SOFT DELETE #115: Add method to restore a soft deleted chat
+ChatSchema.methods.restore = function() {
+    this.isDeleted = false;
+    this.deletedAt = null;
+    return this.save();
+};
+
+// 🔧 SOFT DELETE #115: Add static method to find deleted chats
+ChatSchema.statics.findDeleted = function() {
+    return this.find({ isDeleted: true });
+};
+
+// 🔧 SOFT DELETE #115: Add static method to find active (non-deleted) chats
+ChatSchema.statics.findActive = function() {
+    return this.find({ 
+        isActive: true,
+        isDeleted: false
+    });
 };
 
 // Data migration method to convert string participants to objects
@@ -383,7 +579,8 @@ ChatSchema.statics.createDirectChat = function(profileId1, profileId2) {
         ],
         chatType: 'direct',
         createdBy: profileId1,
-        isActive: true
+        isActive: true,
+        isDeleted: false  // 🔧 SOFT DELETE #115: Initialize as not deleted
     });
 };
 
@@ -415,8 +612,60 @@ ChatSchema.statics.createGroupChat = function(name, creatorId, initialMembers = 
         participants,
         chatType: 'group',
         createdBy: creatorId,
-        isActive: true
+        isActive: true,
+        isDeleted: false  // 🔧 SOFT DELETE #115: Initialize as not deleted
     });
 };
 
 export default mongoose.models.Chat || mongoose.model("Chat", ChatSchema);
+
+// 🔧 MODEL RELATIONSHIPS #117: Add virtual populate fields for easier relationship access
+// Virtual populate for participants profiles
+ChatSchema.virtual('participantProfiles', {
+  ref: 'Profile',
+  localField: 'participants.profileid',
+  foreignField: 'profileid'
+});
+
+// Virtual populate for creator profile
+ChatSchema.virtual('creatorProfile', {
+  ref: 'Profile',
+  localField: 'createdBy',
+  foreignField: 'profileid',
+  justOne: true
+});
+
+// Virtual populate for admin profiles
+ChatSchema.virtual('adminProfiles', {
+  ref: 'Profile',
+  localField: 'adminIds',
+  foreignField: 'profileid'
+});
+
+// Virtual populate for muted profiles
+ChatSchema.virtual('mutedProfiles', {
+  ref: 'Profile',
+  localField: 'mutedBy',
+  foreignField: 'profileid'
+});
+
+// Virtual populate for archived profiles
+ChatSchema.virtual('archivedProfiles', {
+  ref: 'Profile',
+  localField: 'archivedBy',
+  foreignField: 'profileid'
+});
+
+// Virtual populate for last message
+ChatSchema.virtual('lastMessageDoc', {
+  ref: 'Message',
+  localField: 'lastMessage',
+  foreignField: 'messageid',
+  justOne: true
+});
+
+// Ensure virtual fields are serialized
+ChatSchema.set('toJSON', { virtuals: true });
+ChatSchema.set('toObject', { virtuals: true });
+
+

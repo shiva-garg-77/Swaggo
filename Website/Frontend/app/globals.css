@@ -44,6 +44,78 @@ body::-webkit-scrollbar {
   }
 }
 
+/* Accessibility styles */
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.skip-navigation {
+  position: absolute;
+  top: -40px;
+  left: 6px;
+  background: #000;
+  color: #fff;
+  padding: 8px;
+  z-index: 10000;
+  text-decoration: none;
+  transition: top 0.3s ease;
+}
+
+.skip-navigation:focus-within {
+  top: 6px;
+}
+
+.skip-link {
+  display: block;
+  color: #fff;
+  text-decoration: none;
+  padding: 4px 8px;
+  margin: 2px 0;
+}
+
+.skip-link:focus {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* Focus visible styles for keyboard navigation */
+.keyboard-navigation :focus {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+
+.mouse-navigation :focus {
+  outline: none;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  :focus {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px white, 0 0 0 4px black;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* Hide scrollbars */
 @layer utilities {
   .scrollbar-hide {
