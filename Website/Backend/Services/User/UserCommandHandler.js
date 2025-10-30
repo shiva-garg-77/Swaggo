@@ -43,9 +43,14 @@ class UserCommandHandler {
       const saltRounds = 12;
       const hashedPassword = await bcrypt.hash(password, saltRounds);
 
+      // Generate IDs
+      const userId = uuidv4();
+      const profileId = userId; // Use same ID for both
+
       // Create user
       const newUser = new User({
-        id: uuidv4(),
+        id: userId,
+        profileid: profileId, // ✅ Link to profile
         username,
         email,
         password: hashedPassword,
@@ -57,7 +62,8 @@ class UserCommandHandler {
 
       // Create profile
       const newProfile = new Profile({
-        profileid: uuidv4(),
+        profileid: profileId,
+        userid: userId, // ✅ Link to user
         username,
         email,
         displayName: displayName || username,

@@ -22,8 +22,8 @@ class SocketCallService extends BaseService {
    */
   constructor() {
     super();
-    // EventBus will be injected by the DI container
-    this.eventBus = null;
+    // 🔧 FIX: Initialize EventBus directly (not using DI container)
+    this.eventBus = EventBus;
     
     // Memory-optimized maps with size limits
     this.mapSizeLimits = {

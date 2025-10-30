@@ -978,19 +978,8 @@ const queryResolvers = {
  */
 const mutationResolvers = {
   Mutation: {
-    // Authentication mutations
-    login: (_, { email, password }) => ({
-      token: "placeholder-token",
-      user: null,
-    }),
-    signup: (_, { username, email, password }) => ({
-      token: "placeholder-token",
-      user: null,
-    }),
-    logout: () => ({
-      success: true,
-      message: "Logged out successfully",
-    }),
+    // Authentication mutations - REMOVED (Use REST API /api/v1/auth instead)
+    // login, signup, logout moved to REST for better security and standard practice
 
     // User mutations
     createUser: (_, { input }) => {

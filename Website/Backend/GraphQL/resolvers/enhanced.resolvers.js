@@ -707,34 +707,6 @@ export default {
 
   Mutation: {
     /**
-     * Upload media file (Issue #41)
-     */
-    uploadMedia: async (_, { file }, context) => {
-      try {
-        const user = requireAuth(context);
-
-        if (!file) {
-          throw new ValidationError("No file provided");
-        }
-
-        const result = await processUpload(file);
-
-        console.log(`✅ Media uploaded by ${user.profileid}: ${result.url}`);
-
-        return {
-          success: true,
-          message: "File uploaded successfully",
-          url: result.url,
-          filename: result.filename,
-          mimetype: result.mimetype,
-        };
-      } catch (error) {
-        console.error("❌ Upload media error:", error);
-        throw error;
-      }
-    },
-
-    /**
      * Remove from close friends (Issue #43)
      */
     removeFromCloseFriends: async (_, { closefriendprofileid }, context) => {

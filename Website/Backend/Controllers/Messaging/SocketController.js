@@ -61,6 +61,12 @@ class SocketController {
     
     // Setup graceful shutdown handlers
     this.setupGracefulShutdown();
+    
+    // 🔧 CRITICAL FIX: Setup connection handling in constructor
+    // This ensures the connection handler is registered immediately
+    console.log('🔌 SocketController: Setting up connection handling in constructor...');
+    this.setupConnectionHandling();
+    console.log('✅ SocketController: Connection handling setup complete');
   }
 
   /**
@@ -98,31 +104,133 @@ class SocketController {
       console.log('[SocketController] 🔧 Initializing service layer...');
     }
     
-    // Temporarily skip DI container initialization
-    // Initialize services directly
-    // this.connectionService = container.get(TYPES.SocketConnectionService);
-    // this.messagingService = container.get(TYPES.SocketMessagingService);
-    // this.callService = container.get(TYPES.SocketCallService);
-    // this.roomService = container.get(TYPES.SocketRoomService);
+    // Initialize services directly (not using DI container for now)
+    console.log('🔧 [SOCKET] Initializing real service instances...');
     
-    // Initialize EventBus
-    // this.eventBus = container.get(TYPES.EventBus);
+    let initializationFailed = false;
+    let failedService = null;
     
-    // Initialize SystemMonitoringService
-    // this.systemMonitoringService = container.get(TYPES.SystemMonitoringService);
+    try {
+      // Initialize connection service
+      console.log('🔧 [SOCKET] Initializing SocketConnectionService...');
+      this.connectionService = new SocketConnectionService();
+      console.log('✅ [SOCKET] SocketConnectionService initialized');
+    } catch (error) {
+      console.error('❌ [SOCKET] SocketConnectionService initialization failed:', error.message);
+      initializationFailed = true;
+      failedService = 'SocketConnectionService';
+    }
     
-    // For now, create simple mock services to prevent errors
-    this.connectionService = { registerConnection: async () => true, startHeartbeatMonitoring: () => null };
-    this.messagingService = null;
-    this.callService = null;
-    this.roomService = null;
-    this.eventBus = null;
+    try {
+      // Initialize messaging service
+      console.log('🔧 [SOCKET] Initializing SocketMessagingService...');
+      this.messagingService = new SocketMessagingService();
+      console.log('✅ [SOCKET] SocketMessagingService initialized');
+    } catch (error) {
+      console.error('❌ [SOCKET] SocketMessagingService initialization failed:', error.message);
+      console.error('❌ [SOCKET] Error stack:', error.stack);
+      initializationFailed = true;
+      failedService = 'SocketMessagingService';
+    }
+    
+    try {
+      // Initialize call service
+      console.log('🔧 [SOCKET] Initializing SocketCallService...');
+      this.callService = new SocketCallService();
+      console.log('✅ [SOCKET] SocketCallService initialized');
+    } catch (error) {
+      console.error('❌ [SOCKET] SocketCallService initialization failed:', error.message);
+      initializationFailed = true;
+      failedService = 'SocketCallService';
+    }
+    
+    try {
+      // Initialize room service
+      console.log('🔧 [SOCKET] Initializing SocketRoomService...');
+      this.roomService = new SocketRoomService();
+      console.log('✅ [SOCKET] SocketRoomService initialized');
+    } catch (error) {
+      console.error('❌ [SOCKET] SocketRoomService initialization failed:', error.message);
+      initializationFailed = true;
+      failedService = 'SocketRoomService';
+    }
+    
+    try {
+      // Initialize EventBus
+      this.eventBus = EventBus;
+      console.log('✅ [SOCKET] EventBus initialized');
+    } catch (error) {
+      console.error('❌ [SOCKET] EventBus initialization failed:', error.message);
+      initializationFailed = true;
+      failedService = 'EventBus';
+    }
+    
+    // System monitoring service is optional
     this.systemMonitoringService = null;
     
-    if (this.logger) {
-      this.logger.info('✅ Service layer initialized (mock services)');
+    if (initializationFailed) {
+      console.error(`❌ [SOCKET] Service initialization failed at: ${failedService}`);
+      console.error('❌ [SOCKET] Using fallback mock services');
+      const error = new Error(`${failedService} initialization failed`);
+      // Create fallback mock services for any that failed to initialize
+      if (!this.connectionService) {
+        console.warn('⚠️ [SOCKET] Using fallback ConnectionService');
+        this.connectionService = { 
+          registerConnection: async () => true, 
+          startHeartbeatMonitoring: () => null,
+          handlePong: () => {},
+          handlePing: () => {},
+          handleDisconnection: async () => {}
+        };
+      }
+      
+      if (!this.messagingService) {
+        console.warn('⚠️ [SOCKET] Using fallback MessagingService');
+        this.messagingService = {
+          handleSendMessage: async () => { throw new Error('MessagingService not initialized'); },
+          handleSendBatchedMessages: async () => { throw new Error('MessagingService not initialized'); },
+          deliverOfflineMessages: async () => {},
+          handleTypingStart: async () => { console.warn('⚠️ MessagingService not initialized - typing_start ignored'); },
+          handleTypingStop: async () => { console.warn('⚠️ MessagingService not initialized - typing_stop ignored'); },
+          handleMarkMessageRead: async () => { console.warn('⚠️ MessagingService not initialized - message_read ignored'); },
+          handleReactToMessage: async () => { console.warn('⚠️ MessagingService not initialized - reaction ignored'); }
+        };
+      }
+      
+      if (!this.callService) {
+        console.warn('⚠️ [SOCKET] Using fallback CallService');
+        this.callService = { 
+          handleCallInitiate: async () => {},
+          handleCallAccept: async () => {},
+          handleCallReject: async () => {},
+          handleCallEnd: async () => {},
+          handleWebRTCOffer: async () => {},
+          handleWebRTCAnswer: async () => {},
+          handleWebRTCIceCandidate: async () => {}
+        };
+      }
+      
+      if (!this.roomService) {
+        console.warn('⚠️ [SOCKET] Using fallback RoomService');
+        this.roomService = { 
+          handleJoinChat: async () => {},
+          handleLeaveChat: async () => {}
+        };
+      }
+      
+      if (!this.eventBus) {
+        this.eventBus = null;
+      }
+      
+      if (!this.systemMonitoringService) {
+        this.systemMonitoringService = null;
+      }
     } else {
-      console.log('[SocketController] ✅ Service layer initialized (mock services)');
+      console.log('✅ [SOCKET] All services initialized successfully');
+      
+      if (this.logger) {
+        this.logger.info('✅ Service layer initialized with real services');
+      }
     }
   }
 
@@ -319,6 +427,18 @@ class SocketController {
    * Register all socket event handlers - REFACTORED TO USE SERVICES
    */
   setupEventHandlers(socket) {
+    console.log('🎮 [SOCKET] Setting up event handlers for socket:', socket.id);
+    
+    // Add catch-all event listener to debug what events are being received
+    socket.onAny((eventName, ...args) => {
+      console.log('🔔 [SOCKET] Event received:', {
+        eventName,
+        socketId: socket.id,
+        argsCount: args.length,
+        hasCallback: typeof args[args.length - 1] === 'function'
+      });
+    });
+    
     // Connection health handlers - DELEGATED TO CONNECTION SERVICE
     socket.on('pong', (timestamp) => {
       this.connectionService.handlePong(socket, timestamp);
@@ -389,6 +509,12 @@ class SocketController {
       
       // Delegate to RoomService
       this.roomService.handleJoinChat(socket, this.io, chatid).catch(error => {
+        console.error('❌ Error joining chat room:', error);
+        socket.emit('room_join_error', { 
+          error: error.message,
+          chatid: chatid,
+          type: 'room_join_failed'
+        });
         socket.emit('chat_error', { error: error.message });
       });
     });
@@ -409,14 +535,40 @@ class SocketController {
 
     // Messaging handlers - DELEGATED TO MESSAGING SERVICE WITH RATE LIMITING
     socket.on('send_message', (data, callback) => {
-      console.log("idhar aa gya bhai mai ")
+      console.log('🔴 [SOCKET] ========================================');
+      console.log('🔴 [SOCKET] send_message event received');
+      console.log('🔴 [SOCKET] Socket ID:', socket.id);
+      console.log('🔴 [SOCKET] User:', socket.user ? {
+        id: socket.user.id,
+        profileid: socket.user.profileid,
+        username: socket.user.username
+      } : 'NO USER');
+      console.log('🔴 [SOCKET] Data:', JSON.stringify(data, null, 2));
+      console.log('🔴 [SOCKET] Has callback:', !!callback);
+      
       this.messagingService.handleSendMessage(socket, this.io, data, callback).catch(error => {
+        console.error('❌ [SOCKET] Error in send_message handler:', error);
+        console.error('❌ [SOCKET] Error stack:', error.stack);
         if (callback) callback({ success: false, error: error.message });
       });
     });
 
     socket.on('send_message_batch', (data, callback) => {
+      console.log('🟡 [SOCKET-BATCH] ========================================');
+      console.log('🟡 [SOCKET-BATCH] send_message_batch event received');
+      console.log('🟡 [SOCKET-BATCH] Socket ID:', socket.id);
+      console.log('🟡 [SOCKET-BATCH] User:', socket.user ? {
+        id: socket.user.id,
+        profileid: socket.user.profileid,
+        username: socket.user.username
+      } : 'NO USER');
+      console.log('🟡 [SOCKET-BATCH] Batch size:', Array.isArray(data) ? data.length : 'NOT AN ARRAY');
+      console.log('🟡 [SOCKET-BATCH] Data:', JSON.stringify(data, null, 2));
+      console.log('🟡 [SOCKET-BATCH] Has callback:', !!callback);
+      
       this.messagingService.handleSendBatchedMessages(socket, this.io, data, callback).catch(error => {
+        console.error('❌ [SOCKET-BATCH] Error in send_message_batch handler:', error);
+        console.error('❌ [SOCKET-BATCH] Error stack:', error.stack);
         if (callback) callback({ success: false, error: error.message });
       });
     });
@@ -435,26 +587,39 @@ class SocketController {
         return;
       }
       
-      this.messagingService.handleTypingStart(socket, this.io, data).catch(error => {
+      // Extract chatid from data (can be string or object)
+      const chatid = typeof data === 'string' ? data : data?.chatid;
+      if (!chatid) {
+        console.error('❌ Invalid chatid in typing_start:', data);
+        return;
+      }
+      
+      this.messagingService.handleTypingStart(socket, this.io, chatid).catch(error => {
         this.log('error', 'Error handling typing_start:', { error: error.message });
       });
     });
 
     socket.on('typing_stop', (data) => {
-      this.messagingService.handleTypingStop(socket, this.io, data).catch(error => {
+      // Extract chatid from data (can be string or object)
+      const chatid = typeof data === 'string' ? data : data?.chatid;
+      if (!chatid) {
+        console.error('❌ Invalid chatid in typing_stop:', data);
+        return;
+      }
+      
+      this.messagingService.handleTypingStop(socket, this.io, chatid).catch(error => {
         this.log('error', 'Error handling typing_stop:', { error: error.message });
       });
     });
 
     // Message status handlers - DELEGATED TO MESSAGING SERVICE
     socket.on('message_delivered', (data) => {
-      this.messagingService.handleMessageDelivered(socket, this.io, data).catch(error => {
-        this.log('error', 'Error handling message_delivered:', { error: error.message });
-      });
+      // TODO: Implement handleMessageDelivered in SocketMessagingService
+      this.log('debug', 'Message delivered event received:', { data });
     });
 
     socket.on('message_read', (data) => {
-      this.messagingService.handleMessageRead(socket, this.io, data).catch(error => {
+      this.messagingService.handleMarkMessageRead(socket, this.io, data).catch(error => {
         this.log('error', 'Error handling message_read:', { error: error.message });
       });
     });

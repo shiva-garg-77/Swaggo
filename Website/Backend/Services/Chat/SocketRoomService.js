@@ -1,6 +1,7 @@
 import BaseService from '../System/BaseService.js';
 import ChatService from './ChatService.js';
 import Chat from '../../Models/FeedModels/Chat.js';
+import Message from '../../Models/FeedModels/Message.js';
 import LRUCache from '../../utils/LRUCache.js';
 import { logger } from '../../utils/SanitizedLogger.js';
 import { ValidationError, AuthorizationError, NotFoundError } from '../../Helper/UnifiedErrorHandling.js';
@@ -21,9 +22,10 @@ class SocketRoomService extends BaseService {
   constructor() {
     super();
     
-    // Services will be injected by the DI container
-    this.chatService = null;
-    this.eventBus = null;
+    // 🔧 FIX: Initialize services directly (not using DI container)
+    // ChatService is exported as a singleton instance, not a class
+    this.chatService = ChatService; // Use the singleton instance
+    this.eventBus = EventBus;
     
     // Memory-optimized maps with size limits
     this.mapSizeLimits = {

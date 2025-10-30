@@ -46,6 +46,11 @@ class ChatService extends BaseService {
       // 🔧 PAGINATION #83: Use the new paginated repository method
       const paginatedChats = await this.chatRepository.getChatsByProfileIdPaginated(sanitizedProfileId, paginationOptions);
 
+      // 🔧 FIX: Enrich chats with dynamic names
+      if (paginatedChats.data && paginatedChats.data.length > 0) {
+        paginatedChats.data = await this.enrichChatsWithDynamicNames(paginatedChats.data, sanitizedProfileId);
+      }
+
       return paginatedChats;
     }, 'getChatsPaginated', { profileId, paginationOptions });
   }
@@ -68,8 +73,78 @@ class ChatService extends BaseService {
       // 🔧 OPTIMIZATION #77: Use caching for frequently accessed data
       const chats = await this.chatRepository.getChatsByProfileId(sanitizedProfileId);
 
-      return chats;
+      // 🔧 FIX: Enrich chats with dynamic names
+      const enrichedChats = await this.enrichChatsWithDynamicNames(chats, sanitizedProfileId);
+
+      return enrichedChats;
     }, 'getChats', { profileId });
+  }
+
+  /**
+   * Enrich chats with dynamic names based on chat type and participants
+   * @param {Array} chats - Array of chat objects
+   * @param {string} currentUserProfileId - Current user's profile ID
+   * @returns {Promise<Array>} Enriched chats with dynamic names
+   */
+  async enrichChatsWithDynamicNames(chats, currentUserProfileId) {
+    if (!chats || chats.length === 0) return chats;
+
+    console.log('🔄 Enriching chats with dynamic names for user:', currentUserProfileId);
+
+    // Get all unique participant profile IDs
+    const allParticipantIds = new Set();
+    chats.forEach(chat => {
+      if (chat.participants) {
+        chat.participants.forEach(p => allParticipantIds.add(p.profileid));
+      }
+    });
+
+    console.log('👥 Found participant IDs:', Array.from(allParticipantIds));
+
+    // Fetch all participant profiles in one query
+    const Profile = (await import('../../Models/FeedModels/Profile.js')).default;
+    const participantProfiles = await Profile.find({
+      profileid: { $in: Array.from(allParticipantIds) }
+    }).select('profileid username name').lean();
+
+    console.log('📋 Fetched profiles:', participantProfiles.map(p => ({ id: p.profileid, username: p.username })));
+
+    // Create a map for quick lookup
+    const profileMap = new Map();
+    participantProfiles.forEach(profile => {
+      profileMap.set(profile.profileid, profile);
+    });
+
+    // Enrich each chat
+    const enrichedChats = chats.map(chat => {
+      let dynamicChatName = chat.chatName;
+      const originalName = chat.chatName;
+
+      // For direct chats, ALWAYS use the other participant's name
+      if (chat.chatType === 'direct') {
+        const otherParticipant = chat.participants?.find(p => p.profileid !== currentUserProfileId);
+        if (otherParticipant) {
+          const profile = profileMap.get(otherParticipant.profileid);
+          if (profile) {
+            // Always use the other participant's name for direct chats
+            dynamicChatName = profile.username || profile.name || 'Unknown User';
+            console.log(`✏️ Chat ${chat.chatid}: "${originalName}" → "${dynamicChatName}"`);
+          }
+        }
+      }
+
+      // For group chats without a custom name, use default
+      if (chat.chatType === 'group' && (!chat.chatName || chat.chatName === 'Group Chat')) {
+        dynamicChatName = 'Group Chat';
+      }
+
+      return {
+        ...chat,
+        chatName: dynamicChatName
+      };
+    });
+
+    return enrichedChats;
   }
 
   /**
@@ -143,19 +218,41 @@ class ChatService extends BaseService {
       console.log('🔍 Creating chat:', { participants, profileId, chatData });
       this.validateRequiredParams({ participants, profileId }, ['participants', 'profileId']);
 
-      // Step 1: Try to find profiles with the provided IDs
+      // Step 1: Try to find profiles with the provided IDs (check both profileid and userid)
       let participantProfiles = await Profile.find({
-        profileid: { $in: participants }
-      }).select('profileid username profilePic name isOnline lastSeen');
+        $or: [
+          { profileid: { $in: participants } },
+          { userid: { $in: participants } }
+        ]
+      }).select('profileid userid username profilePic name isOnline lastSeen');
 
       const foundProfileIds = participantProfiles.map(p => p.profileid);
-      const invalidIds = participants.filter(id => !foundProfileIds.includes(id));
+      const foundUserIds = participantProfiles.map(p => p.userid).filter(Boolean);
+      const allFoundIds = [...foundProfileIds, ...foundUserIds];
+      const invalidIds = participants.filter(id => !allFoundIds.includes(id));
 
       console.log('🔍 Profile lookup:', {
         requested: participants,
-        found: foundProfileIds,
+        foundByProfileId: foundProfileIds,
+        foundByUserId: foundUserIds,
         invalid: invalidIds
       });
+
+      // Step 1.5: If any IDs are invalid, try looking them up as usernames
+      if (invalidIds.length > 0) {
+        console.log('⚠️ Attempting to resolve invalid IDs as usernames:', invalidIds);
+        const profilesByUsername = await Profile.find({
+          username: { $in: invalidIds }
+        }).select('profileid userid username profilePic name isOnline lastSeen');
+
+        if (profilesByUsername.length > 0) {
+          console.log('✅ Found profiles by username:', profilesByUsername.map(p => ({ username: p.username, profileid: p.profileid })));
+          participantProfiles = [...participantProfiles, ...profilesByUsername];
+          // Update invalidIds to only include truly invalid ones
+          const resolvedUsernames = profilesByUsername.map(p => p.username);
+          invalidIds.splice(0, invalidIds.length, ...invalidIds.filter(id => !resolvedUsernames.includes(id)));
+        }
+      }
 
       // Step 2: Ensure creator is in participants (auto-add if missing)
       if (!foundProfileIds.includes(profileId)) {
@@ -179,12 +276,34 @@ class ChatService extends BaseService {
         invalidRemoved: invalidIds,
         creator: profileId,
         final: allParticipants,
-        count: allParticipants.length
+        count: allParticipants.length,
+        participantProfiles: participantProfiles.map(p => ({
+          profileid: p.profileid,
+          username: p.username
+        }))
       });
+
+      // ✅ CRITICAL: Check if trying to create chat with same user twice
+      if (allParticipants.length === 1) {
+        console.error('❌ Cannot create chat with same user twice:', {
+          participant: allParticipants[0],
+          originalParticipants: participants
+        });
+        throw new ValidationError('Cannot create a chat with yourself');
+      }
 
       // Step 4: Validate we have at least 2 participants for a chat
       if (allParticipants.length < 2) {
-        throw new ValidationError('A chat requires at least 2 participants');
+        const errorDetails = {
+          requestedParticipants: participants,
+          validParticipants: allParticipants,
+          invalidParticipants: invalidIds,
+          message: invalidIds.length > 0
+            ? `Invalid participant IDs: ${invalidIds.join(', ')}. These profiles do not exist.`
+            : 'A chat requires at least 2 participants'
+        };
+        console.error('❌ Chat creation failed - insufficient participants:', errorDetails);
+        throw new ValidationError(errorDetails.message);
       }
 
       // Determine chat type

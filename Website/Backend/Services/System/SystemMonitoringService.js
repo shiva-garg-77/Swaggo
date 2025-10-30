@@ -1,5 +1,6 @@
 import BaseService from './BaseService.js';
 import { logger } from '../../utils/SanitizedLogger.js';
+import EventBus from '../CQRS/EventBus.js';
 
 /**
  * @fileoverview System monitoring service that subscribes to events for system health tracking
@@ -16,8 +17,8 @@ class SystemMonitoringService extends BaseService {
    */
   constructor() {
     super();
-    // EventBus will be injected by the DI container
-    this.eventBus = null;
+    // 🔧 FIX: Initialize EventBus directly (not using DI container)
+    this.eventBus = EventBus;
     
     // System health metrics
     this.metrics = {

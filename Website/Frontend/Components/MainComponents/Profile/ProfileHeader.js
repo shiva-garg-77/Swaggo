@@ -5,6 +5,7 @@ import { useLazyQuery, useMutation } from '@apollo/client/react';
 import CreatePostModal from '../Post/CreatePostModal';
 import HighlightsSection from './HighlightsSection';
 import MacOSSettingsModal from '../../Settings/MacOSSettingsModal';
+import FollowRequestButton from './FollowRequestButton';
 import { ADD_CLOSE_FRIEND, REMOVE_CLOSE_FRIEND, IS_CLOSE_FRIEND } from '../../../lib/graphql/profileQueries';
 import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 

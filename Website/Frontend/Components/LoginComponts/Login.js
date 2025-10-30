@@ -8,12 +8,12 @@ import { toast } from 'react-hot-toast';
 import { useMobileDetection } from '../../hooks/useMobileDetection';
 import { ResponsiveContainer, ResponsiveCard } from '../Responsive/ResponsiveContainer';
 import { AccessibleButton, AccessibleInput } from '../Accessibility/AccessibilityUtils';
-import { useTranslation } from '../../hooks/useTranslation';
+import { useI18n } from '../../context/I18nContext';
 import LanguageSelector from '../LanguageSelector/LanguageSelector';
 import UnifiedThemeToggle from '../Theme/UnifiedThemeToggle';
 
 export default function Login() {
-  const { t } = useTranslation();
+  const { t } = useI18n();
   const { theme } = useUnifiedTheme();
   const { isMobile } = useMobileDetection();
   const { 

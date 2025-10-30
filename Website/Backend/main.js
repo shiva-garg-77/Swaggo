@@ -1263,9 +1263,7 @@ app.get('/api/file-processing-stats', async (req, res) => {
   }
 });
 
-// Scheduled Message Routes
-import ScheduledMessageRoutes from './Routes/api/v1/ScheduledMessageRoutes.js';
-app.use('/api/scheduled-messages', ScheduledMessageRoutes);
+
 
 // Keyword Alert Routes
 import KeywordAlertRoutes from './Routes/api/v1/KeywordAlertRoutes.js';
@@ -1279,10 +1277,6 @@ app.use('/api/cloud', CloudStorageRoutes);
 import PollRoutes from './Routes/api/v1/PollRoutes.js';
 app.use('/api/polls', PollRoutes);
 
-// Collaborative Editing Routes
-import CollaborativeEditingRoutes from './Routes/api/v1/CollaborativeEditingRoutes.js';
-app.use('/api/collab-docs', CollaborativeEditingRoutes);
-
 // Audit Log Routes
 import AuditLogRoutes from './Routes/api/v1/AuditLogRoutes.js';
 app.use('/api/audit-logs', AuditLogRoutes);
@@ -1294,14 +1288,6 @@ app.use('/api/rbac', RBACRoutes);
 // Translation Routes
 import TranslationRoutes from './Routes/api/v1/TranslationRoutes.js';
 app.use('/api/translate', TranslationRoutes);
-
-// Smart Categorization Routes
-import SmartCategorizationRoutes from './Routes/api/v1/SmartCategorizationRoutes.js';
-app.use('/api/categorize', SmartCategorizationRoutes);
-
-// Sentiment Analysis Routes
-import SentimentAnalysisRoutes from './Routes/api/v1/SentimentAnalysisRoutes.js';
-app.use('/api/sentiment', SentimentAnalysisRoutes);
 
 // Message Template Routes
 import MessageTemplateRoutes from './Routes/api/v1/MessageTemplateRoutes.js';
@@ -1539,6 +1525,17 @@ app.use(
   }),
   expressMiddleware(apolloServer, {
     context: async ({ req, res }) => {
+      // 🟣 [GRAPHQL] Incoming GraphQL request
+      console.log('🟣 [GRAPHQL] ========================================');
+      console.log('🟣 [GRAPHQL] Incoming request:', {
+        method: req.method,
+        url: req.url,
+        hasBody: !!req.body,
+        bodyKeys: req.body ? Object.keys(req.body) : [],
+        operationName: req.body?.operationName,
+        query: req.body?.query?.substring(0, 100) + '...'
+      });
+      
       // 🔒 SECURITY ENHANCED: Comprehensive authentication context with validation
       let user = null;
       let authMethod = 'none';
@@ -2130,11 +2127,6 @@ import SocketController from './Controllers/Messaging/SocketController.js';
 const socketController = new SocketController(io);
 console.log('✅ BACKEND: SocketController initialized');
 
-// Initialize Collaborative Editing Service
-import CollaborativeEditingService from './Services/Features/CollaborativeEditingService.js';
-CollaborativeEditingService.initialize(io);
-CollaborativeEditingService.startCleanup();
-
 // 🔧 CRITICAL FIX #4: Single connection handler in SocketController
 // The SocketController.setupConnectionHandling() method already registers the connection handler
 // No need for duplicate handler here
@@ -2160,7 +2152,6 @@ httpServer.listen(port, '0.0.0.0', () => {
     alive: `http://localhost:${port}/alive`
   });
   
-  // Start scheduled message service
   ScheduledMessageService.start();
 });
 

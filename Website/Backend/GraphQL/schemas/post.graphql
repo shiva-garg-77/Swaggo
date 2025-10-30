@@ -33,6 +33,9 @@ extend type Mutation {
   savePost(profileid: String!, postid: String!): Post
   unsavePost(profileid: String!, postid: String!): Post
   sharePost(postid: String!, profileid: String!): Post
+  ReportPost(profileid: String!, postid: String!, reason: String!, description: String): Report
+  ReportProfile(profileid: String!, reportedprofileid: String!, reason: String!, description: String): Report
+  ReportStory(profileid: String!, storyid: String!, reason: String!, description: String): Report
   
   # Comment mutations
   createCommentWithMentions(input: CreateCommentInput!): Comment

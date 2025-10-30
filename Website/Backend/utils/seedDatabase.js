@@ -28,7 +28,12 @@ export async function seedDatabase() {
     
     // Create test user
     const hashedPassword = await bcrypt.hash('testpassword', 12);
+    const userId = uuidv4();
+    const profileId = userId; // Use same ID
+    
     const testUser = new User({
+      id: userId,
+      profileid: profileId, // ✅ Link to profile
       username: 'testuser',
       email: 'test@swaggo.com',
       password: hashedPassword,
@@ -42,7 +47,8 @@ export async function seedDatabase() {
     
     // Create test profile
     const testProfile = new Profile({
-      profileid: uuidv4(),
+      profileid: profileId,
+      userid: userId, // ✅ Link to user
       username: testUser.username,
       email: testUser.email,
       name: 'Test User',
@@ -99,7 +105,12 @@ export async function seedDatabase() {
     }
     
     // Create additional test user for testing interactions
+    const secondUserId = uuidv4();
+    const secondProfileId = secondUserId; // Use same ID
+    
     const secondUser = new User({
+      id: secondUserId,
+      profileid: secondProfileId, // ✅ Link to profile
       username: 'johndoe',
       email: 'john@swaggo.com',
       password: await bcrypt.hash('password123', 12),
@@ -111,7 +122,8 @@ export async function seedDatabase() {
     await secondUser.save();
     
     const secondProfile = new Profile({
-      profileid: uuidv4(),
+      profileid: secondProfileId,
+      userid: secondUserId, // ✅ Link to user
       username: secondUser.username,
       email: secondUser.email,
       name: 'John Doe',

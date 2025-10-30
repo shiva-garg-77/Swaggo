@@ -4,8 +4,7 @@ import Chat from '../../Models/FeedModels/Chat.js';
 import Message from '../../Models/FeedModels/Message.js';
 import Profile from '../../Models/FeedModels/Profile.js';
 import LRUCache from '../../utils/LRUCache.js';
-import XSSSanitizer from '../../utils/XSSSanitizer.js';
-import { logger } from '../../utils/SanitizedLogger.js';
+import XSSSanitizer from '../../Utils/XSSSanitizer.js';
 import { ValidationError, AuthorizationError, NotFoundError } from '../../Helper/UnifiedErrorHandling.js';
 import { v4 as uuidv4 } from 'uuid';
 import EventBus from '../CQRS/EventBus.js';
@@ -24,29 +23,32 @@ class SocketMessagingService extends BaseService {
    */
   constructor() {
     super();
-    
-    // Services will be injected by the DI container
-    this.messageService = null;
-    this.eventBus = null;
-    
+
+    // Initialize services directly (not using DI container)
+    console.log('🔧 [SOCKET-MSG-SERVICE] Initializing SocketMessagingService...');
+    this.messageService = new MessageService();
+    console.log('✅ [SOCKET-MSG-SERVICE] MessageService initialized');
+    this.eventBus = EventBus;
+    console.log('✅ [SOCKET-MSG-SERVICE] EventBus initialized');
+
     // Memory-optimized maps with size limits
     this.mapSizeLimits = {
       offlineMessageQueue: 5000,
       recentMessageIds: 5000,
       typingTimeouts: 1000
     };
-    
+
     // Offline message queue with TTL management
     this.offlineMessageQueue = new LRUCache(this.mapSizeLimits.offlineMessageQueue); // profileid -> [messages]
-    
+
     // Duplicate detection - burst protection only
     this.recentMessageIds = new LRUCache(this.mapSizeLimits.recentMessageIds); // clientMessageId+chatid -> timestamp
     this.recentMessageIdsMaxSize = 5000; // Reduced memory footprint
     this.recentMessageIdsWindowMs = 30000; // 30 seconds burst protection
-    
+
     // Typing indicators auto-stop timeouts
     this.typingTimeouts = new Map(); // `${profileid}_${chatid}` -> timeout handle
-    
+
     // Resource limits for memory management
     this.resourceLimits = {
       maxOfflineMessagesPerUser: 25, // Reduced to prevent memory bloat
@@ -58,15 +60,16 @@ class SocketMessagingService extends BaseService {
         recentIds: 30 * 1000 // 30 seconds
       }
     };
-    
+
     // Initialize cleanup systems
     this.cleanupIntervals = {
       messages: null,
       recentIds: null
     };
-    
-    // Initialize cleanup systems (will be called after injection)
-    // this.initializeCleanupSystems();
+
+    // Initialize cleanup systems
+    this.initializeCleanupSystems();
+    console.log('✅ [SOCKET-MSG-SERVICE] Cleanup systems initialized');
   }
 
   /**
@@ -74,17 +77,17 @@ class SocketMessagingService extends BaseService {
    */
   initializeCleanupSystems() {
     this.logger.info('🧹 Initializing messaging cleanup systems...');
-    
+
     // Offline messages cleanup
     this.cleanupIntervals.messages = setInterval(() => {
       this.cleanupOfflineMessagesEnhanced();
     }, this.resourceLimits.cleanupInterval.messages);
-    
+
     // Recent message IDs cleanup
     this.cleanupIntervals.recentIds = setInterval(() => {
       this.cleanupMessageProcessingCache();
     }, this.resourceLimits.cleanupInterval.recentIds);
-    
+
     this.logger.info('✅ Messaging cleanup systems initialized');
   }
 
@@ -97,18 +100,40 @@ class SocketMessagingService extends BaseService {
    * @returns {Promise<void>}
    */
   async handleSendMessage(socket, io, data, callback) {
-    return this.handleOperation(async () => {
+    console.log('🟠 [SOCKET-SERVICE] handleSendMessage called');
+    console.log('🟠 [SOCKET-SERVICE] Socket user:', socket.user ? {
+      id: socket.user.id,
+      profileid: socket.user.profileid,
+      username: socket.user.username
+    } : 'NO USER');
+    console.log('🟠 [SOCKET-SERVICE] Data:', JSON.stringify(data, null, 2));
+
+    try {
+      return await this.handleOperation(async () => {
+        console.log('🟠 [SOCKET-SERVICE] Starting handleOperation');
+
       const { chatid, content, messageType = 'text', clientMessageId, replyTo, mentions = [] } = data;
       const profileId = socket.user.profileid;
       const username = socket.user.username;
 
+      console.log('🟠 [SOCKET-SERVICE] Extracted data:', {
+        chatid,
+        profileId,
+        username,
+        messageType,
+        contentLength: content?.length,
+        clientMessageId
+      });
+
       // Validate required fields
+      console.log('🟠 [SOCKET-SERVICE] Validating required params');
       this.validateRequiredParams({ chatid, content, profileId }, ['chatid', 'content', 'profileId']);
+      console.log('🟠 [SOCKET-SERVICE] Validation passed');
 
       // Check for duplicate message (burst protection)
       const duplicateKey = `${clientMessageId}_${chatid}`;
       const now = Date.now();
-      
+
       if (this.recentMessageIds.has(duplicateKey)) {
         const lastTimestamp = this.recentMessageIds.get(duplicateKey);
         if (now - lastTimestamp < this.recentMessageIdsWindowMs) {
@@ -117,12 +142,12 @@ class SocketMessagingService extends BaseService {
             chatid,
             timeSinceFirst: now - lastTimestamp
           });
-          
+
           if (callback) callback({ success: false, error: 'Duplicate message' });
           return;
         }
       }
-      
+
       // Store message ID for duplicate detection
       this.recentMessageIds.set(duplicateKey, now);
 
@@ -143,17 +168,31 @@ class SocketMessagingService extends BaseService {
           replyTo,
           mentions
         };
-        
+
         const savedMessage = await this.messageService.sendMessage(chatid, profileId, messageData);
 
         // Emit message to all participants in the chat
+        // Format message to match frontend expectations
         const messageForEmit = {
-          ...savedMessage,
-          senderUsername: username,
-          timestamp: new Date().toISOString()
+          chat: {
+            chatid: chatid
+          },
+          message: {
+            messageid: savedMessage.messageid,
+            content: savedMessage.content,
+            messageType: savedMessage.messageType,
+            senderid: {
+              profileid: profileId,
+              username: username
+            },
+            createdAt: savedMessage.createdAt || new Date().toISOString(),
+            replyTo: savedMessage.replyTo,
+            mentions: savedMessage.mentions
+          }
         };
 
         // Send to all participants
+        console.log('📤 Broadcasting message_received to room:', chatid, messageForEmit);
         io.to(chatid).emit('message_received', messageForEmit);
 
         // Handle offline participants - queue messages
@@ -172,7 +211,7 @@ class SocketMessagingService extends BaseService {
           messageId: savedMessage.messageid,
           messageType
         });
-        
+
         // Emit message sent event
         this.eventBus.emit('message.sent', {
           messageId: savedMessage.messageid,
@@ -201,7 +240,16 @@ class SocketMessagingService extends BaseService {
 
         throw error;
       }
-    }, 'handleSendMessage', { profileId: socket.user?.profileid, chatid: data.chatid });
+      }, 'handleSendMessage', { profileId: socket.user?.profileid, chatid: data.chatid });
+    } catch (error) {
+      console.error('❌ [SOCKET-SERVICE] CRITICAL ERROR in handleSendMessage:', error);
+      console.error('❌ [SOCKET-SERVICE] Error message:', error.message);
+      console.error('❌ [SOCKET-SERVICE] Error stack:', error.stack);
+      if (callback) {
+        callback({ success: false, error: error.message });
+      }
+      throw error;
+    }
   }
 
   /**
@@ -231,10 +279,10 @@ class SocketMessagingService extends BaseService {
           await this.handleSendMessage(socket, io, messageData, null);
           results.push({ success: true, clientMessageId: messageData.clientMessageId });
         } catch (error) {
-          results.push({ 
-            success: false, 
-            error: error.message, 
-            clientMessageId: messageData.clientMessageId 
+          results.push({
+            success: false,
+            error: error.message,
+            clientMessageId: messageData.clientMessageId
           });
         }
       }
@@ -277,7 +325,7 @@ class SocketMessagingService extends BaseService {
 
       // Set auto-stop timeout for typing indicator
       const timeoutKey = `${profileId}_${chatid}`;
-      
+
       // Clear existing timeout if any
       if (this.typingTimeouts.has(timeoutKey)) {
         clearTimeout(this.typingTimeouts.get(timeoutKey));
@@ -292,7 +340,7 @@ class SocketMessagingService extends BaseService {
           timestamp: new Date().toISOString(),
           reason: 'auto_timeout'
         });
-        
+
         this.typingTimeouts.delete(timeoutKey);
       }, 10000);
 
@@ -418,7 +466,7 @@ class SocketMessagingService extends BaseService {
       // Get online users from socket rooms
       const onlineUserIds = new Set();
       const room = io.sockets.adapter.rooms.get(chat.chatid);
-      
+
       if (room) {
         for (const socketId of room) {
           const socket = io.sockets.sockets.get(socketId);
@@ -445,8 +493,11 @@ class SocketMessagingService extends BaseService {
    */
   async queueOfflineMessage(profileId, message) {
     return this.handleOperation(async () => {
+      // Convert message to plain object if it's a Mongoose document
+      const messageObj = message.toObject ? message.toObject() : message;
+      
       const queuedMessage = {
-        ...message.toObject(),
+        ...messageObj,
         queuedAt: new Date()
       };
 
@@ -459,7 +510,7 @@ class SocketMessagingService extends BaseService {
       }
 
       this.offlineMessageQueue.set(profileId, userQueue);
-      
+
       this.logger.debug(`📥 Message queued for offline user ${profileId}`, {
         messageId: message.messageid,
         queueSize: userQueue.length
@@ -476,14 +527,24 @@ class SocketMessagingService extends BaseService {
   async deliverOfflineMessages(profileId, socket) {
     return this.handleOperation(async () => {
       const userQueue = this.offlineMessageQueue.get(profileId);
-      
+
       if (!userQueue || userQueue.length === 0) {
         return;
       }
 
       this.logger.info(`📬 Delivering ${userQueue.length} offline messages to user ${profileId}`);
 
-      // Send each queued message
+      // Send all queued messages at once
+      socket.emit('offline_messages', {
+        messages: userQueue.map(message => ({
+          ...message,
+          deliveredAt: new Date().toISOString(),
+          wasOffline: true
+        })),
+        count: userQueue.length
+      });
+
+      // Also send individual events for backward compatibility
       for (const message of userQueue) {
         socket.emit('offline_message_delivered', {
           ...message,
@@ -530,45 +591,51 @@ class SocketMessagingService extends BaseService {
       const now = Date.now();
       let totalCleaned = 0;
       let totalMessages = 0;
-      
-      for (const [profileId, messages] of this.offlineMessageQueue) {
+
+      // LRUCache uses internal Map, iterate over it
+      const entries = Array.from(this.offlineMessageQueue.cache.entries());
+
+      for (const [profileId, messages] of entries) {
+        if (!Array.isArray(messages)) continue;
+
         const originalCount = messages.length;
         totalMessages += originalCount;
-        
+
         // Remove messages older than TTL
         const filteredMessages = messages.filter(msg => {
           const age = now - new Date(msg.queuedAt).getTime();
           return age < this.resourceLimits.offlineMessageTtl;
         });
-        
+
         // Enforce per-user limit
         if (filteredMessages.length > this.resourceLimits.maxOfflineMessagesPerUser) {
           // Keep only the most recent messages
           filteredMessages.splice(0, filteredMessages.length - this.resourceLimits.maxOfflineMessagesPerUser);
         }
-        
+
         const cleanedCount = originalCount - filteredMessages.length;
         totalCleaned += cleanedCount;
-        
+
         if (filteredMessages.length === 0) {
           this.offlineMessageQueue.delete(profileId);
         } else {
           this.offlineMessageQueue.set(profileId, filteredMessages);
         }
       }
-      
+
       // Enforce global offline user limit
-      if (this.offlineMessageQueue.size > this.resourceLimits.maxOfflineUsers) {
-        const excess = this.offlineMessageQueue.size - this.resourceLimits.maxOfflineUsers;
-        const oldestUsers = Array.from(this.offlineMessageQueue.keys()).slice(0, excess);
+      const currentSize = this.offlineMessageQueue.size();
+      if (currentSize > this.resourceLimits.maxOfflineUsers) {
+        const excess = currentSize - this.resourceLimits.maxOfflineUsers;
+        const oldestUsers = Array.from(this.offlineMessageQueue.cache.keys()).slice(0, excess);
         oldestUsers.forEach(userId => this.offlineMessageQueue.delete(userId));
         totalCleaned += excess;
       }
-      
+
       if (totalCleaned > 0) {
         this.logger.info(`🧹 Cleaned ${totalCleaned} offline messages`, {
           totalMessages,
-          remainingUsers: this.offlineMessageQueue.size
+          remainingUsers: this.offlineMessageQueue.size()
         });
       }
     }, 'cleanupOfflineMessagesEnhanced');
@@ -581,20 +648,20 @@ class SocketMessagingService extends BaseService {
     return this.handleOperation(() => {
       const now = Date.now();
       let cleanedCount = 0;
-      
+
       // Clean entries older than window (30 seconds)
       const entries = [];
       for (const [key, value] of this.recentMessageIds.cache.entries()) {
         entries.push([key, value]);
       }
-      
+
       for (const [key, timestamp] of entries) {
         if (now - timestamp > this.recentMessageIdsWindowMs) {
           this.recentMessageIds.delete(key);
           cleanedCount++;
         }
       }
-      
+
       if (cleanedCount > 0) {
         this.logger.debug(`🧹 Cleaned up ${cleanedCount} old burst duplicate entries`);
       }
@@ -626,24 +693,24 @@ class SocketMessagingService extends BaseService {
   async gracefulShutdown() {
     return this.handleOperation(async () => {
       this.logger.info('🛑 SocketMessagingService graceful shutdown initiated...');
-      
+
       // Clear cleanup intervals
       Object.values(this.cleanupIntervals).forEach(interval => {
         if (interval) {
           clearInterval(interval);
         }
       });
-      
+
       // Clear all typing timeouts
       for (const timeout of this.typingTimeouts.values()) {
         clearTimeout(timeout);
       }
       this.typingTimeouts.clear();
-      
+
       // Clear all maps
       this.offlineMessageQueue.clear();
       this.recentMessageIds.clear();
-      
+
       this.logger.info('✅ SocketMessagingService shutdown completed');
     }, 'gracefulShutdown');
   }

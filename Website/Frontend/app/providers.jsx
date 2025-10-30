@@ -237,7 +237,6 @@ const Providers = ({ children }) => {
                   <GraphQLAuthProvider>
                     <PerfectSocketProvider>
                       {children}
-                      {process.env.NODE_ENV === 'development' && <DevTools />}
                       <Toaster {...getToastConfig()} />
                     </PerfectSocketProvider>
                   </GraphQLAuthProvider>

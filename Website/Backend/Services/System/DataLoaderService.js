@@ -426,11 +426,32 @@ class DataLoaderService {
         messageid: { $in: messageIds },
         isDeleted: false 
       })
-      .select('_id messageid chatid senderid content createdAt updatedAt replyTo mentions') // 🔧 GRAPHQL QUERY BATCHING OPTIMIZATION #151: Only select needed fields
-      .populate('senderid', 'username profilePic')
-      .populate('mentions', 'username profilePic')
+      .select('_id messageid chatid senderid messageType content createdAt updatedAt replyTo mentions attachments reactions readBy isEdited messageStatus stickerData gifData voiceData fileData') // Select all needed fields
       .lean()
       .exec();
+      
+      // Manually populate sender and mentions using profileid (not _id)
+      const senderIds = [...new Set(messages.map(m => m.senderid).filter(Boolean))];
+      const mentionIds = [...new Set(messages.flatMap(m => m.mentions || []).filter(Boolean))];
+      const allProfileIds = [...new Set([...senderIds, ...mentionIds])];
+      
+      if (allProfileIds.length > 0) {
+        const profiles = await Profile.find({ profileid: { $in: allProfileIds } })
+          .select('profileid username profilePic')
+          .lean();
+        
+        const profileMap = new Map(profiles.map(p => [p.profileid, p]));
+        
+        // Attach populated data
+        messages.forEach(message => {
+          if (message.senderid) {
+            message.sender = profileMap.get(message.senderid);
+          }
+          if (message.mentions && message.mentions.length > 0) {
+            message.mentionedProfiles = message.mentions.map(id => profileMap.get(id)).filter(Boolean);
+          }
+        });
+      }
       
       const messageMap = new Map();
       messages.forEach(message => messageMap.set(message.messageid, message));

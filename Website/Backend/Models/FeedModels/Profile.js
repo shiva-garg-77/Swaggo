@@ -4,6 +4,14 @@ import XSSSanitizer from "../../Utils/XSSSanitizer.js";
 const ProfileSchema = new mongoose.Schema(
   {
     profileid: { type: String, required: true },
+    
+    // Cross-reference to User collection
+    userid: {
+      type: String,
+      index: true,
+      ref: 'User'
+    },
+    
     username: {
       type: String,
       required: true,

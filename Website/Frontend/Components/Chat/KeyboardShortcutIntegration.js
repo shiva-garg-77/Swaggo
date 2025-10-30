@@ -74,6 +74,9 @@ const KeyboardShortcutIntegration = ({
   // Simple keyboard shortcut registration without external hooks
   const registerShortcut = useCallback((keys, id, description, handler) => {
     const handleKeyDown = (event) => {
+      // Safety check for event.key
+      if (!event || !event.key) return;
+      
       const isCtrl = event.ctrlKey || event.metaKey;
       const isShift = event.shiftKey;
       const isAlt = event.altKey;

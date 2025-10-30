@@ -24,6 +24,13 @@ const UserSchema = new mongoose.Schema({
     index: true
   },
   
+  // Cross-reference to Profile collection
+  profileid: {
+    type: String,
+    index: true,
+    ref: 'Profile'
+  },
+  
   username: {
     type: String,
     required: true,

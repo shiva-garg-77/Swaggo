@@ -22,10 +22,14 @@ class MessageService extends BaseService {
    */
   constructor() {
     super();
-    // Repositories will be injected by the DI container
-    this.messageRepository = null;
-    this.chatRepository = null;
-    this.profileRepository = null;
+    // Initialize repositories directly (not using DI container)
+    console.log('🔧 [MESSAGE-SERVICE] Initializing MessageService...');
+    this.messageRepository = new MessageRepository();
+    console.log('✅ [MESSAGE-SERVICE] MessageRepository initialized');
+    this.chatRepository = new ChatRepository();
+    console.log('✅ [MESSAGE-SERVICE] ChatRepository initialized');
+    this.profileRepository = new ProfileRepository();
+    console.log('✅ [MESSAGE-SERVICE] ProfileRepository initialized');
   }
 
   /**
@@ -36,23 +40,64 @@ class MessageService extends BaseService {
    * @returns {Promise<Object>} Created message object
    */
   async sendMessage(chatId, profileId, messageData) {
+    console.log('🟢 [SERVICE] sendMessage called');
+    console.log('🟢 [SERVICE] Parameters:', {
+      chatId,
+      profileId,
+      messageType: messageData?.messageType,
+      contentLength: messageData?.content?.length,
+      hasAttachments: messageData?.attachments?.length > 0
+    });
+    
     return this.handleOperation(async () => {
-      this.validateRequiredParams({ chatId, profileId, messageData }, ['chatId', 'profileId', 'messageData']);
+      console.log('🟢 [SERVICE] Starting handleOperation');
       
-      const { content, messageType = 'text', attachments = [], replyTo, mentions = [] } = messageData;
+      this.validateRequiredParams({ chatId, profileId, messageData }, ['chatId', 'profileId', 'messageData']);
+      console.log('🟢 [SERVICE] Parameters validated');
+      
+      const { content, messageType = 'text', attachments = [], replyTo, mentions = [], clientMessageId } = messageData;
 
-      // Check if user has access to this chat
-      const chat = await this.chatRepository.getChatByIdAndProfileId(chatId, profileId);
-      if (!chat || !chat.isParticipant(profileId)) {
+      // Check if user has access to this chat (lean query for validation)
+      console.log('🟢 [SERVICE] Checking chat access for chatId:', chatId, 'profileId:', profileId);
+      const chatLean = await this.chatRepository.getChatByIdAndProfileId(chatId, profileId);
+      console.log('🟢 [SERVICE] Chat found:', chatLean ? {
+        chatid: chatLean.chatid,
+        chatType: chatLean.chatType,
+        participantCount: chatLean.participants?.length
+      } : 'NULL');
+      
+      if (!chatLean) {
+        console.error('❌ [SERVICE] Chat not found or user has no access');
         throw new AuthorizationError('Cannot send message to this chat');
       }
 
+      // Check if user is a participant (manual check since lean object doesn't have methods)
+      console.log('🟢 [SERVICE] Checking if user is participant');
+      console.log('🟢 [SERVICE] Participants:', chatLean.participants?.map(p => ({
+        profileid: p.profileid,
+        isMatch: p.profileid === profileId
+      })));
+      
+      const isParticipant = chatLean.participants.some(p => p.profileid === profileId);
+      console.log('🟢 [SERVICE] Is participant:', isParticipant);
+      
+      if (!isParticipant) {
+        console.error('❌ [SERVICE] User is not a participant in this chat');
+        throw new AuthorizationError('You are not a participant in this chat');
+      }
+
       // Sanitize message content to prevent XSS attacks
+      console.log('🟢 [SERVICE] Sanitizing content');
       const sanitizedContent = XSSSanitizer.sanitizeMessageContent(content);
+      console.log('🟢 [SERVICE] Content sanitized, length:', sanitizedContent?.length);
 
       // Create new message
+      const messageId = uuidv4();
+      console.log('🟢 [SERVICE] Creating new message with ID:', messageId);
+      
       const newMessage = new Message({
-        messageid: uuidv4(),
+        messageid: messageId,
+        clientMessageId: clientMessageId || messageId, // Use clientMessageId from frontend or fallback to messageId
         chatid: chatId,
         senderid: profileId,
         messageType,
@@ -63,25 +108,42 @@ class MessageService extends BaseService {
         messageStatus: 'sent'
       });
 
+      console.log('🟢 [SERVICE] Saving message to database');
       await newMessage.save();
+      console.log('✅ [SERVICE] Message saved successfully');
 
-      // Update chat's last message
-      chat.lastMessage = newMessage.messageid;
-      chat.lastMessageAt = new Date();
-      
-      // Increment unread count for all participants except sender
-      chat.participants.forEach(participant => {
-        if (participant.profileid !== profileId) {
-          participant.unreadCount = (participant.unreadCount || 0) + 1;
-        }
-      });
-      
-      await chat.save();
+      // Update chat's last message (need to fetch non-lean document for save)
+      console.log('🟢 [SERVICE] Updating chat last message');
+      const chat = await Chat.findOne({ chatid: chatId });
+      if (chat) {
+        console.log('🟢 [SERVICE] Chat document found, updating');
+        chat.lastMessage = newMessage.messageid;
+        chat.lastMessageAt = new Date();
+        
+        // Increment unread count for all participants except sender
+        chat.participants.forEach(participant => {
+          if (participant.profileid !== profileId) {
+            participant.unreadCount = (participant.unreadCount || 0) + 1;
+          }
+        });
+        
+        await chat.save();
+        console.log('✅ [SERVICE] Chat updated successfully');
+      } else {
+        console.warn('⚠️ [SERVICE] Chat document not found for update');
+      }
       
       // Emit message to all participants (this would be handled by SocketController in the real implementation)
       // For now, we'll just return the message
+      console.log('🟢 [SERVICE] Formatting and returning message');
       
-      return this.formatEntity(newMessage);
+      const formattedMessage = this.formatEntity(newMessage);
+      console.log('✅ [SERVICE] sendMessage completed successfully:', {
+        messageid: formattedMessage?.messageid,
+        chatid: formattedMessage?.chatid
+      });
+      
+      return formattedMessage;
     }, 'sendMessage', { chatId, profileId });
   }
 
@@ -137,8 +199,12 @@ class MessageService extends BaseService {
       }
       
       // Check if user is the sender or an admin
-      const chat = await this.chatRepository.getChatByIdAndProfileId(message.chatid, profileId);
-      const isAdmin = chat.adminIds.includes(profileId);
+      const chatLean = await this.chatRepository.getChatByIdAndProfileId(message.chatid, profileId);
+      if (!chatLean) {
+        throw new AuthorizationError('Cannot access this chat');
+      }
+      
+      const isAdmin = chatLean.adminIds && chatLean.adminIds.some(id => id === profileId || id.toString() === profileId);
       
       if (message.senderid !== profileId && !isAdmin) {
         throw new AuthorizationError('Cannot delete this message');
@@ -184,9 +250,15 @@ class MessageService extends BaseService {
       }
       
       // Check if user has access to this chat
-      const chat = await this.chatRepository.getChatByIdAndProfileId(message.chatid, profileId);
-      if (!chat || !chat.isParticipant(profileId)) {
+      const chatLean = await this.chatRepository.getChatByIdAndProfileId(message.chatid, profileId);
+      if (!chatLean) {
         throw new AuthorizationError('Cannot react to messages in this chat');
+      }
+      
+      // Check if user is a participant (manual check since lean object doesn't have methods)
+      const isParticipant = chatLean.participants.some(p => p.profileid === profileId);
+      if (!isParticipant) {
+        throw new AuthorizationError('You are not a participant in this chat');
       }
       
       // Add reaction
@@ -226,9 +298,15 @@ class MessageService extends BaseService {
       }
       
       // Check if user has access to this chat
-      const chat = await this.chatRepository.getChatByIdAndProfileId(message.chatid, profileId);
-      if (!chat || !chat.isParticipant(profileId)) {
+      const chatLean = await this.chatRepository.getChatByIdAndProfileId(message.chatid, profileId);
+      if (!chatLean) {
         throw new AuthorizationError('Cannot remove reactions in this chat');
+      }
+      
+      // Check if user is a participant (manual check since lean object doesn't have methods)
+      const isParticipant = chatLean.participants.some(p => p.profileid === profileId);
+      if (!isParticipant) {
+        throw new AuthorizationError('You are not a participant in this chat');
       }
       
       // Remove reaction
@@ -259,9 +337,15 @@ class MessageService extends BaseService {
       }
       
       // Check if user has access to this chat
-      const chat = await this.chatRepository.getChatByIdAndProfileId(message.chatid, profileId);
-      if (!chat || !chat.isParticipant(profileId)) {
+      const chatLean = await this.chatRepository.getChatByIdAndProfileId(message.chatid, profileId);
+      if (!chatLean) {
         throw new AuthorizationError('Cannot mark messages as read in this chat');
+      }
+      
+      // Check if user is a participant (manual check since lean object doesn't have methods)
+      const isParticipant = chatLean.participants.some(p => p.profileid === profileId);
+      if (!isParticipant) {
+        throw new AuthorizationError('You are not a participant in this chat');
       }
       
       // Update read status
@@ -278,11 +362,14 @@ class MessageService extends BaseService {
       
       await message.save();
       
-      // Update chat unread count
-      const participantIndex = chat.participants.findIndex(p => p.profileid === profileId);
-      if (participantIndex !== -1 && chat.participants[participantIndex].unreadCount > 0) {
-        chat.participants[participantIndex].unreadCount -= 1;
-        await chat.save();
+      // Update chat unread count (need to fetch non-lean document for save)
+      const chat = await Chat.findOne({ chatid: message.chatid });
+      if (chat) {
+        const participantIndex = chat.participants.findIndex(p => p.profileid === profileId);
+        if (participantIndex !== -1 && chat.participants[participantIndex].unreadCount > 0) {
+          chat.participants[participantIndex].unreadCount -= 1;
+          await chat.save();
+        }
       }
       
       return this.formatEntity(message);

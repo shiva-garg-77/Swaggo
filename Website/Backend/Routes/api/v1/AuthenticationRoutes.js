@@ -199,8 +199,11 @@ router.post('/signup', [
     });
     
     // Create corresponding profile (CRITICAL: This was missing!)
+    const profileId = newUser.id; // Use same ID for both
+    
     const newProfile = new Profile({
-      profileid: uuidv4(),
+      profileid: profileId,
+      userid: newUser.id, // ✅ Link to user
       username: username.toLowerCase(),
       email: email.toLowerCase(),
       name: displayName || username,
@@ -214,6 +217,11 @@ router.post('/signup', [
     });
     
     await newProfile.save();
+    
+    // ✅ Link user to profile
+    newUser.profileid = profileId;
+    await newUser.save();
+    
     console.log(`✅ Created profile for user: ${username} with profileid: ${newProfile.profileid}`);
     
     // Generate device fingerprint and add as trusted device

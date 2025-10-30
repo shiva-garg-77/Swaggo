@@ -47,6 +47,10 @@ class AuthService extends BaseService {
         throw new ValidationError('Password must be at least 12 characters long');
       }
       
+      // Generate IDs
+      const userId = uuidv4();
+      const profileId = userId; // Use same ID for both
+      
       // Create user using the secure User model method
       const newUser = await User.createSecureUser({
         username,
@@ -54,11 +58,16 @@ class AuthService extends BaseService {
         password
       });
       
+      // Set the IDs and link
+      newUser.id = userId;
+      newUser.profileid = profileId; // ✅ Link to profile
+      
       await newUser.save();
       
       // Create profile
       const newProfile = new Profile({
-        profileid: uuidv4(),
+        profileid: profileId,
+        userid: userId, // ✅ Link to user
         username,
         email,
         profilePic: 'https://www.tenforums.com/attachments/user-accounts-family-safety/322690d1615743307t-user-account-image-log-user.png',

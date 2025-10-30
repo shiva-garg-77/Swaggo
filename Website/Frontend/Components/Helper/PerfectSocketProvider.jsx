@@ -67,25 +67,25 @@ export const SOCKET_CONFIG = {
   MAX_RECONNECT_DELAY: 30000,             // 30 seconds
   BACKOFF_MULTIPLIER: 1.5,
   JITTER_RANGE: 1000,                     // Random 0-1000ms
-  
+
   // Queue settings
   MAX_QUEUE_SIZE: 100,
   MAX_MESSAGE_AGE: 300000,                // 5 minutes
   MAX_PENDING_SIZE: 50,
   MAX_PENDING_AGE: 300000,                // 5 minutes
-  
+
   // Heartbeat settings
   HEARTBEAT_INTERVAL: 30000,              // 30 seconds
   HEARTBEAT_TIMEOUT: 10000,               // 10 seconds
-  
+
   // Typing indicator settings
   TYPING_TIMEOUT: 3000,                   // 3 seconds
   TYPING_DEBOUNCE: 500,                   // 500ms debounce
-  
+
   // Performance settings
   BATCH_MESSAGE_DELAY: 10,                // 10ms between batch messages
   CLEANUP_INTERVAL: 60000,                // 1 minute
-  
+
   // Feature flags
   ENABLE_HEARTBEAT: true,
   ENABLE_OFFLINE_QUEUE: true,
@@ -123,44 +123,36 @@ export const useSocket = () => {
  */
 export default function PerfectSocketProvider({ children }) {
   console.log('🚀 PerfectSocketProvider: COMPONENT INITIALIZING');
-  
+
   // ========================================
   // AUTH INTEGRATION
   // ========================================
-  
+
   const auth = useFixedSecureAuth();
   const { isAuthenticated, user, isLoading, _debug } = auth;
-  
-  console.log('🔐 PerfectSocketProvider: Auth state:', {
-    isAuthenticated,
-    hasUser: !!user,
-    isLoading,
-    userId: user?.profileid || user?.id,
-    username: user?.username
-  });
-  
+
   // ========================================
   // STATE MANAGEMENT
   // ========================================
-  
+
   // Socket state
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState(CONNECTION_STATES.DISCONNECTED);
-  
+
   // User presence
   const [onlineUsers, setOnlineUsers] = useState(new Set());
-  
+
   // Message management
   const [messageQueue, setMessageQueue] = useState([]);
   const [pendingMessages, setPendingMessages] = useState(new Map());
-  
+
   // Typing indicators
   const [typingUsers, setTypingUsers] = useState(new Map()); // chatId -> Set of userIds
-  
+
   // Call state
   const [activeCalls, setActiveCalls] = useState(new Map()); // callId -> call data
-  
+
   // Metrics (development only)
   const [metrics, setMetrics] = useState({
     messagesQueued: 0,
@@ -169,34 +161,34 @@ export default function PerfectSocketProvider({ children }) {
     reconnections: 0,
     lastHeartbeat: null
   });
-  
+
   // ========================================
   // REFS (STABLE REFERENCES)
   // ========================================
-  
+
   // Socket lifecycle refs
   const socketRef = useRef(null);
   const mountedRef = useRef(true);
   const initializationInProgress = useRef(false);
   const cleanupInProgress = useRef(false);
-  
+
   // Reconnection refs
   const reconnectAttempts = useRef(0);
   const reconnectTimeout = useRef(null);
   const lastAuthState = useRef({ isAuthenticated: false, userId: null });
-  
+
   // Heartbeat refs
   const heartbeatInterval = useRef(null);
   const heartbeatTimeout = useRef(null);
   const lastHeartbeatTime = useRef(null);
-  
+
   // Typing indicator refs
   const typingTimeouts = useRef(new Map()); // chatId -> timeout
   const typingDebounce = useRef(new Map()); // chatId -> timeout
-  
+
   // Cleanup tracking
   const cleanupInterval = useRef(null);
-  
+
   // Event listener tracking (for complete cleanup)
   const eventListeners = useRef(new Map());
 
@@ -209,7 +201,7 @@ export default function PerfectSocketProvider({ children }) {
   // ========================================
   // UTILITY FUNCTIONS
   // ========================================
-  
+
   /**
    * Log with consistent formatting (only in development)
    */
@@ -219,7 +211,7 @@ export default function PerfectSocketProvider({ children }) {
       console.log(`${prefix} SOCKET:`, message, data);
     }
   }, []);
-  
+
   /**
    * Standardized user ID resolution
    */
@@ -230,14 +222,14 @@ export default function PerfectSocketProvider({ children }) {
     }
     return userId;
   }, [user]);
-  
+
   /**
    * Generate client message ID
    */
   const generateMessageId = useCallback(() => {
     return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }, []);
-  
+
   /**
    * Update metrics (development only)
    */
@@ -246,7 +238,7 @@ export default function PerfectSocketProvider({ children }) {
       setMetrics(prev => ({ ...prev, ...updates }));
     }
   }, []);
-  
+
   /**
    * Load keyword alerts for smart notifications
    */
@@ -263,7 +255,7 @@ export default function PerfectSocketProvider({ children }) {
       log('error', 'Failed to load keyword alerts', { error: e.message });
     }
   }, [log]);
-  
+
   const messageMatchesKeywords = useCallback((content) => {
     if (!content || keywordAlertsRef.current.length === 0) return null;
     const text = String(content);
@@ -282,7 +274,7 @@ export default function PerfectSocketProvider({ children }) {
     }
     return null;
   }, []);
-  
+
   // Define heartbeat functions here to avoid temporal dead zone issues
   /**
    * Start heartbeat monitoring
@@ -290,7 +282,7 @@ export default function PerfectSocketProvider({ children }) {
    */
   const startHeartbeat = useCallback((socketInstance) => {
     if (!SOCKET_CONFIG.ENABLE_HEARTBEAT || !socketInstance) return;
-    
+
     // Clear existing
     if (heartbeatInterval.current) {
       clearInterval(heartbeatInterval.current);
@@ -298,13 +290,13 @@ export default function PerfectSocketProvider({ children }) {
     if (heartbeatTimeout.current) {
       clearTimeout(heartbeatTimeout.current);
     }
-    
+
     // Set up heartbeat timeout to detect if server stops sending heartbeats
     const resetHeartbeatTimeout = () => {
       if (heartbeatTimeout.current) {
         clearTimeout(heartbeatTimeout.current);
       }
-      
+
       heartbeatTimeout.current = setTimeout(() => {
         log('error', 'Heartbeat timeout - connection may be dead');
         // Force reconnection after heartbeat timeout
@@ -314,16 +306,16 @@ export default function PerfectSocketProvider({ children }) {
         }
       }, SOCKET_CONFIG.HEARTBEAT_INTERVAL + SOCKET_CONFIG.HEARTBEAT_TIMEOUT);
     };
-    
+
     // Start initial timeout
     resetHeartbeatTimeout();
-    
+
     // The actual heartbeat response is handled in the 'heartbeat' event listener
     // This is set up in initializeSocket
-    
+
     log('success', 'Heartbeat monitoring started - waiting for server heartbeats');
   }, [log]);
-  
+
   /**
    * Stop heartbeat monitoring
    */
@@ -338,13 +330,13 @@ export default function PerfectSocketProvider({ children }) {
     }
     log('info', 'Heartbeat monitoring stopped');
   }, [log]);
-  
+
   /**
    * Smart reconnection with exponential backoff and jitter
    */
   const attemptReconnection = useCallback((errorType = 'unknown') => {
     log('info', `Reconnection attempt`, { errorType, attempts: reconnectAttempts.current });
-    
+
     // Don't retry auth-related errors indefinitely
     if (errorType === 'auth_failed' || errorType === 'unauthorized' || errorType === 'forbidden') {
       log('error', 'Authentication error - stopping reconnection');
@@ -354,26 +346,26 @@ export default function PerfectSocketProvider({ children }) {
       reconnectAttempts.current = 0;
       return;
     }
-    
+
     // Check max attempts
     if (reconnectAttempts.current >= SOCKET_CONFIG.MAX_RECONNECT_ATTEMPTS) {
       log('error', `Maximum reconnection attempts reached`);
       console.log('❌ SOCKET: Maximum reconnection attempts reached');
       setConnectionStatus(CONNECTION_STATES.FAILED);
       setIsConnected(false);
-      
+
       // Reset after extended delay for potential recovery
       setTimeout(() => {
         log('info', 'Resetting reconnection attempts for recovery');
         reconnectAttempts.current = 0;
       }, 300000); // 5 minutes
-      
+
       return;
     }
-    
+
     reconnectAttempts.current++;
     setConnectionStatus(CONNECTION_STATES.RECONNECTING);
-    
+
     // Exponential backoff with jitter
     const baseDelay = SOCKET_CONFIG.BASE_RECONNECT_DELAY * Math.pow(
       SOCKET_CONFIG.BACKOFF_MULTIPLIER,
@@ -382,15 +374,15 @@ export default function PerfectSocketProvider({ children }) {
     const jitter = Math.random() * SOCKET_CONFIG.JITTER_RANGE;
     const maxDelay = errorType === 'network' ? SOCKET_CONFIG.MAX_RECONNECT_DELAY : 60000;
     const delay = Math.min(baseDelay + jitter, maxDelay);
-    
+
     log('info', `Scheduling reconnection`, {
       attempt: `${reconnectAttempts.current}/${SOCKET_CONFIG.MAX_RECONNECT_ATTEMPTS}`,
       delay: `${Math.round(delay)}ms`
     });
-    
+
     reconnectTimeout.current = setTimeout(() => {
       const userId = getUserId();
-      
+
       // Verify auth state before reconnecting
       if (!isAuthenticated) {
         log('warn', 'User no longer authenticated - canceling reconnection');
@@ -398,13 +390,13 @@ export default function PerfectSocketProvider({ children }) {
         reconnectAttempts.current = 0;
         return;
       }
-      
+
       if (!userId) {
         log('warn', 'Missing user ID - canceling reconnection');
         setConnectionStatus(CONNECTION_STATES.DISCONNECTED);
         return;
       }
-      
+
       log('info', `Executing reconnection attempt`, { userId });
       updateMetrics(m => ({ reconnections: m.reconnections + 1 }));
       // Use ref to avoid circular dependency
@@ -420,11 +412,11 @@ export default function PerfectSocketProvider({ children }) {
       }
     }, delay);
   }, [isAuthenticated, getUserId, log, updateMetrics]); // Removed initializeSocket from dependencies
-  
+
   // ========================================
   // MESSAGE QUEUE MANAGEMENT
   // ========================================
-  
+
   /**
    * Add message to queue with overflow protection
    */
@@ -436,7 +428,7 @@ export default function PerfectSocketProvider({ children }) {
       attempts: 0,
       maxAttempts: 3
     };
-    
+
     setMessageQueue(prev => {
       // Clean old messages
       const now = Date.now();
@@ -444,7 +436,7 @@ export default function PerfectSocketProvider({ children }) {
         const age = now - msg.timestamp.getTime();
         return age < SOCKET_CONFIG.MAX_MESSAGE_AGE;
       });
-      
+
       // Check size limit
       let newQueue = [...cleaned, queuedMessage];
       if (newQueue.length > SOCKET_CONFIG.MAX_QUEUE_SIZE) {
@@ -453,65 +445,65 @@ export default function PerfectSocketProvider({ children }) {
         }
         newQueue = newQueue.slice(-SOCKET_CONFIG.MAX_QUEUE_SIZE);
       }
-      
+
       if (process.env.NODE_ENV === 'development') {
         console.log('🔌 SOCKET: Message queued', { queueSize: newQueue.length, messageId: queuedMessage.id });
       }
-      
+
       if (SOCKET_CONFIG.ENABLE_METRICS) {
         setMetrics(prev => ({ ...prev, messagesQueued: newQueue.length }));
       }
-      
+
       return newQueue;
     });
-    
+
     return queuedMessage.id;
   }, [generateMessageId]);
-  
+
   /**
    * Process queued messages when connection restored
    */
   const processMessageQueue = useCallback((socketInstance) => {
     // Get current message queue at time of execution
     const currentQueue = messageQueue.length > 0 ? [...messageQueue] : [];
-    
+
     if (!socketInstance || !socketInstance.connected || currentQueue.length === 0) {
       return;
     }
-    
+
     if (process.env.NODE_ENV === 'development') {
       console.log('🔌 SOCKET: Processing queued messages', { count: currentQueue.length });
     }
-    
+
     setMessageQueue([]);
-    
+
     // Clean up old pending messages first
     setPendingMessages(prev => {
       const now = Date.now();
       const cleaned = new Map();
-      
+
       for (const [id, message] of prev.entries()) {
         const age = now - message.timestamp.getTime();
         if (age < SOCKET_CONFIG.MAX_PENDING_AGE && cleaned.size < SOCKET_CONFIG.MAX_PENDING_SIZE) {
           cleaned.set(id, message);
         }
       }
-      
+
       return cleaned;
     });
-    
+
     // Process each message with retry logic
     currentQueue.forEach(async (queuedMessage) => {
       if (queuedMessage.attempts < queuedMessage.maxAttempts) {
         queuedMessage.attempts++;
-        
+
         // Add to pending tracking
         setPendingMessages(prev => new Map(prev).set(queuedMessage.id, {
           ...queuedMessage.data,
           status: 'sending',
           timestamp: new Date()
         }));
-        
+
         // Emit message
         socketInstance.emit('send_message', queuedMessage.data, (ack) => {
           if (ack && ack.success) {
@@ -531,7 +523,7 @@ export default function PerfectSocketProvider({ children }) {
             if (process.env.NODE_ENV === 'development') {
               console.log('❌ SOCKET: Queued message failed', { id: queuedMessage.id, error: ack?.error });
             }
-            
+
             // Re-queue if attempts remaining
             if (queuedMessage.attempts < queuedMessage.maxAttempts) {
               const retryDelay = Math.min(1000 * Math.pow(2, queuedMessage.attempts - 1), 30000);
@@ -545,14 +537,14 @@ export default function PerfectSocketProvider({ children }) {
           }
         });
       }
-      
+
       // Delay between messages to avoid overwhelming
       if (currentQueue.length > 10) {
         await new Promise(resolve => setTimeout(resolve, SOCKET_CONFIG.BATCH_MESSAGE_DELAY));
       }
     });
   }, [messageQueue]); // Remove dependencies to prevent re-creation
-  
+
   // ========================================
   // HEARTBEAT & HEALTH MONITORING
   // ========================================
@@ -560,89 +552,89 @@ export default function PerfectSocketProvider({ children }) {
   // ========================================
   // TYPING INDICATORS
   // ========================================
-  
+
   /**
    * Emit typing start with debouncing
    */
   const startTyping = useCallback((chatid) => {
     if (!SOCKET_CONFIG.ENABLE_TYPING_INDICATORS || !socket || !chatid) return;
-    
+
     // Clear existing debounce
     if (typingDebounce.current.has(chatid)) {
       clearTimeout(typingDebounce.current.get(chatid));
     }
-    
+
     // Debounce typing events
     const timeout = setTimeout(() => {
       socket.emit('typing_start', { chatid });
-      
+
       // Auto-stop after timeout
       if (typingTimeouts.current.has(chatid)) {
         clearTimeout(typingTimeouts.current.get(chatid));
       }
-      
+
       const stopTimeout = setTimeout(() => {
         stopTyping(chatid);
       }, SOCKET_CONFIG.TYPING_TIMEOUT);
-      
+
       typingTimeouts.current.set(chatid, stopTimeout);
     }, SOCKET_CONFIG.TYPING_DEBOUNCE);
-    
+
     typingDebounce.current.set(chatid, timeout);
   }, [socket]);
-  
+
   /**
    * Emit typing stop
    */
   const stopTyping = useCallback((chatid) => {
     if (!SOCKET_CONFIG.ENABLE_TYPING_INDICATORS || !socket || !chatid) return;
-    
+
     // Clear timeouts
     if (typingDebounce.current.has(chatid)) {
       clearTimeout(typingDebounce.current.get(chatid));
       typingDebounce.current.delete(chatid);
     }
-    
+
     if (typingTimeouts.current.has(chatid)) {
       clearTimeout(typingTimeouts.current.get(chatid));
       typingTimeouts.current.delete(chatid);
     }
-    
+
     socket.emit('typing_stop', { chatid });
   }, [socket]);
-  
+
   // ========================================
   // SOCKET INITIALIZATION
   // ========================================
-  
+
   /**
    * Initialize socket connection with comprehensive setup
    * @param {Object} authData - Optional auth data to use (from event or hook)
    */
   const initializeSocket = useCallback(async (authData = null) => {
     console.log('🔌 PerfectSocketProvider: INITIALIZE SOCKET CALLED', { hasAuthData: !!authData });
-    
+
     // Guard: Check if component is unmounted
     if (!mountedRef.current) {
       console.log('⚠️ PerfectSocketProvider: Component unmounted, aborting initialization');
       log('warn', 'Component unmounted, aborting initialization');
       return null;
     }
-    
+
     // Guard: Prevent concurrent initializations
     if (initializationInProgress.current) {
       console.log('⚠️ PerfectSocketProvider: Initialization already in progress');
       log('warn', 'Initialization already in progress');
       return socketRef.current;
     }
-    
+
     // Guard: Prevent multiple socket initializations
     if (socketRef.current && socketRef.current.connected) {
       console.log('⚠️ PerfectSocketProvider: Socket already connected');
       log('warn', 'Socket already connected');
       return socketRef.current;
     }
-    
+
     // Clean up existing disconnected socket
     if (socketRef.current && !socketRef.current.connected) {
       log('info', 'Cleaning up disconnected socket');
@@ -655,19 +647,19 @@ export default function PerfectSocketProvider({ children }) {
       socketRef.current = null;
       setSocket(null);
     }
-    
+
     initializationInProgress.current = true;
     console.log('🔄 PerfectSocketProvider: Set initialization in progress to true');
-    
+
     log('info', 'Initializing socket connection', { hasAuthData: !!authData });
     setConnectionStatus(CONNECTION_STATES.CONNECTING);
     console.log('🔄 PerfectSocketProvider: Set connection status to CONNECTING');
-    
+
     // Use provided auth data or fall back to hook state
     const authUser = authData?.user || user;
     const authStatus = authData?.isAuthenticated !== undefined ? authData.isAuthenticated : isAuthenticated;
     const userId = authUser?.profileid || authUser?.id || null;
-    
+
     console.log('👤 PerfectSocketProvider: Auth validation details:', {
       authStatus,
       userId,
@@ -676,7 +668,7 @@ export default function PerfectSocketProvider({ children }) {
       fromEvent: !!authData,
       fromHook: !authData
     });
-    
+
     log('info', 'Auth validation:', {
       authStatus,
       userId,
@@ -685,7 +677,7 @@ export default function PerfectSocketProvider({ children }) {
       fromEvent: !!authData,
       fromHook: !authData
     });
-    
+
     // Validate authentication
     if (!authStatus) {
       console.log('❌ PerfectSocketProvider: User not authenticated');
@@ -694,7 +686,7 @@ export default function PerfectSocketProvider({ children }) {
       initializationInProgress.current = false;
       return null;
     }
-    
+
     if (!userId) {
       console.log('❌ PerfectSocketProvider: No user ID available');
       log('error', 'No user ID available', { authStatus, userId, authUser });
@@ -702,49 +694,49 @@ export default function PerfectSocketProvider({ children }) {
       initializationInProgress.current = false;
       return null;
     }
-    
+
     console.log('🔐 PerfectSocketProvider: Creating socket with cookie-based authentication');
     log('info', 'Initializing socket with cookie authentication', { userId });
-    
+
     // 🔧 CRITICAL FIX #6: SKIP cookie detection - HttpOnly cookies are invisible to JavaScript!
     // The accessToken and refreshToken cookies are HttpOnly (secure), so document.cookie cannot see them
     // This is CORRECT security behavior - we should NOT be able to read auth tokens from JavaScript
     // Instead, we rely on the browser automatically sending cookies with requests
-    
+
     console.log('🍪 Skipping client-side cookie detection (HttpOnly cookies are invisible to JS)');
     console.log('🔒 Auth cookies are HttpOnly for security - browser will send them automatically');
     console.log('✅ Proceeding with socket initialization - cookies will be sent in handshake');
-    
+
     // ✅ SECURITY NOTE: The following cookies are HttpOnly and CANNOT be read by JavaScript:
     // - accessToken (or __Host-accessToken / __Secure-accessToken)
     // - refreshToken (or __Host-refreshToken / __Secure-refreshToken)
     // Only csrfToken is readable because it needs to be included in request headers
-    
+
     // Verify we have at least the CSRF token (which is readable)
     if (typeof document !== 'undefined') {
       const allCookies = document.cookie;
-      const hasCsrfToken = allCookies.includes('csrfToken=') || 
-                          allCookies.includes('__Host-csrfToken=') || 
-                          allCookies.includes('__Secure-csrfToken=');
-      
+      const hasCsrfToken = allCookies.includes('csrfToken=') ||
+        allCookies.includes('__Host-csrfToken=') ||
+        allCookies.includes('__Secure-csrfToken=');
+
       console.log('🔍 Visible cookies check:', {
         hasCsrfToken,
         visibleCookies: allCookies ? allCookies.split(';').map(c => c.trim().split('=')[0]) : []
       });
-      
+
       if (!hasCsrfToken) {
         console.warn('⚠️ WARNING: No CSRF token found - user may not be authenticated');
         console.warn('💡 If you just logged in, wait a moment and try again');
-        
+
         // Wait a bit for cookies to be set
         await new Promise(resolve => setTimeout(resolve, 1000));
-        
+
         // Check again
         const allCookiesRetry = document.cookie;
-        const hasCsrfTokenRetry = allCookiesRetry.includes('csrfToken=') || 
-                                 allCookiesRetry.includes('__Host-csrfToken=') || 
-                                 allCookiesRetry.includes('__Secure-csrfToken=');
-        
+        const hasCsrfTokenRetry = allCookiesRetry.includes('csrfToken=') ||
+          allCookiesRetry.includes('__Host-csrfToken=') ||
+          allCookiesRetry.includes('__Secure-csrfToken=');
+
         if (!hasCsrfTokenRetry) {
           console.error('❌ Still no CSRF token after retry - authentication may have failed');
           setConnectionStatus(CONNECTION_STATES.AUTHENTICATION_FAILED);
@@ -752,13 +744,13 @@ export default function PerfectSocketProvider({ children }) {
           return null;
         }
       }
-      
+
       console.log('✅ CSRF token present - authentication cookies should be set (HttpOnly, invisible to JS)');
     }
-    
+
     const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || process.env.NEXT_PUBLIC_SERVER_URL;
     console.log('🌍 PerfectSocketProvider: Using socket URL:', socketUrl);
-    
+
     // 🔧 CRITICAL FIX #8: Enhanced socket options for cookie-based authentication
     const socketOptions = {
       withCredentials: true,            // CRITICAL: Send cookies with every request
@@ -801,15 +793,15 @@ export default function PerfectSocketProvider({ children }) {
     };
     console.log('⚙️ PerfectSocketProvider: Socket options:', socketOptions);
     console.log('🍪 PerfectSocketProvider: Current cookies:', document.cookie ? document.cookie.substring(0, 200) + '...' : 'NONE');
-    
+
     // Create socket connection
     console.log('🔌 PerfectSocketProvider: Creating socket instance...');
     const newSocket = io(socketUrl, socketOptions);
-    
+
     // ========================================
     // EVENT HANDLERS (Following EVENT CONTRACT)
     // ========================================
-    
+
     /**
      * Connection successful
      */
@@ -819,16 +811,16 @@ export default function PerfectSocketProvider({ children }) {
       setIsConnected(true);
       setConnectionStatus(CONNECTION_STATES.CONNECTED);
       reconnectAttempts.current = 0;
-      
+
       // Clear reconnection timeout
       if (reconnectTimeout.current) {
         clearTimeout(reconnectTimeout.current);
         reconnectTimeout.current = null;
       }
-      
+
       // Start heartbeat
       startHeartbeat(newSocket);
-      
+
       // Issue #17: Request current online users list
       newSocket.emit('get_online_users', {}, (response) => {
         if (response && response.success && response.users) {
@@ -837,7 +829,7 @@ export default function PerfectSocketProvider({ children }) {
           setOnlineUsers(new Set(userIds));
         }
       });
-      
+
       // Process queued messages
       processMessageQueue(newSocket);
 
@@ -845,7 +837,7 @@ export default function PerfectSocketProvider({ children }) {
       const currentUserId = authUser?.profileid || authUser?.id;
       loadKeywordAlerts(currentUserId);
     });
-    
+
     /**
      * Authentication successful
      */
@@ -855,7 +847,7 @@ export default function PerfectSocketProvider({ children }) {
         riskScore: data.security?.riskScore
       });
     });
-    
+
     /**
      * Disconnection
      */
@@ -865,7 +857,7 @@ export default function PerfectSocketProvider({ children }) {
       setIsConnected(false);
       setOnlineUsers(new Set());
       stopHeartbeat();
-      
+
       // Classify disconnect reasons
       if (reason === 'io server disconnect') {
         log('info', 'Server initiated disconnect - will not auto-reconnect');
@@ -885,7 +877,7 @@ export default function PerfectSocketProvider({ children }) {
         attemptReconnection('network');
       }
     });
-    
+
     /**
      * Connection error
      */
@@ -894,15 +886,15 @@ export default function PerfectSocketProvider({ children }) {
         message: error.message,
         type: error.type
       });
-      
+
       console.log('❌ SOCKET: Connection failed', { error });
       setIsConnected(false);
-      
+
       // Classify error types
       const errorMessage = error.message?.toLowerCase() || '';
       let errorType = 'network';
       let statusMessage = 'Connection error';
-      
+
       if (errorMessage.includes('unauthorized') || errorMessage.includes('authentication') || errorMessage.includes('forbidden')) {
         errorType = 'auth_failed';
         statusMessage = 'Authentication failed';
@@ -913,23 +905,23 @@ export default function PerfectSocketProvider({ children }) {
         errorType = 'server';
         statusMessage = 'Server error';
       }
-      
+
       setConnectionStatus(statusMessage);
       attemptReconnection(errorType);
     });
-    
+
     /**
      * Heartbeat from server - respond immediately
      */
     newSocket.on('heartbeat', (data) => {
       const now = Date.now();
       lastHeartbeatTime.current = now;
-      
+
       // Reset heartbeat timeout since we received one from server
       if (heartbeatTimeout.current) {
         clearTimeout(heartbeatTimeout.current);
       }
-      
+
       heartbeatTimeout.current = setTimeout(() => {
         log('error', 'Heartbeat timeout - no heartbeat received from server');
         if (newSocket.connected) {
@@ -937,21 +929,21 @@ export default function PerfectSocketProvider({ children }) {
           attemptReconnection('heartbeat_timeout');
         }
       }, SOCKET_CONFIG.HEARTBEAT_INTERVAL + SOCKET_CONFIG.HEARTBEAT_TIMEOUT);
-      
+
       // Respond to server
       newSocket.emit('heartbeat_response', {
         timestamp: data.timestamp,
         clientTime: new Date(),
         roundTripTime: now - (data.timestamp ? new Date(data.timestamp).getTime() : now)
       });
-      
+
       updateMetrics({ lastHeartbeat: new Date(now) });
-      
+
       if (process.env.NODE_ENV === 'development') {
         log('info', 'Heartbeat received and responded', { serverTime: data.timestamp });
       }
     });
-    
+
     /**
      * New message received
      */
@@ -961,7 +953,7 @@ export default function PerfectSocketProvider({ children }) {
         sender: data.sender?.username
       });
       updateMetrics(m => ({ messagesReceived: m.messagesReceived + 1 }));
-      
+
       // Notify application of unread count increment if chat not focused
       try {
         if (typeof window !== 'undefined') {
@@ -1047,21 +1039,21 @@ export default function PerfectSocketProvider({ children }) {
         return newMap;
       });
     });
-    
+
     /**
      * Message delivered confirmation
      */
     newSocket.on('message_delivered', (data) => {
       log('info', 'Message delivered', { messageid: data.messageid });
     });
-    
+
     /**
      * Message read confirmation
      */
     newSocket.on('message_read', (data) => {
       log('info', 'Message read', { messageid: data.messageid, readBy: data.readBy });
     });
-    
+
     /**
      * User presence events (Issue #17: Enhanced online status)
      */
@@ -1071,7 +1063,7 @@ export default function PerfectSocketProvider({ children }) {
         log('info', 'User came online', { profileid: data.profileid, username: data.username });
         setOnlineUsers(prev => new Set([...prev, data.profileid]));
       });
-      
+
       // User goes offline
       newSocket.on('user_offline', (data) => {
         log('info', 'User went offline', { profileid: data.profileid, username: data.username });
@@ -1081,7 +1073,7 @@ export default function PerfectSocketProvider({ children }) {
           return updated;
         });
       });
-      
+
       // Bulk online users update (on connect)
       newSocket.on('online_users_list', (data) => {
         log('info', 'Received online users list', { count: data.users?.length });
@@ -1090,13 +1082,13 @@ export default function PerfectSocketProvider({ children }) {
           setOnlineUsers(new Set(userIds));
         }
       });
-      
+
       // Legacy events for backwards compatibility
       newSocket.on('user_joined_chat', (data) => {
         log('info', 'User joined chat', { profileid: data.profileid });
         setOnlineUsers(prev => new Set([...prev, data.profileid]));
       });
-      
+
       newSocket.on('user_left', (data) => {
         log('info', 'User left chat', { profileid: data.profileid });
         setOnlineUsers(prev => {
@@ -1105,7 +1097,7 @@ export default function PerfectSocketProvider({ children }) {
           return updated;
         });
       });
-      
+
       newSocket.on('user_status_changed', (data) => {
         log('info', 'User status changed', { profileid: data.profileid, isOnline: data.isOnline });
         if (data.isOnline) {
@@ -1119,7 +1111,7 @@ export default function PerfectSocketProvider({ children }) {
         }
       });
     }
-    
+
     /**
      * Call events
      */
@@ -1131,7 +1123,7 @@ export default function PerfectSocketProvider({ children }) {
         timestamp: new Date()
       }));
     });
-    
+
     newSocket.on('call_answer', (data) => {
       log('info', 'Call answered', { callId: data.callId, answerer: data.answerer?.username });
       setActiveCalls(prev => {
@@ -1148,7 +1140,7 @@ export default function PerfectSocketProvider({ children }) {
         return newMap;
       });
     });
-    
+
     newSocket.on('call_end', (data) => {
       log('info', 'Call ended', { callId: data.callId });
       setActiveCalls(prev => {
@@ -1157,70 +1149,70 @@ export default function PerfectSocketProvider({ children }) {
         return newMap;
       });
     });
-    
+
     /**
      * Error events
      */
     newSocket.on('error', (error) => {
       log('error', 'Socket error', { error: error.message, code: error.code });
     });
-    
+
     /**
      * Reconnect events
      */
     newSocket.on('reconnect_attempt', (attemptNumber) => {
       log('info', 'Reconnection attempt', { attempt: attemptNumber });
     });
-    
+
     newSocket.on('reconnect', (attemptNumber) => {
       log('success', 'Reconnected successfully', { attempt: attemptNumber });
     });
-    
+
     newSocket.on('reconnect_error', (error) => {
       log('error', 'Reconnection failed', { error: error.message });
     });
-    
+
     newSocket.on('reconnect_failed', () => {
       log('error', 'Reconnection failed permanently');
       setConnectionStatus(CONNECTION_STATES.FAILED);
     });
-    
+
     // Store socket references
     socketRef.current = newSocket;
     setSocket(newSocket);
     initializeSocketRef.current = initializeSocket;
-    
+
     return newSocket;
   }, []); // Removed all dependencies to prevent circular references
-  
+
   // ========================================
   // EFFECTS
   // ========================================
-  
+
   /**
    * Initialize socket - runs once on mount
    * Uses event-based communication to avoid race conditions
    */
   useEffect(() => {
     console.log('🚀 PerfectSocketProvider: Setting up event listeners (runs once on mount)');
-    
+
     let authReadyListener = null;
     let authFailedListener = null;
-    
+
     const handleAuthReady = (event) => {
       console.log('🎉 PerfectSocketProvider: AUTH-SOCKET-READY EVENT RECEIVED');
-      
+
       // Check if socket is already initializing or initialized
       if (initializationInProgress.current) {
         console.log('⚠️ Socket initialization already in progress, skipping');
         return;
       }
-      
+
       if (socketRef.current) {
         console.log('⚠️ Socket already exists, skipping initialization');
         return;
       }
-      
+
       const { user: authUser, isAuthenticated: authStatus, initializationComplete } = event.detail;
       console.log('🎉 Event detail:', {
         hasUser: !!authUser,
@@ -1229,19 +1221,19 @@ export default function PerfectSocketProvider({ children }) {
         isAuthenticated: authStatus,
         initializationComplete
       });
-      
+
       // Wait for authentication initialization to complete
       if (!initializationComplete) {
         console.log('⚠️ Authentication initialization not complete, waiting...');
         return;
       }
-      
+
       // Validate user data
       if (!authStatus || !authUser || (!authUser.profileid && !authUser.id)) {
         console.error('❌ Invalid authentication data, cannot initialize socket');
         return;
       }
-      
+
       console.log('✅ All conditions met, initializing socket connection...');
       // CRITICAL: Pass the user data from the event to initializeSocket
       const socketInstance = initializeSocket({
@@ -1249,18 +1241,18 @@ export default function PerfectSocketProvider({ children }) {
         isAuthenticated: authStatus,
         initializationComplete
       });
-      
+
       if (socketInstance) {
         console.log('✅ Socket initialization successful');
       } else {
         console.error('❌ Socket initialization failed');
       }
     };
-    
+
     const handleAuthFailed = (event) => {
       console.log('❌ AUTH-FAILED EVENT RECEIVED:', event.detail?.reason);
       setConnectionStatus(CONNECTION_STATES.DISCONNECTED);
-      
+
       // Cleanup existing socket if any
       if (socketRef.current) {
         console.log('🧹 Cleaning up socket due to auth failure');
@@ -1269,11 +1261,11 @@ export default function PerfectSocketProvider({ children }) {
         setSocket(null);
         setIsConnected(false);
       }
-      
+
       // Reset initialization flag
       initializationInProgress.current = false;
     };
-    
+
     // Set up event listeners (only once on mount)
     if (typeof window !== 'undefined') {
       console.log('📝 Registering event listeners');
@@ -1283,7 +1275,7 @@ export default function PerfectSocketProvider({ children }) {
       authFailedListener = handleAuthFailed;
       console.log('✅ Event listeners registered');
     }
-    
+
     // Cleanup function
     return () => {
       console.log('🧹 Cleaning up event listeners');
@@ -1298,21 +1290,21 @@ export default function PerfectSocketProvider({ children }) {
       }
     };
   }, []); // Empty deps - only run once on mount
-  
+
   /**
    * Cleanup socket on component unmount
    */
   useEffect(() => {
     return () => {
       console.log('🧹 PerfectSocketProvider: Component unmounting, cleaning up socket...');
-      
+
       // Close socket connection
       if (socketRef.current) {
         console.log('🔌 Disconnecting socket...');
         socketRef.current.close();
         socketRef.current = null;
       }
-      
+
       // Clear all intervals and timeouts
       if (heartbeatInterval.current) {
         clearInterval(heartbeatInterval.current);
@@ -1326,7 +1318,7 @@ export default function PerfectSocketProvider({ children }) {
       if (cleanupInterval.current) {
         clearInterval(cleanupInterval.current);
       }
-      
+
       // Clear typing timeouts
       if (typingTimeouts.current) {
         typingTimeouts.current.forEach(timeout => clearTimeout(timeout));
@@ -1336,59 +1328,51 @@ export default function PerfectSocketProvider({ children }) {
         typingDebounce.current.forEach(timeout => clearTimeout(timeout));
         typingDebounce.current.clear();
       }
-      
-      // Clear timeout tracking set
-      if (timeouts) {
-        timeouts.forEach(timeout => {
-          try {
-            clearTimeout(timeout);
-          } catch (e) {
-            // Ignore errors
-          }
-        });
-      }
-      
+
+      // Clear timeout tracking set (already cleared above with typingTimeouts)
+      // No additional timeouts to clear
+
       console.log('✅ Socket cleanup complete');
     };
   }, []); // Empty deps - cleanup only on unmount
-  
+
   // ========================================
   // CONTEXT VALUE
   // ========================================
-  
+
   const contextValue = useMemo(() => ({
     // Socket state
     socket,
     isConnected,
     connectionStatus,
-    
+
     // User presence
     onlineUsers,
-    
+
     // Message management
     messageQueue,
     pendingMessages,
-    
+
     // Typing indicators
     typingUsers,
     startTyping,
     stopTyping,
-    
+
     // Call state
     activeCalls,
-    
+
     // Metrics (development only)
     metrics,
-    
+
     // Actions
     queueMessage,
     initializeSocket,
     attemptReconnection,
-    
+
     // Utility functions
     log
   }), [socket, isConnected, connectionStatus, onlineUsers, messageQueue, pendingMessages, typingUsers, startTyping, stopTyping, activeCalls, metrics, queueMessage, initializeSocket, attemptReconnection, log]);
-  
+
   return (
     <SocketContext.Provider value={contextValue}>
       {children}

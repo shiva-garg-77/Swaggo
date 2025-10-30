@@ -411,23 +411,45 @@ const ChatResolvers = {
 
         // Message mutations (from core schema)
         sendMessage: asyncHandler(async (parent, args, context) => {
+            console.log('🔵 [RESOLVER] sendMessage called');
+            console.log('🔵 [RESOLVER] Raw args:', JSON.stringify(args, null, 2));
+            console.log('🔵 [RESOLVER] Context user:', context.user ? {
+                id: context.user.id,
+                profileid: context.user.profileid,
+                username: context.user.username
+            } : 'NO USER');
 
-            console.log("say hello")
             // 🔧 FIX #20: Add input validation
             const validatedArgs = validateArgs(args, 'sendMessage');
+            console.log('🔵 [RESOLVER] Validated args:', JSON.stringify(validatedArgs, null, 2));
             
             if (!context.user) {
+                console.error('❌ [RESOLVER] Authentication required - no user in context');
                 throw new AuthorizationError('Authentication required');
             }
 
+            console.log('🔵 [RESOLVER] Calling messageService.sendMessage with:', {
+                chatid: validatedArgs.input.chatid,
+                profileid: context.user.profileid,
+                messageType: validatedArgs.input.messageType,
+                contentLength: validatedArgs.input.content?.length
+            });
+
             // Use message service to send message
-            return await messageService.sendMessage(validatedArgs.input.chatid, context.user.profileid, {
+            const result = await messageService.sendMessage(validatedArgs.input.chatid, context.user.profileid, {
                 content: validatedArgs.input.content,
                 messageType: validatedArgs.input.messageType,
                 attachments: validatedArgs.input.attachments,
                 replyTo: validatedArgs.input.replyTo,
                 mentions: validatedArgs.input.mentions
             });
+            
+            console.log('✅ [RESOLVER] sendMessage completed successfully:', {
+                messageid: result?.messageid,
+                chatid: result?.chatid
+            });
+            
+            return result;
         }, 'graphql'),
 
         editMessage: asyncHandler(async (parent, args, context) => {

@@ -564,7 +564,7 @@ const ChatListContent = React.memo(function ChatListContent({
       </div>
 
       {/* Chat List */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto min-h-0">
         {loading ? (
           <div className="p-4 space-y-1">
             {[...Array(8)].map((_, i) => (
@@ -610,6 +610,17 @@ const ChatListContent = React.memo(function ChatListContent({
               const lastMessage = chat.lastMessage;
               // Issue #16: Get unread count for current user
               const unreadCount = getUnreadCount(chat);
+              
+              // ✅ Check if this is a chat with yourself (invalid chat)
+              const currentUserId = getUserId(user);
+              const isSelfChat = chat.participants && chat.participants.length === 2 && 
+                chat.participants.every(p => getUserId(p) === currentUserId);
+              
+              // Skip rendering chats with yourself
+              if (isSelfChat) {
+                console.warn('⚠️ Skipping self-chat:', chat.chatid);
+                return null;
+              }
               
               return (
                 <button

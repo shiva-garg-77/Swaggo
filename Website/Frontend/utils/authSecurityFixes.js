@@ -1794,7 +1794,7 @@ export const AuthFixUtils = {
 
     // Final check for CSRF token
     if (!csrfToken) {
-      console.error('🚨 No CSRF token available after refresh attempt - trying emergency logout...');
+      console.warn('⚠️ No CSRF token available after refresh attempt - performing local logout cleanup...');
 
       // Try emergency logout to clear httpOnly cookies
       const emergencyLogoutSuccess = await this.attemptEmergencyLogout(apiClient);

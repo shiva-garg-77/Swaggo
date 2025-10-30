@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect, useRef, useCallback, Suspense, useMemo, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useQuery } from '@apollo/client';
+import { GET_MESSAGES_BY_CHAT } from '../Messaging/queries';
 import {
   Send, Phone, Video, MoreVertical, Smile, Paperclip, Mic, MicOff,
   Image, FileText, Heart, Reply, Copy, Forward, Trash2, Download,
@@ -90,6 +92,7 @@ const ComprehensiveChatInterface = ({
   const [otherUserTyping, setOtherUserTyping] = useState(false);
   const [lastSeen, setLastSeen] = useState(new Date());
   const [isOnline, setIsOnline] = useState(true);
+  const [connectionState, setConnectionState] = useState('connected'); // connected, disconnected, reconnecting
 
   // Voice Recording States
   const [isRecording, setIsRecording] = useState(false);
@@ -189,6 +192,7 @@ const ComprehensiveChatInterface = ({
   const recordingTimer = useRef(null);
   const renderTimerRef = useRef(null);
   const lastInteractionRef = useRef(Date.now());
+  const typingTimeoutRef = useRef(null);
 
   // 🚀 Performance optimization - Memoized values
   const chatParticipants = useMemo(() => {
@@ -323,32 +327,165 @@ const ComprehensiveChatInterface = ({
     console.log('Socket connection status:', socket.connected);
     console.log('Socket ID:', socket.id);
 
+    // Set initial connection state based on actual socket status
+    setConnectionState(socket.connected ? 'connected' : 'disconnected');
+    setIsOnline(socket.connected);
+
+    // Handle room join confirmation
+    const handleChatJoined = (data) => {
+      console.log('✅ Successfully joined chat room:', data);
+      if (data.chatid === selectedChat.chatid) {
+        console.log('Chat room confirmed:', data.chat);
+      }
+    };
+
+    // Handle room join errors
+    const handleRoomJoinError = (error) => {
+      console.error('❌ Failed to join chat room:', error);
+      // Could show user notification here
+    };
+
+    // Handle socket disconnection
+    const handleDisconnect = (reason) => {
+      console.warn('🔌 Socket disconnected:', reason);
+      setConnectionState('disconnected');
+      setIsOnline(false);
+    };
+
+    // Handle socket reconnection
+    const handleReconnect = (attemptNumber) => {
+      console.log('🔌 Socket reconnected after', attemptNumber, 'attempts');
+      setConnectionState('connected');
+      setIsOnline(true);
+      // Rejoin chat room after reconnection
+      joinChatRoom();
+    };
+
+    // Handle reconnection attempt
+    const handleReconnecting = (attemptNumber) => {
+      console.log('🔄 Attempting to reconnect...', attemptNumber);
+      setConnectionState('reconnecting');
+    };
+
+    // Handle reconnection error
+    const handleReconnectError = (error) => {
+      console.error('❌ Reconnection error:', error);
+    };
+
+    // Handle reconnection failed
+    const handleReconnectFailed = () => {
+      console.error('❌ Reconnection failed after all attempts');
+      setConnectionState('disconnected');
+      alert('Connection lost. Please refresh the page to reconnect.');
+    };
+
+    // Register room join listeners
+    socket.on('chat_joined', handleChatJoined);
+    socket.on('room_join_error', handleRoomJoinError);
+
+    // Handle offline messages when user comes back online
+    const handleOfflineMessages = (data) => {
+      console.log('📬 Received offline messages:', data);
+      if (data && data.messages && Array.isArray(data.messages)) {
+        data.messages.forEach(messageData => {
+          // Process each offline message
+          if (messageData.chat && messageData.message) {
+            handleNewMessage(messageData);
+          }
+        });
+      }
+    };
+
+    // Register connection monitoring listeners
+    socket.on('disconnect', handleDisconnect);
+    socket.on('reconnect', handleReconnect);
+    socket.on('reconnecting', handleReconnecting);
+    socket.on('reconnect_error', handleReconnectError);
+    socket.on('reconnect_failed', handleReconnectFailed);
+    socket.on('offline_messages', handleOfflineMessages);
+
+    // Join chat room
+    const joinChatRoom = () => {
+      console.log('Joining chat room:', selectedChat.chatid);
+      socket.emit('join_chat', selectedChat.chatid);
+    };
+
     // Ensure socket is connected before joining
     if (socket.connected) {
-      socket.emit('join_chat', selectedChat.chatid);
+      joinChatRoom();
     } else {
       console.warn('Socket not connected, waiting for connection before joining chat');
-      socket.on('connect', () => {
+      // Use a one-time listener to avoid duplicates
+      const handleConnect = () => {
         console.log('Socket connected, now joining chat:', selectedChat.chatid);
-        socket.emit('join_chat', selectedChat.chatid);
-      });
+        joinChatRoom();
+        socket.off('connect', handleConnect); // Remove listener after use
+      };
+      socket.on('connect', handleConnect);
     }
 
     // Listen for new messages
     const handleNewMessage = (data) => {
       console.log('Received new message:', data);
+
+      // Validate data structure
+      if (!data || !data.chat || !data.message) {
+        console.error('❌ Invalid message data structure:', data);
+        return;
+      }
+
+      if (!data.message.messageid || !data.message.content) {
+        console.error('❌ Missing required message fields:', data.message);
+        return;
+      }
+
+      if (!data.chat.chatid) {
+        console.error('❌ Missing chat ID:', data.chat);
+        return;
+      }
+
+      // Only process messages for current chat
       if (data.chat.chatid === selectedChat.chatid) {
+        // Get sender ID from message
+        const messageSenderId = data.message.senderid?.profileid || data.message.senderid;
+        const currentUserId = user?.profileid;
+
+        // Skip if this is our own message (already added via optimistic UI)
+        if (messageSenderId === currentUserId) {
+          console.log('⚠️ Skipping own message (already in optimistic UI):', data.message.messageid);
+
+          // Update the existing optimistic message with server data
+          setMessages(prev => prev.map(msg => {
+            // Find by content and senderId since optimistic message has temp ID
+            if (msg.senderId === currentUserId &&
+              msg.content === data.message.content &&
+              msg.status === 'sending') {
+              return {
+                ...msg,
+                id: data.message.messageid, // Update with real server ID
+                status: 'sent',
+                timestamp: new Date(data.message.createdAt)
+              };
+            }
+            return msg;
+          }));
+          return;
+        }
+
         setMessages(prev => {
           // Check if message already exists to prevent duplicates
           const exists = prev.find(msg => msg.id === data.message.messageid);
-          if (exists) return prev;
+          if (exists) {
+            console.log('⚠️ Duplicate message ignored:', data.message.messageid);
+            return prev;
+          }
 
           const newMessage = {
             id: data.message.messageid,
             content: data.message.content,
-            senderId: data.message.senderid.profileid || data.message.senderid,
-            senderName: data.message.senderid.username || 'Unknown',
-            senderAvatar: data.message.senderid.profilePic || '/default-avatar.png',
+            senderId: messageSenderId || 'unknown',
+            senderName: data.message.senderid?.username || 'Unknown',
+            senderAvatar: data.message.senderid?.profilePic || '/default-avatar.png',
             timestamp: new Date(data.message.createdAt),
             type: data.message.messageType || 'text',
             status: 'received',
@@ -365,11 +502,22 @@ const ComprehensiveChatInterface = ({
 
     // Listen for typing indicators
     const handleUserTyping = (data) => {
+      console.log("User is typing -------------------------------")
       if (data.profileid !== user?.profileid) {
         setOtherUserTyping(data.isTyping);
+
+        // Clear existing timeout
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current);
+          typingTimeoutRef.current = null;
+        }
+
         if (data.isTyping) {
           // Auto-hide typing indicator after 3 seconds
-          setTimeout(() => setOtherUserTyping(false), 3000);
+          typingTimeoutRef.current = setTimeout(() => {
+            setOtherUserTyping(false);
+            typingTimeoutRef.current = null;
+          }, 3000);
         }
       }
     };
@@ -450,7 +598,9 @@ const ComprehensiveChatInterface = ({
     };
 
     // Register event listeners
+    // Listen for both 'new_message' and 'message_received' for compatibility
     socket.on('new_message', handleNewMessage);
+    socket.on('message_received', handleNewMessage);
     socket.on('user_typing', handleUserTyping);
     socket.on('message_read', handleMessageRead);
     socket.on('message_reaction', handleMessageReaction);
@@ -471,26 +621,79 @@ const ComprehensiveChatInterface = ({
     // Cleanup on unmount or chat change
     return () => {
       console.log('Cleaning up Socket.io listeners');
+
+      // Clear typing timeout
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+
       socket.emit('leave_chat', selectedChat.chatid);
       socket.off('new_message', handleNewMessage);
+      socket.off('message_received', handleNewMessage);
       socket.off('user_typing', handleUserTyping);
       socket.off('message_read', handleMessageRead);
       socket.off('message_reaction', handleMessageReaction);
       socket.off('incoming_call', handleCallInvitation);
       socket.off('call_response', handleCallResponse);
+      socket.off('chat_joined', handleChatJoined);
+      socket.off('room_join_error', handleRoomJoinError);
+      socket.off('disconnect', handleDisconnect);
+      socket.off('reconnect', handleReconnect);
+      socket.off('reconnecting', handleReconnecting);
+      socket.off('reconnect_error', handleReconnectError);
+      socket.off('reconnect_failed', handleReconnectFailed);
+      socket.off('offline_messages', handleOfflineMessages);
       socket.off('error');
+      socket.off('connect'); // Remove any connect listeners
     };
   }, [socket, selectedChat, user]);
 
   // Load messages when chat is selected
+  const { data: messagesData, loading: messagesLoading, refetch: refetchMessages } = useQuery(GET_MESSAGES_BY_CHAT, {
+    variables: {
+      chatid: selectedChat?.chatid,
+      limit: 50
+    },
+    skip: !selectedChat?.chatid,
+    fetchPolicy: 'network-only'
+  });
+
   useEffect(() => {
     if (selectedChat) {
       console.log('Loading messages for chat:', selectedChat.chatid);
-      // Here you could load historical messages from your GraphQL API
-      // For now, we'll start with an empty array and rely on real-time messages
-      setMessages([]);
+
+      // Load historical messages from GraphQL
+      if (messagesData?.getMessagesByChatWithPagination?.messages) {
+        const historicalMessages = messagesData.getMessagesByChatWithPagination.messages.map(msg => ({
+          id: msg.messageid,
+          content: msg.content,
+          senderId: msg.sender?.profileid || 'unknown',
+          senderName: msg.sender?.username || 'Unknown',
+          senderAvatar: msg.sender?.profilePic || '/default-avatar.png',
+          timestamp: new Date(msg.createdAt),
+          type: msg.messageType || 'text',
+          status: 'sent',
+          reactions: msg.reactions?.map(r => ({
+            emoji: r.emoji,
+            count: 1,
+            users: [r.profileid]
+          })) || [],
+          isEdited: msg.isEdited || false,
+          isPinned: false,
+          attachments: msg.attachments || [],
+          mentions: msg.mentions || [],
+          replyTo: msg.replyTo
+        }));
+
+        console.log('Loaded', historicalMessages.length, 'historical messages');
+        setMessages(historicalMessages);
+      } else {
+        // Start with empty array if no messages yet
+        setMessages([]);
+      }
     }
-  }, [selectedChat]);
+  }, [selectedChat, messagesData]);
 
   // Voice Recording Timer
   useEffect(() => {
@@ -744,16 +947,40 @@ const ComprehensiveChatInterface = ({
     setReplyingTo(null);
     setViewOnceMode(false);
 
+    console.log("user hai ye dimag khrab karne wala", user)
     // Get recipient ID (other participant in the chat)
     const otherParticipants = selectedChat.participants?.filter(
       p => p.profileid !== user?.profileid
     ) || [];
     const receiverId = otherParticipants.length > 0 ? otherParticipants[0].profileid : null;
 
+
     console.log('Chat participants:', selectedChat.participants);
     console.log('Current user:', user?.profileid);
     console.log('Other participants:', otherParticipants);
     console.log('Recipient ID:', receiverId);
+
+    // ✅ CRITICAL SAFETY CHECK: Detect invalid chat with duplicate participants
+    if (!receiverId) {
+      console.error('❌ CRITICAL: Cannot send message - no recipient found!');
+      console.error('This indicates a chat with duplicate participants (same user twice).');
+      console.error('Chat details:', {
+        chatid: selectedChat.chatid,
+        participants: selectedChat.participants,
+        currentUser: user?.profileid,
+        uniqueParticipants: [...new Set(selectedChat.participants?.map(p => p.profileid) || [])]
+      });
+
+      alert(
+        '❌ Cannot send message: Invalid chat detected!\n\n' +
+        'This chat has duplicate participants (same user twice).\n' +
+        'Please delete this chat and create a new one with the correct person.'
+      );
+
+      // Remove the failed optimistic message
+      setMessages(prev => prev.filter(msg => msg.id !== clientMessageId));
+      return;
+    }
 
     // Send message through Socket.io
     const messageData = {
@@ -778,30 +1005,48 @@ const ComprehensiveChatInterface = ({
     socket.emit('send_message', messageData, (response) => {
       console.log('Message send response:', response);
 
-      if (response) {
-        if (response.success) {
-          // Update the optimistic message with server data
-          setMessages(prev => prev.map(msg => {
-            if (msg.id === clientMessageId) {
-              return {
-                ...msg,
-                id: response.serverMessageId || msg.id,
-                status: 'sent',
-                timestamp: new Date(response.timestamp || msg.timestamp)
-              };
-            }
-            return msg;
-          }));
-        } else {
-          // Handle send error
-          console.error('Failed to send message:', response.error);
-          setMessages(prev => prev.map(msg => {
-            if (msg.id === clientMessageId) {
-              return { ...msg, status: 'failed' };
-            }
-            return msg;
-          }));
-        }
+      if (!response) {
+        console.error('❌ No response from server for message send');
+        // Mark message as failed
+        setMessages(prev => prev.map(msg => {
+          if (msg.id === clientMessageId) {
+            return { ...msg, status: 'failed', error: 'No server response' };
+          }
+          return msg;
+        }));
+        return;
+      }
+
+      if (response.success) {
+        console.log('✅ Message sent successfully:', response);
+        // Update the optimistic message with server data
+        setMessages(prev => prev.map(msg => {
+          if (msg.id === clientMessageId) {
+            return {
+              ...msg,
+              id: response.message?.messageid || response.serverMessageId || msg.id,
+              status: 'sent',
+              timestamp: new Date(response.timestamp || msg.timestamp)
+            };
+          }
+          return msg;
+        }));
+      } else {
+        // Handle send error
+        console.error('❌ Failed to send message:', response.error);
+        setMessages(prev => prev.map(msg => {
+          if (msg.id === clientMessageId) {
+            return {
+              ...msg,
+              status: 'failed',
+              error: response.error || 'Unknown error'
+            };
+          }
+          return msg;
+        }));
+
+        // Show error notification to user
+        alert(`Failed to send message: ${response.error || 'Unknown error'}\n\nPlease try again.`);
       }
     });
 
@@ -1106,14 +1351,15 @@ const ComprehensiveChatInterface = ({
       </div>
     );
   }
+  console.log("selectedchat hai ye bhai -------------", selectedChat)
 
   return (
     <div className={`flex-1 flex flex-col h-full ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'
       } transition-colors duration-300`}>
       {/* Chat Header */}
       <div className={`flex items-center justify-between p-4 border-b ${theme === 'dark'
-          ? 'bg-gray-900 border-gray-700'
-          : 'bg-white border-gray-200'
+        ? 'bg-gray-900 border-gray-700'
+        : 'bg-white border-gray-200'
         } shadow-sm`}>
         <div className="flex items-center space-x-3">
           <div className="relative">
@@ -1169,8 +1415,8 @@ const ComprehensiveChatInterface = ({
           <button
             onClick={() => setShowSearchPanel(!showSearchPanel)}
             className={`p-2 rounded-full transition-colors ${theme === 'dark'
-                ? 'hover:bg-gray-700 text-gray-300'
-                : 'hover:bg-gray-100 text-gray-600'
+              ? 'hover:bg-gray-700 text-gray-300'
+              : 'hover:bg-gray-100 text-gray-600'
               }`}
           >
             <Search className="w-5 h-5" />
@@ -1181,8 +1427,8 @@ const ComprehensiveChatInterface = ({
             onClick={() => handleStartCall('voice')}
             disabled={isCallActive || !socket || !selectedChat}
             className={`p-2 rounded-full transition-colors ${theme === 'dark'
-                ? 'hover:bg-gray-700 text-gray-300'
-                : 'hover:bg-gray-100 text-gray-600'
+              ? 'hover:bg-gray-700 text-gray-300'
+              : 'hover:bg-gray-100 text-gray-600'
               } disabled:opacity-50`}
           >
             <Phone className="w-5 h-5" />
@@ -1193,8 +1439,8 @@ const ComprehensiveChatInterface = ({
             onClick={() => handleStartCall('video')}
             disabled={isCallActive || !socket || !selectedChat}
             className={`p-2 rounded-full transition-colors ${theme === 'dark'
-                ? 'hover:bg-gray-700 text-gray-300'
-                : 'hover:bg-gray-100 text-gray-600'
+              ? 'hover:bg-gray-700 text-gray-300'
+              : 'hover:bg-gray-100 text-gray-600'
               } disabled:opacity-50`}
           >
             <Video className="w-5 h-5" />
@@ -1205,8 +1451,8 @@ const ComprehensiveChatInterface = ({
             <button
               onClick={() => setShowSettingsPanel(!showSettingsPanel)}
               className={`p-2 rounded-full transition-colors ${theme === 'dark'
-                  ? 'hover:bg-gray-700 text-gray-300'
-                  : 'hover:bg-gray-100 text-gray-600'
+                ? 'hover:bg-gray-700 text-gray-300'
+                : 'hover:bg-gray-100 text-gray-600'
                 }`}
             >
               <MoreVertical className="w-5 h-5" />
@@ -1294,8 +1540,8 @@ const ComprehensiveChatInterface = ({
                       <button
                         onClick={handleMoreThemes}
                         className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
-                            ? 'hover:bg-gray-700 text-gray-300'
-                            : 'hover:bg-gray-100 text-gray-700'
+                          ? 'hover:bg-gray-700 text-gray-300'
+                          : 'hover:bg-gray-100 text-gray-700'
                           }`}
                       >
                         <div className="flex items-center space-x-2">
@@ -1307,8 +1553,8 @@ const ComprehensiveChatInterface = ({
                       <button
                         onClick={handlePinnedMessages}
                         className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
-                            ? 'hover:bg-gray-700 text-gray-300'
-                            : 'hover:bg-gray-100 text-gray-700'
+                          ? 'hover:bg-gray-700 text-gray-300'
+                          : 'hover:bg-gray-100 text-gray-700'
                           }`}
                       >
                         <div className="flex items-center justify-between">
@@ -1325,8 +1571,8 @@ const ComprehensiveChatInterface = ({
                       <button
                         onClick={handleArchiveChat}
                         className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
-                            ? 'hover:bg-gray-700 text-gray-300'
-                            : 'hover:bg-gray-100 text-gray-700'
+                          ? 'hover:bg-gray-700 text-gray-300'
+                          : 'hover:bg-gray-100 text-gray-700'
                           }`}
                       >
                         <div className="flex items-center space-x-2">
@@ -1338,8 +1584,8 @@ const ComprehensiveChatInterface = ({
                       <button
                         onClick={handleBlockUser}
                         className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${userBlocked
-                            ? 'text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20'
-                            : 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20'
+                          ? 'text-green-500 hover:bg-green-50 dark:hover:bg-green-900/20'
+                          : 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20'
                           }`}
                       >
                         <div className="flex items-center space-x-2">
@@ -1375,8 +1621,8 @@ const ComprehensiveChatInterface = ({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className={`w-full pl-10 pr-4 py-2 rounded-lg border ${theme === 'dark'
-                      ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400'
-                      : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'
+                    ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400'
+                    : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'
                     } focus:ring-2 focus:ring-red-500 focus:border-red-500`}
                 />
               </div>
@@ -1463,8 +1709,8 @@ const ComprehensiveChatInterface = ({
               <button
                 onClick={() => setShowThemePanel(!showThemePanel)}
                 className={`p-2 rounded-full transition-colors ${theme === 'dark'
-                    ? 'hover:bg-gray-700 text-gray-300'
-                    : 'hover:bg-gray-100 text-gray-600'
+                  ? 'hover:bg-gray-700 text-gray-300'
+                  : 'hover:bg-gray-100 text-gray-600'
                   }`}
               >
                 <Palette className="w-5 h-5" />
@@ -1517,8 +1763,8 @@ const ComprehensiveChatInterface = ({
                         <button
                           onClick={handleMoreThemes}
                           className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
-                              ? 'hover:bg-gray-700 text-gray-300'
-                              : 'hover:bg-gray-100 text-gray-700'
+                            ? 'hover:bg-gray-700 text-gray-300'
+                            : 'hover:bg-gray-100 text-gray-700'
                             }`}
                         >
                           <div className="flex items-center space-x-2">
@@ -1536,7 +1782,7 @@ const ComprehensiveChatInterface = ({
         </div>
       </div>
       {/* Messages Area */}
-      <div className={`flex-1 overflow-y-auto p-4 space-y-4 ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'
+      <div className={`flex-1 overflow-y-auto ${theme === 'dark' ? 'bg-gray-900' : 'bg-gray-50'
         }`}>
         {/* User Note/Status */}
         {userNote && (
@@ -1579,10 +1825,10 @@ const ComprehensiveChatInterface = ({
         )}
 
         {/* Messages */}
-        <div className="space-y-4">
-          {messages.map(message => (
+        <div className="space-y-2 py-4">
+          {messages.map((message, index) => (
             <ChatMessageBubble
-              key={message.id}
+              key={`${message.id}-${index}`}
               message={message}
               isOwn={message.senderId === (user?.profileid || "me")}
               onReaction={(emoji) => handleReaction(message.id, emoji)}
@@ -1597,6 +1843,7 @@ const ComprehensiveChatInterface = ({
               formatDuration={formatDuration}
               showTranslation={showTranslation}
               translationLanguage={translationLanguage}
+              selectedChat={selectedChat}
             />
           ))}
         </div>
@@ -1661,8 +1908,8 @@ const ComprehensiveChatInterface = ({
                     setAiSuggestions([]);
                   }}
                   className={`px-3 py-1 rounded-full text-sm transition-colors ${theme === 'dark'
-                      ? 'bg-gray-700 hover:bg-gray-600 text-gray-300'
-                      : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                    ? 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                    : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
                     }`}
                 >
                   {suggestion}
@@ -1729,8 +1976,8 @@ const ComprehensiveChatInterface = ({
                   value={mediaQuality}
                   onChange={(e) => setMediaQuality(e.target.value)}
                   className={`text-sm rounded px-2 py-1 ${theme === 'dark'
-                      ? 'bg-gray-700 text-white border-gray-600'
-                      : 'bg-white text-gray-900 border-gray-300'
+                    ? 'bg-gray-700 text-white border-gray-600'
+                    : 'bg-white text-gray-900 border-gray-300'
                     } border`}
                 >
                   <option value="normal">Normal Quality</option>
@@ -1764,8 +2011,8 @@ const ComprehensiveChatInterface = ({
                   <button
                     onClick={() => setIsRecording(false)}
                     className={`px-3 py-1 text-sm rounded ${theme === 'dark'
-                        ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                       }`}
                   >
                     Cancel
@@ -1800,8 +2047,8 @@ const ComprehensiveChatInterface = ({
             <button
               onClick={() => setShowAttachmentPanel(!showAttachmentPanel)}
               className={`p-2 rounded-full transition-colors ${theme === 'dark'
-                  ? 'hover:bg-gray-700 text-gray-300'
-                  : 'hover:bg-gray-100 text-gray-600'
+                ? 'hover:bg-gray-700 text-gray-300'
+                : 'hover:bg-gray-100 text-gray-600'
                 }`}
             >
               <Plus className="w-5 h-5" />
@@ -1843,8 +2090,8 @@ const ComprehensiveChatInterface = ({
                           setShowAttachmentPanel(false);
                         }}
                         className={`flex flex-col items-center p-3 rounded-lg transition-colors ${theme === 'dark'
-                            ? 'hover:bg-gray-700 text-gray-300'
-                            : 'hover:bg-gray-100 text-gray-700'
+                          ? 'hover:bg-gray-700 text-gray-300'
+                          : 'hover:bg-gray-100 text-gray-700'
                           }`}
                       >
                         <Image className="w-6 h-6 text-blue-500 mb-2" />
@@ -1874,8 +2121,8 @@ const ComprehensiveChatInterface = ({
                           setShowAttachmentPanel(false);
                         }}
                         className={`flex flex-col items-center p-3 rounded-lg transition-colors ${theme === 'dark'
-                            ? 'hover:bg-gray-700 text-gray-300'
-                            : 'hover:bg-gray-100 text-gray-700'
+                          ? 'hover:bg-gray-700 text-gray-300'
+                          : 'hover:bg-gray-100 text-gray-700'
                           }`}
                       >
                         <Video className="w-6 h-6 text-green-500 mb-2" />
@@ -1905,8 +2152,8 @@ const ComprehensiveChatInterface = ({
                           setShowAttachmentPanel(false);
                         }}
                         className={`flex flex-col items-center p-3 rounded-lg transition-colors ${theme === 'dark'
-                            ? 'hover:bg-gray-700 text-gray-300'
-                            : 'hover:bg-gray-100 text-gray-700'
+                          ? 'hover:bg-gray-700 text-gray-300'
+                          : 'hover:bg-gray-100 text-gray-700'
                           }`}
                       >
                         <FileText className="w-6 h-6 text-orange-500 mb-2" />
@@ -1949,8 +2196,8 @@ const ComprehensiveChatInterface = ({
                           setShowAttachmentPanel(false);
                         }}
                         className={`flex flex-col items-center p-3 rounded-lg transition-colors ${theme === 'dark'
-                            ? 'hover:bg-gray-700 text-gray-300'
-                            : 'hover:bg-gray-100 text-gray-700'
+                          ? 'hover:bg-gray-700 text-gray-300'
+                          : 'hover:bg-gray-100 text-gray-700'
                           }`}
                       >
                         <Camera className="w-6 h-6 text-purple-500 mb-2" />
@@ -2002,8 +2249,8 @@ const ComprehensiveChatInterface = ({
                           setShowAttachmentPanel(false);
                         }}
                         className={`flex flex-col items-center p-3 rounded-lg transition-colors ${theme === 'dark'
-                            ? 'hover:bg-gray-700 text-gray-300'
-                            : 'hover:bg-gray-100 text-gray-700'
+                          ? 'hover:bg-gray-700 text-gray-300'
+                          : 'hover:bg-gray-100 text-gray-700'
                           }`}
                       >
                         <BarChart3 className="w-6 h-6 text-indigo-500 mb-2" />
@@ -2038,8 +2285,8 @@ const ComprehensiveChatInterface = ({
                           setShowAttachmentPanel(false);
                         }}
                         className={`flex flex-col items-center p-3 rounded-lg transition-colors ${theme === 'dark'
-                            ? 'hover:bg-gray-700 text-gray-300'
-                            : 'hover:bg-gray-100 text-gray-700'
+                          ? 'hover:bg-gray-700 text-gray-300'
+                          : 'hover:bg-gray-100 text-gray-700'
                           }`}
                       >
                         <UserPlus className="w-6 h-6 text-teal-500 mb-2" />
@@ -2066,8 +2313,8 @@ const ComprehensiveChatInterface = ({
               }}
               placeholder={`Message ${selectedChat.chatName || selectedChat.name || 'Chat'}...`}
               className={`w-full p-3 pr-20 rounded-2xl border resize-none max-h-32 ${theme === 'dark'
-                  ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:bg-gray-600'
-                  : 'bg-gray-100 border-gray-300 text-gray-900 placeholder-gray-500 focus:bg-white'
+                ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:bg-gray-600'
+                : 'bg-gray-100 border-gray-300 text-gray-900 placeholder-gray-500 focus:bg-white'
                 } focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-colors`}
               rows={1}
               style={{ minHeight: '48px' }}
@@ -2079,8 +2326,8 @@ const ComprehensiveChatInterface = ({
               <button
                 onClick={() => setShowEmojiPanel(!showEmojiPanel)}
                 className={`p-1.5 rounded-full transition-colors ${theme === 'dark'
-                    ? 'hover:bg-gray-600 text-gray-400'
-                    : 'hover:bg-gray-200 text-gray-500'
+                  ? 'hover:bg-gray-600 text-gray-400'
+                  : 'hover:bg-gray-200 text-gray-500'
                   }`}
               >
                 <Smile className="w-4 h-4" />
@@ -2090,8 +2337,8 @@ const ComprehensiveChatInterface = ({
               <button
                 onClick={() => setShowGifPanel(!showGifPanel)}
                 className={`p-1.5 rounded-full transition-colors ${theme === 'dark'
-                    ? 'hover:bg-gray-600 text-gray-400'
-                    : 'hover:bg-gray-200 text-gray-500'
+                  ? 'hover:bg-gray-600 text-gray-400'
+                  : 'hover:bg-gray-200 text-gray-500'
                   }`}
               >
                 <Gift className="w-4 h-4" />
@@ -2101,8 +2348,8 @@ const ComprehensiveChatInterface = ({
               <button
                 onClick={() => setShowStickerPanel(!showStickerPanel)}
                 className={`p-1.5 rounded-full transition-colors ${theme === 'dark'
-                    ? 'hover:bg-gray-600 text-gray-400'
-                    : 'hover:bg-gray-200 text-gray-500'
+                  ? 'hover:bg-gray-600 text-gray-400'
+                  : 'hover:bg-gray-200 text-gray-500'
                   }`}
               >
                 <Heart className="w-4 h-4" />
@@ -2112,8 +2359,8 @@ const ComprehensiveChatInterface = ({
               <button
                 onClick={() => setShowCallHistoryPanel(!showCallHistoryPanel)}
                 className={`p-1.5 rounded-full transition-colors ${theme === 'dark'
-                    ? 'hover:bg-gray-600 text-gray-400'
-                    : 'hover:bg-gray-200 text-gray-500'
+                  ? 'hover:bg-gray-600 text-gray-400'
+                  : 'hover:bg-gray-200 text-gray-500'
                   }`}
               >
                 <Phone className="w-4 h-4" />
@@ -2134,10 +2381,10 @@ const ComprehensiveChatInterface = ({
               <button
                 onClick={handleVoiceRecord}
                 className={`p-3 rounded-full transition-all duration-300 ${isRecording
-                    ? 'bg-red-500 text-white hover:bg-red-600'
-                    : theme === 'dark'
-                      ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                      : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                  ? 'bg-red-500 text-white hover:bg-red-600'
+                  : theme === 'dark'
+                    ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                   }`}
               >
                 <Mic className={`w-5 h-5 ${isRecording ? 'animate-pulse' : ''}`} />
@@ -2427,8 +2674,8 @@ const ComprehensiveChatInterface = ({
                         console.log('Selected theme:', chatTheme.name);
                       }}
                       className={`p-4 rounded-lg border-2 transition-all ${selectedTheme === chatTheme.id
-                          ? 'border-blue-500 ring-2 ring-blue-200'
-                          : 'border-gray-200 dark:border-gray-600 hover:border-gray-300'
+                        ? 'border-blue-500 ring-2 ring-blue-200'
+                        : 'border-gray-200 dark:border-gray-600 hover:border-gray-300'
                         }`}
                     >
                       <div
@@ -2447,8 +2694,8 @@ const ComprehensiveChatInterface = ({
                   <button
                     onClick={() => setShowThemesModal(false)}
                     className={`flex-1 py-2 px-4 rounded-lg border ${theme === 'dark'
-                        ? 'border-gray-600 text-gray-300 hover:bg-gray-700'
-                        : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                      ? 'border-gray-600 text-gray-300 hover:bg-gray-700'
+                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
                       }`}
                   >
                     Cancel
@@ -2593,7 +2840,8 @@ const ChatMessageBubble = ({
   formatTime,
   formatDuration,
   showTranslation,
-  translationLanguage
+  translationLanguage,
+  selectedChat
 }) => {
   const [showActions, setShowActions] = useState(false);
   const [voiceProgress, setVoiceProgress] = useState(0);
@@ -2655,10 +2903,10 @@ const ChatMessageBubble = ({
             <button
               onClick={handleVoicePlay}
               className={`p-2 rounded-full transition-colors ${isOwn
-                  ? 'bg-white/20 hover:bg-white/30'
-                  : theme === 'dark'
-                    ? 'bg-gray-600 hover:bg-gray-500'
-                    : 'bg-gray-200 hover:bg-gray-300'
+                ? 'bg-white/20 hover:bg-white/30'
+                : theme === 'dark'
+                  ? 'bg-gray-600 hover:bg-gray-500'
+                  : 'bg-gray-200 hover:bg-gray-300'
                 }`}
             >
               {playingVoiceId === message.id ? (
@@ -2674,12 +2922,12 @@ const ChatMessageBubble = ({
                 <div
                   key={index}
                   className={`w-1 rounded-full transition-all duration-200 ${playingVoiceId === message.id && index <= voiceProgress
-                      ? isOwn ? 'bg-white' : 'bg-red-500'
-                      : isOwn
-                        ? 'bg-white/50'
-                        : theme === 'dark'
-                          ? 'bg-gray-400'
-                          : 'bg-gray-400'
+                    ? isOwn ? 'bg-white' : 'bg-red-500'
+                    : isOwn
+                      ? 'bg-white/50'
+                      : theme === 'dark'
+                        ? 'bg-gray-400'
+                        : 'bg-gray-400'
                     }`}
                   style={{ height: `${Math.max(amplitude * 24, 4)}px` }}
                 />
@@ -2744,10 +2992,10 @@ const ChatMessageBubble = ({
               <div
                 key={index}
                 className={`flex items-center space-x-3 p-3 rounded-lg ${isOwn
-                    ? 'bg-white/10'
-                    : theme === 'dark'
-                      ? 'bg-gray-700'
-                      : 'bg-gray-100'
+                  ? 'bg-white/10'
+                  : theme === 'dark'
+                    ? 'bg-gray-700'
+                    : 'bg-gray-100'
                   }`}
               >
                 <FileText className="w-8 h-8 text-blue-500" />
@@ -2756,10 +3004,10 @@ const ChatMessageBubble = ({
                   <div className="text-xs opacity-75">{file.size}</div>
                 </div>
                 <button className={`p-1 rounded ${isOwn
-                    ? 'hover:bg-white/20'
-                    : theme === 'dark'
-                      ? 'hover:bg-gray-600'
-                      : 'hover:bg-gray-200'
+                  ? 'hover:bg-white/20'
+                  : theme === 'dark'
+                    ? 'hover:bg-gray-600'
+                    : 'hover:bg-gray-200'
                   }`}>
                   <Download className="w-4 h-4" />
                 </button>
@@ -2776,25 +3024,25 @@ const ChatMessageBubble = ({
         );
 
       default:
-        return <p className="text-sm">{message.content}</p>;
+        return <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>;
     }
   };
 
   return (
-    <div className={`group flex ${isOwn ? 'justify-end' : 'justify-start'} mb-4`}>
+    <div className={`group flex ${isOwn ? 'justify-end' : 'justify-start'} mb-3 px-4`}>
       {!isOwn && (
         <img
           src={message.senderAvatar}
           alt={message.senderName}
-          className="w-8 h-8 rounded-full mr-2 self-end"
+          className="w-8 h-8 rounded-full mr-2 flex-shrink-0 self-end"
         />
       )}
       <div
-        className={`relative max-w-xs lg:max-w-md xl:max-w-lg ${isOwn
-            ? 'bg-red-500 text-white'
-            : theme === 'dark'
-              ? 'bg-gray-700 text-white'
-              : 'bg-white text-gray-800 border border-gray-200'
+        className={`relative max-w-[70%] md:max-w-[60%] lg:max-w-[50%] break-words ${isOwn
+          ? 'bg-red-500 text-white'
+          : theme === 'dark'
+            ? 'bg-gray-700 text-white'
+            : 'bg-white text-gray-800 border border-gray-200'
           } rounded-2xl px-4 py-2 shadow-sm`}
         onDoubleClick={handleDoubleClick}
       >
@@ -2828,10 +3076,10 @@ const ChatMessageBubble = ({
               <span
                 key={index}
                 className={`text-xs px-2 py-1 rounded-full ${isOwn
-                    ? 'bg-white/20'
-                    : theme === 'dark'
-                      ? 'bg-gray-600'
-                      : 'bg-gray-100'
+                  ? 'bg-white/20'
+                  : theme === 'dark'
+                    ? 'bg-gray-600'
+                    : 'bg-gray-100'
                   }`}
               >
                 {reaction.emoji} {reaction.count > 1 && reaction.count}
@@ -2850,8 +3098,8 @@ const ChatMessageBubble = ({
                 key={emoji}
                 onClick={() => onReaction(emoji)}
                 className={`w-8 h-8 rounded-full flex items-center justify-center text-sm transition-all hover:scale-110 ${theme === 'dark'
-                    ? 'bg-gray-800 hover:bg-gray-700'
-                    : 'bg-white hover:bg-gray-50 shadow-sm border'
+                  ? 'bg-gray-800 hover:bg-gray-700'
+                  : 'bg-white hover:bg-gray-50 shadow-sm border'
                   }`}
               >
                 {emoji}
@@ -2860,8 +3108,8 @@ const ChatMessageBubble = ({
             <button
               onClick={() => setShowReactionPicker(showReactionPicker === message.id ? null : message.id)}
               className={`w-8 h-8 rounded-full flex items-center justify-center transition-all hover:scale-110 ${theme === 'dark'
-                  ? 'bg-gray-800 hover:bg-gray-700'
-                  : 'bg-white hover:bg-gray-50 shadow-sm border'
+                ? 'bg-gray-800 hover:bg-gray-700'
+                : 'bg-white hover:bg-gray-50 shadow-sm border'
                 }`}
             >
               <Plus className="w-3 h-3" />
@@ -2872,8 +3120,8 @@ const ChatMessageBubble = ({
           <button
             onClick={() => setShowActions(!showActions)}
             className={`w-8 h-8 rounded-full flex items-center justify-center transition-all hover:scale-110 ${theme === 'dark'
-                ? 'bg-gray-800 hover:bg-gray-700'
-                : 'bg-white hover:bg-gray-50 shadow-sm border'
+              ? 'bg-gray-800 hover:bg-gray-700'
+              : 'bg-white hover:bg-gray-50 shadow-sm border'
               }`}
           >
             <MoreVertical className="w-3 h-3" />
@@ -2897,8 +3145,8 @@ const ChatMessageBubble = ({
                       setShowActions(false);
                     }}
                     className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
-                        ? 'hover:bg-gray-700 text-gray-300'
-                        : 'hover:bg-gray-100 text-gray-700'
+                      ? 'hover:bg-gray-700 text-gray-300'
+                      : 'hover:bg-gray-100 text-gray-700'
                       }`}
                   >
                     <div className="flex items-center space-x-2">
@@ -2912,8 +3160,8 @@ const ChatMessageBubble = ({
                       setShowActions(false);
                     }}
                     className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
-                        ? 'hover:bg-gray-700 text-gray-300'
-                        : 'hover:bg-gray-100 text-gray-700'
+                      ? 'hover:bg-gray-700 text-gray-300'
+                      : 'hover:bg-gray-100 text-gray-700'
                       }`}
                   >
                     <div className="flex items-center space-x-2">
@@ -2927,8 +3175,8 @@ const ChatMessageBubble = ({
                       setShowActions(false);
                     }}
                     className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
-                        ? 'hover:bg-gray-700 text-gray-300'
-                        : 'hover:bg-gray-100 text-gray-700'
+                      ? 'hover:bg-gray-700 text-gray-300'
+                      : 'hover:bg-gray-100 text-gray-700'
                       }`}
                   >
                     <div className="flex items-center space-x-2">
@@ -2942,8 +3190,8 @@ const ChatMessageBubble = ({
                       setShowActions(false);
                     }}
                     className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
-                        ? 'hover:bg-gray-700 text-gray-300'
-                        : 'hover:bg-gray-100 text-gray-700'
+                      ? 'hover:bg-gray-700 text-gray-300'
+                      : 'hover:bg-gray-100 text-gray-700'
                       }`}
                   >
                     <div className="flex items-center space-x-2">
@@ -2958,8 +3206,8 @@ const ChatMessageBubble = ({
                         setShowActions(false);
                       }}
                       className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
-                          ? 'hover:bg-gray-700 text-gray-300'
-                          : 'hover:bg-gray-100 text-gray-700'
+                        ? 'hover:bg-gray-700 text-gray-300'
+                        : 'hover:bg-gray-100 text-gray-700'
                         }`}
                     >
                       <div className="flex items-center space-x-2">
@@ -2976,8 +3224,8 @@ const ChatMessageBubble = ({
                           setShowActions(false);
                         }}
                         className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${theme === 'dark'
-                            ? 'hover:bg-gray-700 text-gray-300'
-                            : 'hover:bg-gray-100 text-gray-700'
+                          ? 'hover:bg-gray-700 text-gray-300'
+                          : 'hover:bg-gray-100 text-gray-700'
                           }`}
                       >
                         <div className="flex items-center space-x-2">

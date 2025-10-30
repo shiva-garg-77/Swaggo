@@ -45,6 +45,14 @@ try {
   console.warn('⚠️ Share model not found. Share functionality will not work.');
 }
 
+// Import or create Report model
+let Report;
+try {
+  Report = (await import('../../Models/FeedModels/Report.js')).default;
+} catch (e) {
+  console.warn('⚠️ Report model not found. Report functionality will not work.');
+}
+
 export default {
   Query: {
     // REMOVED: getUserbyUsername - Already in core.resolvers.js line 566
@@ -787,6 +795,92 @@ export default {
       } catch (err) {
         console.error('❌ Error in AddStoryToMemory:', err.message);
         throw new Error(`Error adding story to memory: ${err.message}`);
+      }
+    },
+    /**
+     * Report a post
+     */
+    ReportPost: async (_, { profileid, postid, reason, description }) => {
+      if (!Report) {
+        throw new Error('Report functionality not available');
+      }
+      try {
+        console.log(`🔍 [Missing Resolver] ReportPost called`);
+
+        const report = new Report({
+          reportid: uuidv4(),
+          reporterprofileid: profileid,
+          reportedpostid: postid,
+          reportType: 'post',
+          reason,
+          description,
+          status: 'pending',
+          createdAt: new Date()
+        });
+
+        await report.save();
+        return report;
+      } catch (err) {
+        console.error('❌ Error in ReportPost:', err.message);
+        throw new Error(`Error reporting post: ${err.message}`);
+      }
+    },
+
+    /**
+     * Report a profile
+     */
+    ReportProfile: async (_, { profileid, reportedprofileid, reason, description }) => {
+      if (!Report) {
+        throw new Error('Report functionality not available');
+      }
+      try {
+        console.log(`🔍 [Missing Resolver] ReportProfile called`);
+
+        const report = new Report({
+          reportid: uuidv4(),
+          reporterprofileid: profileid,
+          reportedprofileid,
+          reportType: 'profile',
+          reason,
+          description,
+          status: 'pending',
+          createdAt: new Date()
+        });
+
+        await report.save();
+        return report;
+      } catch (err) {
+        console.error('❌ Error in ReportProfile:', err.message);
+        throw new Error(`Error reporting profile: ${err.message}`);
+      }
+    },
+
+    /**
+     * Report a story
+     */
+    ReportStory: async (_, { profileid, storyid, reason, description }) => {
+      if (!Report) {
+        throw new Error('Report functionality not available');
+      }
+      try {
+        console.log(`🔍 [Missing Resolver] ReportStory called`);
+
+        const report = new Report({
+          reportid: uuidv4(),
+          reporterprofileid: profileid,
+          reportedstoryid: storyid,
+          reportType: 'story',
+          reason,
+          description,
+          status: 'pending',
+          createdAt: new Date()
+        });
+
+        await report.save();
+        return report;
+      } catch (err) {
+        console.error('❌ Error in ReportStory:', err.message);
+        throw new Error(`Error reporting story: ${err.message}`);
       }
     }
   }

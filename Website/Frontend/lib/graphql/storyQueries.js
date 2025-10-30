@@ -59,6 +59,26 @@ export const GET_STORY_VIEWS = gql`
   }
 `;
 
+/**
+ * Get expired stories for a profile (for highlights)
+ */
+export const GET_EXPIRED_STORIES = gql`
+  query GetExpiredStories($profileid: String!, $limit: Int) {
+    getExpiredStories(profileid: $profileid, limit: $limit) {
+      storyid
+      profileid
+      mediaUrl
+      mediaType
+      caption
+      backgroundColor
+      textColor
+      duration
+      createdAt
+      expiresAt
+    }
+  }
+`;
+
 // ============ MUTATIONS ============
 
 /**

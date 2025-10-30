@@ -404,11 +404,18 @@ type Story implements Node & Timestamped {
   mediaUrl: URL!
   mediaType: String!
   caption: String
+  backgroundColor: String
+  textColor: String
+  duration: Int
   viewers: [StoryViewer!]
   viewersCount: Int!
+  viewCount: Int!
   isViewedByUser: Boolean!
+  isViewed: Boolean!
   isActive: Boolean!
   savedToHighlights: Boolean!
+  isHighlight: Boolean!
+  highlightTitle: String
   expiresAt: DateTime
   createdAt: DateTime
   updatedAt: DateTime
@@ -575,6 +582,18 @@ type Message implements Node & Timestamped {
   
   "List of link previews in the message"
   linkPreviews: [LinkPreview!]
+  
+  "Sticker data (if message type is sticker)"
+  stickerData: StickerData
+  
+  "GIF data (if message type is gif)"
+  gifData: GifData
+  
+  "Voice data (if message type is voice)"
+  voiceData: VoiceData
+  
+  "File data (if message type is file)"
+  fileData: FileData
 }
 
 # Message attachment type
@@ -1080,6 +1099,22 @@ type MessageConnection {
   messages: [Message!]!
   pageInfo: PageInfo!
   totalCount: Int!
+}
+
+# Report type
+type Report implements Node & Timestamped {
+  id: ID!
+  reportid: String!
+  reporterprofileid: String!
+  reportedpostid: String
+  reportedprofileid: String
+  reportedstoryid: String
+  reportType: String!
+  reason: String!
+  description: String
+  status: String!
+  createdAt: DateTime
+  updatedAt: DateTime
 }
 
 

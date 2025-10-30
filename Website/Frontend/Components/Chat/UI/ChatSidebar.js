@@ -366,6 +366,17 @@ export default function ChatSidebar({
               const isSelected = selectedChat?.chatid === chat.chatid;
               const lastMessage = chat.lastMessage;
               
+              // ✅ Check if this is a chat with yourself (invalid chat)
+              const currentUserId = getUserId(user);
+              const isSelfChat = chat.participants && chat.participants.length === 2 && 
+                chat.participants.every(p => getUserId(p) === currentUserId);
+              
+              // Skip rendering chats with yourself
+              if (isSelfChat) {
+                console.warn('⚠️ Skipping self-chat:', chat.chatid);
+                return null;
+              }
+              
               return (
                 <button
                   key={chat.chatid}

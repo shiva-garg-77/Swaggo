@@ -65,7 +65,7 @@ function MessageAreaContent({ selectedChat, user }) {
   const [isDragging, setIsDragging] = useState(false); // 🎯 NEW: Drag & drop state
   // 🔧 NEW: Ref for search debounce
   const searchTimeoutRef = useRef(null);
-  
+
   // 🔧 NEW: Call state variables
   const [isInCall, setIsInCall] = useState(false);
   const [showVoiceCall, setShowVoiceCall] = useState(false);
@@ -109,13 +109,13 @@ function MessageAreaContent({ selectedChat, user }) {
     // Send batch via socket
     socket.emit('send_message_batch', batch, (acknowledgments) => {
       console.log('📬 Received batch acknowledgment:', acknowledgments);
-      
+
       if (acknowledgments && Array.isArray(acknowledgments)) {
         acknowledgments.forEach((ack, index) => {
           if (ack?.success) {
             console.log(`✅ Message ${index} sent successfully via socket`);
             // Update optimistic message with real message from server
-            setAllMessages(prev => prev.map(msg => 
+            setAllMessages(prev => prev.map(msg =>
               msg.messageid === batch[index].clientMessageId
                 ? { ...ack.message, messageStatus: 'sent', isOptimistic: false }
                 : msg
@@ -157,10 +157,10 @@ function MessageAreaContent({ selectedChat, user }) {
     if (socket && selectedChat?.chatid) {
       console.log('Joining chat:', selectedChat.chatid);
       socket.emit('join_chat', selectedChat.chatid);
-      
+
       // 🔧 FIX: Mark chat as read when opened (Issue #16)
       socket.emit('mark_chat_as_read', { chatid: selectedChat.chatid });
-      
+
       return () => {
         console.log('Leaving chat:', selectedChat.chatid);
         socket.emit('leave_chat', selectedChat.chatid);
@@ -189,24 +189,25 @@ function MessageAreaContent({ selectedChat, user }) {
             };
             return updatedMessages;
           }
-          
+
           // Avoid duplicate messages
           if (prev.find(m => m.messageid === message.messageid)) {
             return prev;
           }
-          
+
           return [...prev, message];
         });
       }
     };
 
     const handleUserTyping = (data) => {
+      console.log('📣 User typing:................', data);
       if (data.chatid === selectedChat?.chatid && data.profileid !== user.profileid) {
         setTypingUsers(prev => ({
           ...prev,
           [data.profileid]: data.isTyping ? data.username : undefined
         }));
-        
+
         // Clear typing after 3 seconds
         if (data.isTyping) {
           setTimeout(() => {
@@ -266,13 +267,13 @@ function MessageAreaContent({ selectedChat, user }) {
 
     const handleCallIncoming = (data) => {
       console.log('📞 Incoming call:', data);
-      
+
       // Validate incoming call data
       if (!data.callType || !data.caller) {
         console.error('❌ Invalid incoming call data:', data);
         return;
       }
-      
+
       // Check if already in a call
       if (isInCall) {
         console.log('📞 Rejecting incoming call - already in call');
@@ -284,13 +285,13 @@ function MessageAreaContent({ selectedChat, user }) {
         }
         return;
       }
-      
+
       // Show notification for incoming call
       notificationService.incomingCall(data.caller, data.callType);
-      
+
       // Set call state based on call type
       const callType = data.callType.toLowerCase();
-      
+
       if (callType === 'voice') {
         setShowVoiceCall(true);
         setCallType('voice');
@@ -301,16 +302,16 @@ function MessageAreaContent({ selectedChat, user }) {
         console.error('❌ Unknown call type:', data.callType);
         return;
       }
-      
+
       setIsInCall(true);
-      
+
       // Store call data for later use
       window.currentIncomingCall = data;
     };
 
     const handleCallEnded = (data) => {
       console.log('📵 Call ended:', data);
-      
+
       // Show notification for call ended
       if (data.caller && data.duration) {
         notificationService.callEnded(data.caller, data.duration);
@@ -318,7 +319,7 @@ function MessageAreaContent({ selectedChat, user }) {
         // Show notification for missed calls
         notificationService.missedCall(data.caller || { username: 'Unknown' });
       }
-      
+
       // Show end reason if provided
       if (data.reason && data.reason !== 'normal' && data.reason !== 'user_ended') {
         let message = 'Call ended';
@@ -336,25 +337,25 @@ function MessageAreaContent({ selectedChat, user }) {
             message = 'Call ended - Connection timeout';
             break;
         }
-        
+
         // Show brief notification
         setTimeout(() => alert(message), 500);
       }
-      
+
       // Clean up call state
       setIsInCall(false);
       setShowVoiceCall(false);
       setShowVideoCall(false);
       setCallType(null);
-      
+
       // Clean up stored call data
       delete window.currentIncomingCall;
     };
-    
+
     // Handle call failure events
     const handleCallFailed = (data) => {
       console.error('📞 Call failed:', data);
-      
+
       let errorMessage = 'Call failed';
       if (data.reason) {
         switch (data.reason) {
@@ -371,41 +372,41 @@ function MessageAreaContent({ selectedChat, user }) {
             errorMessage = `Call failed: ${data.reason}`;
         }
       }
-      
+
       // Show error notification
       notificationService.error('Call Failed', errorMessage);
-      
+
       alert(errorMessage);
-      
+
       // Reset call state
       setIsInCall(false);
       setShowVoiceCall(false);
       setShowVideoCall(false);
       setCallType(null);
     };
-    
+
     // Handle call timeout
     const handleCallTimeout = (data) => {
       console.log('⏰ Call timeout:', data);
       alert('Call timed out - no response from other party');
-      
+
       // Reset call state
       setIsInCall(false);
       setShowVoiceCall(false);
       setShowVideoCall(false);
       setCallType(null);
     };
-    
+
     // Handle call decline
     const handleCallDecline = (data) => {
       console.log('📞 Call declined:', data);
       setShowIncomingCall(false);
     };
-    
+
     // Handle message reaction
     const handleMessageReaction = (data) => {
       console.log('❤️ Message reaction received:', data);
-      
+
       // Update the message with the new reactions
       setAllMessages(prevMessages => {
         return prevMessages.map(message => {
@@ -420,7 +421,7 @@ function MessageAreaContent({ selectedChat, user }) {
         });
       });
     };
-    
+
     // Handle call events
     const handleCallEvent = (event, data) => {
       console.log('📞 Call event:', event, data);
@@ -438,14 +439,14 @@ function MessageAreaContent({ selectedChat, user }) {
           console.warn('📞 Unknown call event:', event);
       }
     };
-    
+
     // Handle incoming call
     const handleIncomingCall = (data) => {
       console.log('📞 Incoming call:', data);
       window.currentIncomingCall = data;
       setShowIncomingCall(true);
     };
-    
+
     // Handle call answer
     const handleCallAnswer = (data) => {
       console.log('📞 Call answered:', data);
@@ -453,7 +454,7 @@ function MessageAreaContent({ selectedChat, user }) {
       setShowIncomingCall(false);
       setCallType(data.type);
     };
-    
+
 
 
     // Register socket event listeners
@@ -508,7 +509,7 @@ function MessageAreaContent({ selectedChat, user }) {
   const uploadFile = async (file, onProgress) => {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      
+
       // Track upload progress
       xhr.upload.addEventListener('progress', (event) => {
         if (event.lengthComputable && onProgress) {
@@ -516,7 +517,7 @@ function MessageAreaContent({ selectedChat, user }) {
           onProgress(percentComplete);
         }
       });
-      
+
       // Handle response
       xhr.addEventListener('load', () => {
         if (xhr.status === 200) {
@@ -530,20 +531,20 @@ function MessageAreaContent({ selectedChat, user }) {
           reject(new Error(`Upload failed with status ${xhr.status}`));
         }
       });
-      
+
       // Handle errors
       xhr.addEventListener('error', () => {
         reject(new Error('Network error during upload'));
       });
-      
+
       xhr.addEventListener('abort', () => {
         reject(new Error('Upload aborted'));
       });
-      
+
       // Setup and send request
       const formData = new FormData();
       formData.append('file', file);
-      
+
       xhr.open('POST', '/upload');
       xhr.send(formData);
     });
@@ -552,16 +553,16 @@ function MessageAreaContent({ selectedChat, user }) {
   // 🔧 FIXED: Handle message sending - Support both old format (string + attachments) and new format (structured message data)
   const handleSendMessage = async (contentOrMessageData, attachments = [], replyTo = null, mentions = []) => {
     console.log('📤 handleSendMessage called with:', { contentOrMessageData, attachments, type: typeof contentOrMessageData });
-    
+
     let messageData;
     let content = '';
     let processedAttachments = [];
-    
+
     // ✅ DETECT FORMAT: Check if we received structured message data (from media components) or old format (text)
     if (typeof contentOrMessageData === 'object' && contentOrMessageData !== null && contentOrMessageData.messageType) {
       // ✅ NEW FORMAT: Structured message data from voice/gif/sticker components
       console.log('✅ Received structured message data:', contentOrMessageData);
-      
+
       messageData = {
         chatid: selectedChat.chatid,
         messageType: contentOrMessageData.messageType,
@@ -576,13 +577,13 @@ function MessageAreaContent({ selectedChat, user }) {
         ...(contentOrMessageData.stickerData && { stickerData: contentOrMessageData.stickerData }),
         ...(contentOrMessageData.fileData && { fileData: contentOrMessageData.fileData })
       };
-      
+
       content = contentOrMessageData.content || '';
-      
+
     } else {
       // ✅ OLD FORMAT: Text message or attachments
       content = typeof contentOrMessageData === 'string' ? contentOrMessageData : '';
-      
+
       if (!content.trim() && !attachments.length) {
         console.warn('⚠️ Empty message, not sending');
         return;
@@ -601,12 +602,12 @@ function MessageAreaContent({ selectedChat, user }) {
                 uploadProgress: 0,
                 uploadStatus: 'uploading'
               };
-              
+
               // Upload the file with progress tracking
               const uploadResult = await uploadFile(attachment.file, (progress) => {
                 console.log(`📈 Upload progress: ${progress}%`);
               });
-              
+
               // Update with final attachment data - use file reference
               processedAttachments.push({
                 type: attachment.type,
@@ -631,7 +632,7 @@ function MessageAreaContent({ selectedChat, user }) {
 
         // Extract URLs from message content for link preview
         const urls = extractUrls(content);
-        
+
         messageData = {
           chatid: selectedChat.chatid,
           messageType: processedAttachments.length > 0 ? processedAttachments[0].type : 'text',
@@ -653,11 +654,11 @@ function MessageAreaContent({ selectedChat, user }) {
         return;
       }
     }
-    
+
     // ✅ SEND MESSAGE: Via Socket.io for real-time delivery (Primary method)
     try {
       console.log('📤 Final message data to send:', messageData);
-      
+
       // ✅ CREATE OPTIMISTIC MESSAGE: Add to UI immediately for instant feedback
       const optimisticMessage = {
         messageid: messageData.clientMessageId,
@@ -683,23 +684,23 @@ function MessageAreaContent({ selectedChat, user }) {
         ...(messageData.stickerData && { stickerData: messageData.stickerData }),
         ...(messageData.fileData && { fileData: messageData.fileData })
       };
-      
+
       setAllMessages(prev => [...prev, optimisticMessage]);
       scrollToBottom();
-      
+
       // 🔧 FIX #45: Add message to batch instead of sending immediately
       messageBatchRef.current.push(messageData);
-      
+
       // Clear any existing timeout
       if (batchTimeoutRef.current) {
         clearTimeout(batchTimeoutRef.current);
       }
-      
+
       // Set timeout to send batch after 50ms
       batchTimeoutRef.current = setTimeout(() => {
         sendBatchedMessages();
       }, 50);
-      
+
     } catch (error) {
       console.error('❌ Failed to send message:', error);
       // Update message status to 'failed' if it exists
@@ -727,7 +728,7 @@ function MessageAreaContent({ selectedChat, user }) {
   const retrySendMessage = async (message) => {
     // Update status to 'sending'
     updateMessageStatus(message.messageid, 'sending');
-    
+
     try {
       // Prepare message data
       const messageData = {
@@ -859,12 +860,12 @@ function MessageAreaContent({ selectedChat, user }) {
   // Handle delete message
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [messageToDelete, setMessageToDelete] = useState(null);
-  
+
   const handleDeleteMessage = async (message) => {
     setMessageToDelete(message);
     setShowDeleteModal(true);
   };
-  
+
   const handleDeleteForMe = async (messageid) => {
     try {
       // Send delete request to backend with deleteForEveryone = false
@@ -875,12 +876,12 @@ function MessageAreaContent({ selectedChat, user }) {
           deleteForEveryone: false
         });
       }
-      
+
       // Optimistically update UI
       const message = allMessages.find(msg => msg.messageid === messageid);
       if (message) {
         const updatedMessage = { ...message, isDeleted: true, deletedForMe: true };
-        setAllMessages(prev => prev.map(msg => 
+        setAllMessages(prev => prev.map(msg =>
           msg.messageid === messageid ? updatedMessage : msg
         ));
       }
@@ -888,7 +889,7 @@ function MessageAreaContent({ selectedChat, user }) {
       console.error('Failed to delete message for me:', error);
     }
   };
-  
+
   const handleDeleteForEveryone = async (messageid) => {
     try {
       // Send delete request to backend with deleteForEveryone = true
@@ -899,12 +900,12 @@ function MessageAreaContent({ selectedChat, user }) {
           deleteForEveryone: true
         });
       }
-      
+
       // Optimistically update UI
       const message = allMessages.find(msg => msg.messageid === messageid);
       if (message) {
         const updatedMessage = { ...message, isDeleted: true, deletedForEveryone: true };
-        setAllMessages(prev => prev.map(msg => 
+        setAllMessages(prev => prev.map(msg =>
           msg.messageid === messageid ? updatedMessage : msg
         ));
       }
@@ -919,34 +920,34 @@ function MessageAreaContent({ selectedChat, user }) {
       alert('Connection unavailable. Please check your internet connection.');
       return;
     }
-    
+
     if (!selectedChat || !selectedChat.participants) {
       alert('Cannot initiate call: Chat information unavailable.');
       return;
     }
-    
+
     try {
       setCallType('voice');
       setShowVoiceCall(true);
       setIsInCall(true);
       setCallQuality('unknown'); // Reset quality indicator
       setCallStats({}); // Reset stats
-      
+
       // Find the other participant(s)
       const otherParticipants = selectedChat.participants.filter(p => p.profileid !== user?.profileid);
-      
+
       if (otherParticipants.length === 0) {
         throw new Error('No other participants found in chat');
       }
-      
+
       const receiverId = otherParticipants[0].profileid; // For 1-on-1 chats
-      
+
       // Emit call initiation with acknowledgment
       const callInitiated = await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
           reject(new Error('Call initiation timeout'));
         }, 10000); // 10 second timeout
-        
+
         socket.emit('initiate_call', {
           chatid: selectedChat.chatid,
           callType: 'voice',
@@ -961,22 +962,22 @@ function MessageAreaContent({ selectedChat, user }) {
           }
         });
       });
-      
+
       console.log('✅ Voice call initiated successfully:', callInitiated);
-      
+
     } catch (error) {
       console.error('❌ Failed to initiate voice call:', error);
-      
+
       // Reset UI state
       setIsInCall(false);
       setShowVoiceCall(false);
       setCallType(null);
       setCallQuality('unknown');
       setCallStats({});
-      
+
       // Show user-friendly error message
       let errorMessage = 'Failed to start call. ';
-      
+
       if (error.message.includes('timeout')) {
         errorMessage += 'Request timed out. Please try again.';
       } else if (error.message.includes('offline')) {
@@ -984,7 +985,7 @@ function MessageAreaContent({ selectedChat, user }) {
       } else {
         errorMessage += error.message;
       }
-      
+
       alert(errorMessage);
     }
   };
@@ -995,51 +996,51 @@ function MessageAreaContent({ selectedChat, user }) {
       alert('Connection unavailable. Please check your internet connection.');
       return;
     }
-    
+
     if (!selectedChat || !selectedChat.participants) {
       alert('Cannot initiate call: Chat information unavailable.');
       return;
     }
-    
+
     // Check if browser supports video calls
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       alert('Video calls are not supported in your browser.');
       return;
     }
-    
+
     try {
       // Request camera and microphone permissions first
       console.log('🎥 Requesting video call permissions...');
-      
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: true, 
-        audio: true 
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
       });
-      
+
       // Stop the test stream immediately
       stream.getTracks().forEach(track => track.stop());
-      
+
       setCallType('video');
       setShowVideoCall(true);
       setIsInCall(true);
       setCallQuality('unknown'); // Reset quality indicator
       setCallStats({}); // Reset stats
-      
+
       // Find the other participant(s)
       const otherParticipants = selectedChat.participants.filter(p => p.profileid !== user?.profileid);
-      
+
       if (otherParticipants.length === 0) {
         throw new Error('No other participants found in chat');
       }
-      
+
       const receiverId = otherParticipants[0].profileid; // For 1-on-1 chats
-      
+
       // Emit call initiation with acknowledgment
       const callInitiated = await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
           reject(new Error('Call initiation timeout'));
         }, 10000); // 10 second timeout
-        
+
         socket.emit('initiate_call', {
           chatid: selectedChat.chatid,
           callType: 'video',
@@ -1054,22 +1055,22 @@ function MessageAreaContent({ selectedChat, user }) {
           }
         });
       });
-      
+
       console.log('✅ Video call initiated successfully:', callInitiated);
-      
+
     } catch (error) {
       console.error('❌ Failed to initiate video call:', error);
-      
+
       // Reset UI state
       setIsInCall(false);
       setShowVideoCall(false);
       setCallType(null);
       setCallQuality('unknown');
       setCallStats({});
-      
+
       // Show user-friendly error message
       let errorMessage = 'Failed to start video call. ';
-      
+
       if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
         errorMessage += 'Camera and microphone access denied. Please allow permissions and try again.';
       } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
@@ -1081,7 +1082,7 @@ function MessageAreaContent({ selectedChat, user }) {
       } else {
         errorMessage += error.message;
       }
-      
+
       alert(errorMessage);
     }
   };
@@ -1090,12 +1091,12 @@ function MessageAreaContent({ selectedChat, user }) {
   const handleEndCall = async () => {
     try {
       console.log('📵 Ending call...');
-      
+
       // Emit call end event with acknowledgment if socket is available
       if (socket && socket.connected) {
         await new Promise((resolve) => {
           const timeout = setTimeout(resolve, 3000); // Don't wait more than 3 seconds
-          
+
           socket.emit('end_call', {
             chatid: selectedChat.chatid,
             reason: 'user_ended'
@@ -1105,9 +1106,9 @@ function MessageAreaContent({ selectedChat, user }) {
           });
         });
       }
-      
+
       console.log('✅ Call ended successfully');
-      
+
     } catch (error) {
       console.error('❌ Error ending call:', error);
       // Continue with cleanup even if server communication fails
@@ -1189,12 +1190,12 @@ function MessageAreaContent({ selectedChat, user }) {
   // Bulk delete selected messages
   const bulkDeleteMessages = async () => {
     if (selectedMessages.length === 0) return;
-    
+
     try {
       // Show confirmation dialog
       const confirmed = window.confirm(`Are you sure you want to delete ${selectedMessages.length} message(s)? This action cannot be undone.`);
       if (!confirmed) return;
-      
+
       // Use socket for real-time deletion if available
       if (socket && socket.connected && selectedChat?.chatid) {
         // Emit bulk delete event
@@ -1218,7 +1219,7 @@ function MessageAreaContent({ selectedChat, user }) {
       } else {
         // Fallback to GraphQL if socket is not connected
         console.log('🔌 Socket not connected, using GraphQL fallback for bulk delete');
-        
+
         // Delete each selected message
         for (const messageId of selectedMessages) {
           await deleteMessageMutation({
@@ -1227,10 +1228,10 @@ function MessageAreaContent({ selectedChat, user }) {
             }
           });
         }
-        
+
         // Exit multi-select mode
         exitMultiSelectMode();
-        
+
         // Show success message
         alert(`${selectedMessages.length} message(s) deleted successfully.`);
       }
@@ -1243,14 +1244,14 @@ function MessageAreaContent({ selectedChat, user }) {
   // Forward selected messages
   const forwardMessages = () => {
     if (selectedMessages.length === 0) return;
-    
+
     // Get the actual message objects
     const messagesToForward = allMessages.filter(msg => selectedMessages.includes(msg.messageid));
-    
+
     // Here you would implement the forward functionality
     // For now, we'll just show an alert
     alert(`Forwarding ${selectedMessages.length} message(s). This feature would be implemented in a real app.`);
-    
+
     // Exit multi-select mode
     exitMultiSelectMode();
   };
@@ -1261,15 +1262,15 @@ function MessageAreaContent({ selectedChat, user }) {
       console.log('⏸️ Skipping loadMoreMessages:', { hasMoreMessages, loading, isLoadingMore, endCursor });
       return;
     }
-    
+
     console.log('📜 Loading more messages with cursor:', endCursor);
     setIsLoadingMore(true);
-    
+
     try {
       // Store current scroll position to restore after loading
       const container = messagesContainerRef.current;
       const previousScrollHeight = container?.scrollHeight || 0;
-      
+
       const result = await fetchMore({
         variables: {
           chatid: selectedChat?.chatid,
@@ -1278,7 +1279,7 @@ function MessageAreaContent({ selectedChat, user }) {
         },
         updateQuery: (prev, { fetchMoreResult }) => {
           if (!fetchMoreResult) return prev;
-          
+
           return {
             getMessagesByChat: {
               ...fetchMoreResult.getMessagesByChat,
@@ -1290,25 +1291,25 @@ function MessageAreaContent({ selectedChat, user }) {
           };
         }
       });
-      
+
       if (result?.data?.getMessagesByChat) {
         const newMessages = result.data.getMessagesByChat.messages;
         const pageInfo = result.data.getMessagesByChat.pageInfo;
-        
+
 
 
         console.log('✅ Loaded', newMessages.length, 'older messages');
         console.log('📊 Pagination info:', { hasNextPage: pageInfo?.hasNextPage, newCursor: pageInfo?.endCursor });
-        
+
         setAllMessages(prevMessages => {
           // Append older messages to the end of the array (since we're loading older messages)
           const updatedMessages = [...prevMessages, ...newMessages];
           return updatedMessages;
         });
-        
+
         setHasMoreMessages(pageInfo?.hasNextPage || false);
         setEndCursor(pageInfo?.endCursor || null);
-        
+
         // Restore scroll position after adding messages
         setTimeout(() => {
           if (container) {
@@ -1319,7 +1320,7 @@ function MessageAreaContent({ selectedChat, user }) {
       }
     } catch (error) {
       console.error('❌ Error loading more messages:', error);
-      
+
       // Check if it's an authorization error
       if (error.message && error.message.includes('Unauthorized')) {
         console.log('🔐 Authorization error, rejoining chat...');
@@ -1336,9 +1337,9 @@ function MessageAreaContent({ selectedChat, user }) {
   // 🔧 FIXED: Add scroll event listener for infinite scroll
   const handleScroll = useCallback((e) => {
     const messagesContainer = e.target;
-    
+
     if (!messagesContainer) return;
-    
+
     // Check if user scrolled to the top (for loading older messages)
     // Trigger when scroll position is within 200px from top
     if (messagesContainer.scrollTop <= 200 && hasMoreMessages && !isLoadingMore) {
@@ -1354,9 +1355,9 @@ function MessageAreaContent({ selectedChat, user }) {
       setIsSearching(false);
       return;
     }
-    
+
     setIsSearching(true);
-    
+
     // Use enhanced search service for better search capabilities
     const filters = {
       messageTypes: [],
@@ -1369,9 +1370,9 @@ function MessageAreaContent({ selectedChat, user }) {
       isEdited: false,
       priority: 'all'
     };
-    
+
     const results = enhancedSearchService.search(allMessages, query, filters);
-    
+
     setSearchResults(results);
     setIsSearching(false);
   }, [allMessages]);
@@ -1381,20 +1382,20 @@ function MessageAreaContent({ selectedChat, user }) {
   const handleSearchChange = useCallback((e) => {
     const query = e.target.value;
     setSearchQuery(query);
-    
+
     // Clear existing timeout
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
-    
+
     if (!query.trim()) {
       setSearchResults([]);
       setIsSearching(false);
       return;
     }
-    
+
     setIsSearching(true);
-    
+
     // 🔧 PERFORMANCE FIX #81: Use debounced API request with caching
     debounceApiRequest(
       `message-search-${selectedChat?.chatid}-${query}`,
@@ -1410,7 +1411,7 @@ function MessageAreaContent({ selectedChat, user }) {
           isEdited: false,
           priority: 'all'
         };
-        
+
         return Promise.resolve(enhancedSearchService.search(allMessages, query, filters));
       },
       300, // 300ms debounce
@@ -1428,18 +1429,18 @@ function MessageAreaContent({ selectedChat, user }) {
   // Function to scroll to a specific message with highlighting
   const scrollToMessage = useCallback((messageId) => {
     if (!messageId) return;
-    
+
     // First, try to find the message in the current view
     const messageElement = document.getElementById(`message-${messageId}`);
-    
+
     if (messageElement) {
       // Message is visible, scroll to it
-      messageElement.scrollIntoView({ 
-        behavior: 'smooth', 
+      messageElement.scrollIntoView({
+        behavior: 'smooth',
         block: 'center',
         inline: 'nearest'
       });
-      
+
       // Highlight the message
       messageElement.classList.add('bg-yellow-100', 'dark:bg-yellow-900/30', 'ring-2', 'ring-yellow-400', 'rounded-lg');
       setTimeout(() => {
@@ -1452,20 +1453,20 @@ function MessageAreaContent({ selectedChat, user }) {
       alert('Jumping to message... This would load the message in a full implementation.');
     }
   }, []);
-  
+
   // Clear search
   const clearSearch = () => {
     setSearchQuery('');
     setSearchResults([]);
   };
-  
+
   // 🎯 NEW: Drag & Drop File Upload Handlers
   const handleDragEnter = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(true);
   }, []);
-  
+
   const handleDragLeave = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1474,23 +1475,23 @@ function MessageAreaContent({ selectedChat, user }) {
       setIsDragging(false);
     }
   }, []);
-  
+
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
   }, []);
-  
+
   const handleDrop = useCallback(async (e) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    
+
     const files = Array.from(e.dataTransfer.files);
-    
+
     if (files.length === 0) return;
-    
+
     console.log('📥 Files dropped:', files);
-    
+
     // Filter valid file types
     const validFiles = files.filter(file => {
       const validTypes = [
@@ -1501,38 +1502,38 @@ function MessageAreaContent({ selectedChat, user }) {
       ];
       return validTypes.includes(file.type);
     });
-    
+
     if (validFiles.length === 0) {
       alert('No valid files. Please drop images, videos, PDFs, or text files.');
       return;
     }
-    
+
     if (validFiles.length > 10) {
       alert('Maximum 10 files at a time.');
       return;
     }
-    
+
     // Process files for upload
     try {
       const processedAttachments = [];
-      
+
       for (const file of validFiles) {
         // Check file size (50MB limit)
         if (file.size > 50 * 1024 * 1024) {
           alert(`File "${file.name}" is too large. Maximum size is 50MB.`);
           continue;
         }
-        
+
         // Upload file
         const uploadResult = await uploadFile(file, (progress) => {
           console.log(`📈 Upload progress for ${file.name}: ${progress}%`);
         });
-        
+
         // Determine message type based on file type
         let messageType = 'file';
         if (file.type.startsWith('image/')) messageType = 'image';
         else if (file.type.startsWith('video/')) messageType = 'video';
-        
+
         processedAttachments.push({
           type: messageType,
           fileData: uploadResult.fileReference,
@@ -1543,20 +1544,20 @@ function MessageAreaContent({ selectedChat, user }) {
           mimetype: file.type
         });
       }
-      
+
       // Send message with attachments
       if (processedAttachments.length > 0) {
         const messageData = {
           chatid: selectedChat.chatid,
           messageType: processedAttachments[0].type,
-          content: processedAttachments.length > 1 
-            ? `Sent ${processedAttachments.length} files` 
+          content: processedAttachments.length > 1
+            ? `Sent ${processedAttachments.length} files`
             : '',
           attachments: processedAttachments,
           clientMessageId: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           timestamp: new Date().toISOString()
         };
-        
+
         handleSendMessage(messageData);
       }
     } catch (error) {
@@ -1579,7 +1580,7 @@ function MessageAreaContent({ selectedChat, user }) {
   const handleDeleteConversation = () => {
     // Confirm with user before deleting
     const confirmed = window.confirm('Are you sure you want to delete this conversation? This action cannot be undone and all messages will be permanently removed.');
-    
+
     if (confirmed) {
       try {
         // Emit socket event to delete conversation
@@ -1646,7 +1647,7 @@ function MessageAreaContent({ selectedChat, user }) {
     };
 
     document.addEventListener('keydown', handleKeyDown);
-    
+
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
       if (searchTimeoutRef.current) {
@@ -1671,7 +1672,7 @@ function MessageAreaContent({ selectedChat, user }) {
         {isMultiSelectMode ? (
           // Multi-select mode header
           <div className="flex items-center w-full">
-            <button 
+            <button
               onClick={exitMultiSelectMode}
               className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 mr-2 transition-colors duration-200"
               aria-label="Exit multi-select mode"
@@ -1686,7 +1687,7 @@ function MessageAreaContent({ selectedChat, user }) {
               </h2>
             </div>
             <div className="flex space-x-2">
-              <button 
+              <button
                 onClick={selectAllMessages}
                 className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors duration-200"
                 aria-label={selectedMessages.length === allMessages.length ? "Deselect all" : "Select all"}
@@ -1704,7 +1705,7 @@ function MessageAreaContent({ selectedChat, user }) {
                   </svg>
                 )}
               </button>
-              <button 
+              <button
                 onClick={forwardMessages}
                 className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors duration-200"
                 aria-label="Forward messages"
@@ -1715,7 +1716,7 @@ function MessageAreaContent({ selectedChat, user }) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                 </svg>
               </button>
-              <button 
+              <button
                 onClick={bulkDeleteMessages}
                 className="p-2 rounded-full hover:bg-red-100 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 transition-colors duration-200"
                 aria-label="Delete messages"
@@ -1731,7 +1732,7 @@ function MessageAreaContent({ selectedChat, user }) {
         ) : searchQuery ? (
           // Search results header
           <div className="flex items-center w-full">
-            <button 
+            <button
               onClick={clearSearch}
               className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 mr-2"
               aria-label="Back to chat"
@@ -1745,7 +1746,7 @@ function MessageAreaContent({ selectedChat, user }) {
                 {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} for "{searchQuery}"
               </h2>
             </div>
-            <button 
+            <button
               onClick={clearSearch}
               className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
               aria-label="Clear search"
@@ -1771,10 +1772,10 @@ function MessageAreaContent({ selectedChat, user }) {
                 </p>
               </div>
             </div>
-            
+
             <div className="flex space-x-2">
               {/* Search button */}
-              <button 
+              <button
                 onClick={() => searchInputRef.current?.focus()}
                 className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
                 aria-label="Search messages"
@@ -1783,8 +1784,8 @@ function MessageAreaContent({ selectedChat, user }) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
               </button>
-              
-              <button 
+
+              <button
                 onClick={enterMultiSelectMode}
                 className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
                 aria-label="Select messages"
@@ -1793,7 +1794,7 @@ function MessageAreaContent({ selectedChat, user }) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" />
                 </svg>
               </button>
-              <button 
+              <button
                 onClick={handleVoiceCall}
                 className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
                 aria-label="Voice call"
@@ -1802,8 +1803,8 @@ function MessageAreaContent({ selectedChat, user }) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                 </svg>
               </button>
-              
-              <button 
+
+              <button
                 onClick={handleVideoCall}
                 className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
                 aria-label="Video call"
@@ -1812,9 +1813,9 @@ function MessageAreaContent({ selectedChat, user }) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                 </svg>
               </button>
-              
+
               {/* Chat settings button */}
-              <button 
+              <button
                 onClick={() => setShowChatSettings(!showChatSettings)}
                 className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
                 aria-label="Chat settings"
@@ -1828,16 +1829,16 @@ function MessageAreaContent({ selectedChat, user }) {
           </>
         )}
       </div>
-      
+
       {/* Member list */}
       {selectedChat && !isMultiSelectMode && !searchQuery && (
-        <MemberList 
-          chat={selectedChat} 
-          currentUser={user} 
-          onMemberClick={(member) => console.log('Member clicked:', member)} 
+        <MemberList
+          chat={selectedChat}
+          currentUser={user}
+          onMemberClick={(member) => console.log('Member clicked:', member)}
         />
       )}
-      
+
       {/* Search bar */}
       {!isMultiSelectMode && (
         <div className={`px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 transition-all duration-300 ${searchQuery ? 'block' : 'hidden'}`}>
@@ -1880,7 +1881,7 @@ function MessageAreaContent({ selectedChat, user }) {
         <div className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
           <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
             <h3 className="text-sm font-medium text-gray-900 dark:text-white">Chat Settings</h3>
-            <button 
+            <button
               onClick={() => setShowChatSettings(false)}
               className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
             >
@@ -1889,7 +1890,7 @@ function MessageAreaContent({ selectedChat, user }) {
               </svg>
             </button>
           </div>
-          
+
           {/* Settings options */}
           <div className="p-4 space-y-3">
             <button className="flex items-center w-full p-2 text-left rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
@@ -1905,7 +1906,7 @@ function MessageAreaContent({ selectedChat, user }) {
               <span className="text-sm text-gray-700 dark:text-gray-300">Archive Chat</span>
             </button>
             {/* Call History Button */}
-            <button 
+            <button
               onClick={() => {
                 setShowChatSettings(false);
                 setShowCallHistory(true);
@@ -1919,7 +1920,7 @@ function MessageAreaContent({ selectedChat, user }) {
             </button>
             {/* Export Chat Dropdown */}
             <div className="relative">
-              <button 
+              <button
                 onClick={() => setShowExportDropdown(!showExportDropdown)}
                 className="flex items-center w-full p-2 text-left rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
               >
@@ -1934,7 +1935,7 @@ function MessageAreaContent({ selectedChat, user }) {
               {/* Export options dropdown */}
               {showExportDropdown && (
                 <div className="absolute left-0 mt-1 w-full bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 z-10">
-                  <button 
+                  <button
                     onClick={() => {
                       handleExportConversation('json');
                       setShowExportDropdown(false);
@@ -1943,7 +1944,7 @@ function MessageAreaContent({ selectedChat, user }) {
                   >
                     Export as JSON
                   </button>
-                  <button 
+                  <button
                     onClick={() => {
                       handleExportConversation('txt');
                       setShowExportDropdown(false);
@@ -1952,7 +1953,7 @@ function MessageAreaContent({ selectedChat, user }) {
                   >
                     Export as Text
                   </button>
-                  <button 
+                  <button
                     onClick={() => {
                       handleExportConversation('html');
                       setShowExportDropdown(false);
@@ -1965,7 +1966,7 @@ function MessageAreaContent({ selectedChat, user }) {
               )}
             </div>
             {/* Delete Conversation Button */}
-            <button 
+            <button
               onClick={handleDeleteConversation}
               className="flex items-center w-full p-2 text-left rounded-lg hover:bg-red-100 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400"
             >
@@ -1975,7 +1976,7 @@ function MessageAreaContent({ selectedChat, user }) {
               <span className="text-sm">Delete Conversation</span>
             </button>
           </div>
-          
+
           {/* Shared Media Section */}
           <div className="border-t border-gray-200 dark:border-gray-700">
             <div className="p-4">
@@ -1987,7 +1988,7 @@ function MessageAreaContent({ selectedChat, user }) {
       )}
 
       {/* Messages area */}
-      <div 
+      <div
         ref={messagesContainerRef}
         className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 dark:bg-gray-800 relative"
         onScroll={handleScroll}
@@ -2016,7 +2017,7 @@ function MessageAreaContent({ selectedChat, user }) {
             </div>
           </div>
         )}
-        
+
         {/* 🔧 NEW: Loading spinner for pagination at top */}
         {isLoadingMore && hasMoreMessages && (
           <div className="flex justify-center py-4">
@@ -2026,14 +2027,14 @@ function MessageAreaContent({ selectedChat, user }) {
             </div>
           </div>
         )}
-        
+
         {/* Initial loading */}
         {loading && !hasMoreMessages && (
           <div className="flex justify-center py-4">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
           </div>
         )}
-        
+
         {/* Search results */}
         {searchQuery && searchResults.length > 0 && (
           <div className="space-y-3">
@@ -2041,7 +2042,7 @@ function MessageAreaContent({ selectedChat, user }) {
               Found {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} for "{searchQuery}"
             </div>
             {searchResults.map((message) => (
-              <div 
+              <div
                 key={`search-${message.messageid}`}
                 className="p-4 rounded-xl bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-600 transition-all duration-200 shadow-sm hover:shadow-md"
                 onClick={() => {
@@ -2062,7 +2063,7 @@ function MessageAreaContent({ selectedChat, user }) {
                     {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 </div>
-                
+
                 {/* Message content preview */}
                 <div className="ml-10">
                   {message.messageType !== 'text' ? (
@@ -2126,7 +2127,7 @@ function MessageAreaContent({ selectedChat, user }) {
                       {message.content}
                     </p>
                   )}
-                  
+
                   <div className="mt-2 text-xs text-blue-600 dark:text-blue-400 flex items-center">
                     <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 11l5-5m0 0l5 5m-5-5v12" />
@@ -2138,7 +2139,7 @@ function MessageAreaContent({ selectedChat, user }) {
             ))}
           </div>
         )}
-        
+
         {/* No search results */}
         {searchQuery && searchResults.length === 0 && !isSearching && (
           <div className="text-center py-8">
@@ -2148,7 +2149,7 @@ function MessageAreaContent({ selectedChat, user }) {
             <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No results found</h3>
           </div>
         )}
-        
+
         {/* All messages (when not searching) */}
         {!searchQuery && (
           <VirtualMessageList
@@ -2171,11 +2172,11 @@ function MessageAreaContent({ selectedChat, user }) {
             buffer={15} // Increased buffer for smoother scrolling
           />
         )}
-        
+
         {/* Scroll anchor for new messages */}
         <div ref={messagesEndRef} />
       </div>
-      
+
       {/* Message input area */}
       <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
         <MessageInput
@@ -2188,14 +2189,14 @@ function MessageAreaContent({ selectedChat, user }) {
           onCancelReply={() => setReplyingTo(null)}
         />
       </div>
-      
+
       {/* Typing indicator */}
       {Object.values(typingUsers).length > 0 && (
         <TypingIndicator typingUsers={typingUsers} />
       )}
-      
 
-      
+
+
       {/* Edit Message Modal */}
       {showEditModal && editingMessage && (
         <EditMessageModal
@@ -2208,7 +2209,7 @@ function MessageAreaContent({ selectedChat, user }) {
           }}
         />
       )}
-      
+
       {/* Delete Message Modal */}
       {showDeleteModal && messageToDelete && (
         <DeleteMessageModal
@@ -2237,14 +2238,14 @@ function MessageAreaContent({ selectedChat, user }) {
           console.log('Chat deleted:', chatId);
         }}
       />
-      
+
       {/* Call History Panel */}
       {showCallHistory && (
         <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Call History</h3>
-              <button 
+              <button
                 onClick={() => setShowCallHistory(false)}
                 className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
               >
@@ -2254,7 +2255,7 @@ function MessageAreaContent({ selectedChat, user }) {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto">
-              <CallHistory 
+              <CallHistory
                 currentUser={user}
                 onCallBack={(chatId, callType, targetUserId) => {
                   console.log('Call back requested:', { chatId, callType, targetUserId });
@@ -2280,7 +2281,7 @@ function MessageAreaContent({ selectedChat, user }) {
           </div>
         </div>
       )}
-      
+
       {/* Voice Call Modal */}
       <VoiceCallModal
         isOpen={showVoiceCall}
@@ -2300,7 +2301,7 @@ function MessageAreaContent({ selectedChat, user }) {
         onCallQualityUpdate={(quality) => setCallQuality(quality)}
         onCallStatsUpdate={(stats) => setCallStats(stats)}
       />
-      
+
       {/* Video Call Modal */}
       <VideoCallModal
         isOpen={showVideoCall}

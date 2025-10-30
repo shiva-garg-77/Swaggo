@@ -19,8 +19,8 @@ class SocketConnectionService extends BaseService {
    */
   constructor() {
     super();
-    // EventBus will be injected by the DI container
-    this.eventBus = null;
+    // 🔧 FIX: Initialize EventBus directly (not using DI container)
+    this.eventBus = EventBus;
     
     // Memory-optimized maps with size limits
     this.mapSizeLimits = {
@@ -537,6 +537,40 @@ class SocketConnectionService extends BaseService {
         .filter(health => health.status === 'unhealthy').length,
       totalHealthTracked: this.connectionHealth.size
     };
+  }
+
+  /**
+   * Handle socket disconnection
+   * @param {Object} socket - Socket.IO socket instance
+   * @param {string} reason - Disconnect reason
+   * @param {Object} io - Socket.IO server instance
+   * @returns {Promise<void>}
+   */
+  async handleDisconnection(socket, reason, io) {
+    return this.handleOperation(async () => {
+      const userId = socket.user?.profileid;
+      const username = socket.user?.username;
+      
+      this.logger.info(`🔌 User disconnected: ${username || 'Unknown'}`, {
+        socketId: socket.id,
+        userId,
+        reason
+      });
+      
+      // Unregister the connection
+      await this.unregisterConnection(socket, reason);
+      
+      // Emit user disconnected event
+      if (this.eventBus && userId) {
+        this.eventBus.emit('user.disconnected', {
+          userId,
+          username,
+          socketId: socket.id,
+          reason,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }, 'handleDisconnection', { socketId: socket.id, reason });
   }
 
   /**

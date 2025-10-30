@@ -95,13 +95,31 @@ function MessageAreaContent({ selectedChat, user }) {
 
   // 🔧 FIX #45: Batch message sending
   const sendBatchedMessages = useCallback(() => {
-    if (messageBatchRef.current.length === 0 || !socket || !socket.connected) return;
+    console.log('🚀 [FRONTEND] sendBatchedMessages called');
+    console.log('🚀 [FRONTEND] Batch size:', messageBatchRef.current.length);
+    console.log('🚀 [FRONTEND] Socket exists:', !!socket);
+    console.log('🚀 [FRONTEND] Socket connected:', socket?.connected);
+    console.log('🚀 [FRONTEND] Socket ID:', socket?.id);
+    
+    if (messageBatchRef.current.length === 0 || !socket || !socket.connected) {
+      console.warn('⚠️ [FRONTEND] Cannot send batch:', {
+        batchEmpty: messageBatchRef.current.length === 0,
+        noSocket: !socket,
+        notConnected: socket && !socket.connected
+      });
+      return;
+    }
 
     const batch = [...messageBatchRef.current];
     messageBatchRef.current = [];
 
+    console.log('📤 [FRONTEND] Emitting send_message_batch event');
+    console.log('📤 [FRONTEND] Batch data:', JSON.stringify(batch, null, 2));
+    
     // Send batch via socket
     socket.emit('send_message_batch', batch, (acknowledgments) => {
+      console.log('📬 [FRONTEND] Received batch acknowledgment callback');
+      console.log('📬 [FRONTEND] Acknowledgments:', acknowledgments);
       console.log('📬 Received batch acknowledgment:', acknowledgments);
       
       if (acknowledgments && Array.isArray(acknowledgments)) {
@@ -545,7 +563,12 @@ function MessageAreaContent({ selectedChat, user }) {
 
   // 🔧 FIXED: Handle message sending - Support both old format (string + attachments) and new format (structured message data)
   const handleSendMessage = async (contentOrMessageData, attachments = [], replyTo = null, mentions = []) => {
-    console.log('📤 handleSendMessage called with:', { contentOrMessageData, attachments, type: typeof contentOrMessageData });
+    console.log('🎯 [FRONTEND] ========================================');
+    console.log('🎯 [FRONTEND] handleSendMessage called');
+    console.log('🎯 [FRONTEND] Content/Data:', contentOrMessageData);
+    console.log('🎯 [FRONTEND] Attachments:', attachments);
+    console.log('🎯 [FRONTEND] Type:', typeof contentOrMessageData);
+    console.log('🎯 [FRONTEND] Selected chat:', selectedChat?.chatid);
     
     let messageData;
     let content = '';

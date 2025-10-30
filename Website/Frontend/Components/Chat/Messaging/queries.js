@@ -130,7 +130,6 @@ export const GET_MESSAGES_BY_CHAT = gql`
         messageStatus
         createdAt
         updatedAt
-        # Add media data fields for proper display of media messages
         stickerData {
           id
           name

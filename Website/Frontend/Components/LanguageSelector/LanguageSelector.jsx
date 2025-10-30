@@ -6,7 +6,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { useTranslation } from '../../hooks/useTranslation';
+import { useI18n } from '../../context/I18nContext';
 import { AccessibleButton } from '../Accessibility/AccessibilityUtils';
 
 /**
@@ -21,7 +21,7 @@ export const LanguageSelector = ({
   showLabels = true,
   variant = 'dropdown'
 }) => {
-  const { language, changeLanguage, getAvailableLanguages, t } = useTranslation();
+  const { language, changeLanguage, getAvailableLanguages, t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
 
