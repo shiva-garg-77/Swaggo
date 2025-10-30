@@ -5,6 +5,8 @@
  * to improve performance and reduce memory usage.
  */
 
+import { useState } from 'react';
+
 /**
  * Pagination Manager
  * Handles pagination state and API calls for list endpoints
@@ -166,14 +168,14 @@ export const usePagination = (initialOptions = {}) => {
     initialSort = { field: 'createdAt', order: 'desc' }
   } = initialOptions;
 
-  const [page, setPage] = React.useState(initialPage);
-  const [limit, setLimit] = React.useState(initialLimit);
-  const [sort, setSort] = React.useState(initialSort);
-  const [filters, setFilters] = React.useState({});
-  const [data, setData] = React.useState([]);
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState(null);
-  const [paginationMetadata, setPaginationMetadata] = React.useState({
+  const [page, setPage] = useState(initialPage);
+  const [limit, setLimit] = useState(initialLimit);
+  const [sort, setSort] = useState(initialSort);
+  const [filters, setFilters] = useState({});
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [paginationMetadata, setPaginationMetadata] = useState({
     totalItems: 0,
     currentPage: initialPage,
     pageSize: initialLimit,
@@ -338,12 +340,12 @@ export const useGraphQLPagination = (query, options = {}) => {
     initialCursor = null
   } = options;
 
-  const [limit, setLimit] = React.useState(initialLimit);
-  const [cursor, setCursor] = React.useState(initialCursor);
-  const [hasMore, setHasMore] = React.useState(true);
-  const [data, setData] = React.useState([]);
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState(null);
+  const [limit, setLimit] = useState(initialLimit);
+  const [cursor, setCursor] = useState(initialCursor);
+  const [hasMore, setHasMore] = useState(true);
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const { fetchMore } = useQuery(query, {
     variables: { 

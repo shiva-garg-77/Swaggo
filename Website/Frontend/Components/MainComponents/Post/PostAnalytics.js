@@ -12,12 +12,14 @@ import { GET_POST_STATS } from '../../../lib/graphql/postStatsQueries';
 export default function PostAnalytics({ post, isOpen, onClose, theme = 'light' }) {
   const [timeRange, setTimeRange] = useState('7d');
 
+  // Real-time updates with polling (Issue 5.11)
   const { data, loading } = useQuery(GET_POST_STATS, {
     variables: {
       postid: post?.postid,
       timeRange
     },
     skip: !post?.postid || !isOpen,
+    pollInterval: 30000, // Poll every 30 seconds for real-time updates
     errorPolicy: 'all'
   });
 

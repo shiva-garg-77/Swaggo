@@ -32,7 +32,7 @@ const GET_POSTS_QUERY = gql`
     getPosts {
       postid
       title
-      Description
+      description
       postType
     }
   }

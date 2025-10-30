@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { ArrowLeft, Camera, Save, X, Eye, EyeOff, Check } from 'lucide-react'
 import { cn } from '../../../lib/utils'
+import CharacterCounter from '../../UI/CharacterCounter'
 
 export default function EditProfile({ onBack }) {
   const [isEditing, setIsEditing] = useState(false)
@@ -239,9 +240,15 @@ export default function EditProfile({ onBack }) {
                 )}
                 maxLength={160}
               />
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                {profileData.bio.length}/160 characters
-              </p>
+              {/* Character Counter (Issue 6.3) */}
+              <div className="mt-2">
+                <CharacterCounter
+                  current={profileData.bio.length}
+                  max={160}
+                  showProgress={true}
+                  warningThreshold={0.8}
+                />
+              </div>
             </div>
           </div>
         </div>

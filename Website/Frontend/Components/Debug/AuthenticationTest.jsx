@@ -30,7 +30,7 @@ const CREATE_POST_TEST = gql`
     CreatePost(profileid: $profileid, postUrl: $postUrl, title: $title, Description: $Description, postType: $postType) {
       postid
       title
-      Description
+      description
     }
   }
 `;

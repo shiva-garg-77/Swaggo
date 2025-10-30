@@ -1,26 +1,47 @@
-/* Chat Interface Enhanced Styles */
+/**
+ * CHAT INTERFACE ENHANCED STYLES
+ * Using design tokens for consistency
+ */
 
-/* Custom scrollbar for chat areas */
+/* ============================================
+   CUSTOM SCROLLBAR FOR CHAT AREAS
+   ============================================ */
 .chat-scrollbar {
-  scrollbar-width: thin;
+  scrollbar-width: auto;
   scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
 }
 
 .chat-scrollbar::-webkit-scrollbar {
-  width: 4px;
+  width: 8px;
+  height: 8px;
 }
 
 .chat-scrollbar::-webkit-scrollbar-track {
   background: transparent;
+  border-radius: var(--radius-base);
 }
 
 .chat-scrollbar::-webkit-scrollbar-thumb {
   background: rgba(156, 163, 175, 0.5);
-  border-radius: 2px;
+  border-radius: var(--radius-base);
+  transition: background var(--transition-fast);
 }
 
 .chat-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(156, 163, 175, 0.7);
+}
+
+/* Dark mode */
+.dark .chat-scrollbar {
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
+
+.dark .chat-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.dark .chat-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
 }
 
 /* Animation for message sending */

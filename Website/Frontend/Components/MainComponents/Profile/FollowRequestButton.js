@@ -98,30 +98,30 @@ export default function FollowRequestButton({
     }
   };
 
-  // Determine button text and style
+  // Determine button text and style (Issue 6.4 - Make state clearer)
   const getButtonContent = () => {
     if (isFollowing) {
-      return { text: 'Following', style: 'secondary' };
+      return { text: '✓ Following', style: 'secondary', icon: '✓' };
     }
 
     if (targetProfile.isPrivate) {
       if (requestStatus === 'pending') {
-        return { text: 'Requested', style: 'secondary' };
+        return { text: '⏱ Requested', style: 'secondary', icon: '⏱' };
       }
-      return { text: 'Request', style: 'primary' };
+      return { text: '+ Request', style: 'primary', icon: '+' };
     }
 
-    return { text: 'Follow', style: 'primary' };
+    return { text: '+ Follow', style: 'primary', icon: '+' };
   };
 
-  const { text, style } = getButtonContent();
+  const { text, style, icon } = getButtonContent();
 
   const buttonClasses = `px-6 py-2 rounded-full font-medium transition-all duration-300 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed ${
     style === 'primary'
       ? 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white'
       : theme === 'dark'
-      ? 'bg-gray-700 hover:bg-gray-600 text-gray-300 border border-gray-600'
-      : 'bg-gray-200 hover:bg-gray-300 text-gray-700 border border-gray-300'
+      ? 'bg-gray-700 hover:bg-gray-600 text-gray-200 border-2 border-gray-500'
+      : 'bg-gray-200 hover:bg-gray-300 text-gray-800 border-2 border-gray-400'
   } ${className}`;
 
   return (

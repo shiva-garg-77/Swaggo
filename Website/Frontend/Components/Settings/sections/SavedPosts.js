@@ -13,6 +13,42 @@ export default function SavedPosts({ onBack, isModal = false }) {
   const [selectedPost, setSelectedPost] = useState(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   
+  // Collections feature (Issue 6.18)
+  const [collections, setCollections] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('savedPostCollections');
+      return saved ? JSON.parse(saved) : { 'All': [] };
+    }
+    return { 'All': [] };
+  });
+  const [activeCollection, setActiveCollection] = useState('All');
+  const [showNewCollection, setShowNewCollection] = useState(false);
+  const [newCollectionName, setNewCollectionName] = useState('');
+  
+  const addToCollection = (postId, collectionName) => {
+    const updated = { ...collections };
+    if (!updated[collectionName]) updated[collectionName] = [];
+    if (!updated[collectionName].includes(postId)) {
+      updated[collectionName].push(postId);
+      setCollections(updated);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('savedPostCollections', JSON.stringify(updated));
+      }
+    }
+  };
+  
+  const createCollection = () => {
+    if (newCollectionName.trim()) {
+      const updated = { ...collections, [newCollectionName.trim()]: [] };
+      setCollections(updated);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('savedPostCollections', JSON.stringify(updated));
+      }
+      setNewCollectionName('');
+      setShowNewCollection(false);
+    }
+  };
+  
   const { loading, error, data, refetch } = useQuery(GET_USER_BY_USERNAME, {
     variables: { username: user?.username },
     skip: !user?.username,

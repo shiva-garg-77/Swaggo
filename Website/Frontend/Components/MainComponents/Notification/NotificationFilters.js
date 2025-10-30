@@ -14,6 +14,14 @@ export default function NotificationFilters({
 }) {
   const isDark = theme === 'dark';
 
+  // Make filter persistent (Issue 7.6)
+  const handleFilterChange = (filterId) => {
+    onFilterChange(filterId);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('notificationFilter', filterId);
+    }
+  };
+
   const filters = [
     {
       id: 'all',
@@ -58,7 +66,7 @@ export default function NotificationFilters({
         return (
           <button
             key={filter.id}
-            onClick={() => onFilterChange(filter.id)}
+            onClick={() => handleFilterChange(filter.id)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
               isActive
                 ? 'bg-blue-600 text-white shadow-lg'

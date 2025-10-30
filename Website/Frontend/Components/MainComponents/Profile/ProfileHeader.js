@@ -8,19 +8,20 @@ import MacOSSettingsModal from '../../Settings/MacOSSettingsModal';
 import FollowRequestButton from './FollowRequestButton';
 import { ADD_CLOSE_FRIEND, REMOVE_CLOSE_FRIEND, IS_CLOSE_FRIEND } from '../../../lib/graphql/profileQueries';
 import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
+import { useCountUp } from '../../../utils/animationUtils';
 
-export default function ProfileHeader({ 
-  profile, 
-  isOwnProfile, 
-  isFollowing, 
-  onFollowToggle, 
-  onMessage, 
-  onRestrict, 
-  onBlock, 
+export default function ProfileHeader({
+  profile,
+  isOwnProfile,
+  isFollowing,
+  onFollowToggle,
+  onMessage,
+  onRestrict,
+  onBlock,
   onRefresh,
   onCreateMemory,
   memoriesData,
-  theme 
+  theme
 }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showCreatePost, setShowCreatePost] = useState(false);
@@ -49,6 +50,11 @@ export default function ProfileHeader({
   const followingCount = profile.following?.length || 0;
   const postsCount = profile.post?.length || 0;
 
+  // Animated counts (Issue 6.15)
+  const animatedPostsCount = useCountUp(postsCount, 1000);
+  const animatedFollowersCount = useCountUp(followersCount, 1000);
+  const animatedFollowingCount = useCountUp(followingCount, 1000);
+
   return (
     <div className="w-full px-4 py-4">
       {/* Instagram-style Horizontal Layout - Medium width */}
@@ -71,51 +77,46 @@ export default function ProfileHeader({
 
         {/* Profile Info */}
         <div className="flex-1 space-y-4">
-          
-          {/* Username and Actions Row */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+
+          {/* Username and Actions Row - Fully Responsive (Issue 6.1) */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
             <div>
-              <h1 className={`text-2xl md:text-3xl font-semibold ${
-                theme === 'dark' ? 'text-white' : 'text-gray-900'
-              }`}>
+              <h1 className={`text-2xl md:text-3xl font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'
+                }`}>
                 {profile.username}
               </h1>
               {profile.name && (
-                <p className={`text-base font-medium mt-1 ${
-                  theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-                }`}>
+                <p className={`text-base font-medium mt-1 ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                  }`}>
                   {profile.name}
                 </p>
               )}
             </div>
-            
+
             {/* Action Buttons */}
             <div className="flex items-center gap-3">
               {isOwnProfile ? (
                 <>
-                  <button 
+                  <button
                     onClick={() => setShowCreatePost(true)}
-                    className={`px-6 py-2.5 text-sm font-semibold rounded-lg transition-colors min-w-[100px] ${
-                    theme === 'dark' 
-                      ? 'bg-red-600 text-white hover:bg-red-700' 
+                    className={`px-6 py-2.5 text-sm font-semibold rounded-lg transition-colors min-w-[100px] ${theme === 'dark'
+                      ? 'bg-red-600 text-white hover:bg-red-700'
                       : 'bg-red-500 text-white hover:bg-red-600'
-                  }`}>
+                      }`}>
                     + New Post
                   </button>
-                  <button className={`px-6 py-2.5 text-sm font-semibold rounded-lg transition-colors min-w-[100px] ${
-                    theme === 'dark' 
-                      ? 'bg-gray-800 text-white hover:bg-gray-700 border border-gray-700' 
-                      : 'bg-gray-100 text-gray-900 hover:bg-gray-200 border border-gray-200'
-                  }`}>
+                  <button className={`px-6 py-2.5 text-sm font-semibold rounded-lg transition-colors min-w-[100px] ${theme === 'dark'
+                    ? 'bg-gray-800 text-white hover:bg-gray-700 border border-gray-700'
+                    : 'bg-gray-100 text-gray-900 hover:bg-gray-200 border border-gray-200'
+                    }`}>
                     Edit Profile
                   </button>
-                  <button 
+                  <button
                     onClick={() => setShowSettings(true)}
-                    className={`px-5 py-2.5 rounded-lg transition-colors ${
-                      theme === 'dark' 
-                        ? 'bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700' 
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200'
-                    }`}
+                    className={`px-5 py-2.5 rounded-lg transition-colors ${theme === 'dark'
+                      ? 'bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200'
+                      }`}
                   >
                     <SettingsIcon className="w-5 h-5" />
                   </button>
@@ -124,42 +125,38 @@ export default function ProfileHeader({
                 <>
                   <button
                     onClick={onFollowToggle}
-                    className={`px-6 py-2.5 text-sm font-semibold rounded-lg transition-colors min-w-[100px] ${
-                      isFollowing
-                        ? theme === 'dark'
-                          ? 'bg-gray-800 text-white hover:bg-gray-700 border border-gray-700'
-                          : 'bg-gray-200 text-gray-900 hover:bg-gray-300 border border-gray-200'
-                        : 'bg-red-500 hover:bg-red-600 text-white'
-                    }`}
+                    className={`px-6 py-2.5 text-sm font-semibold rounded-lg transition-colors min-w-[100px] ${isFollowing
+                      ? theme === 'dark'
+                        ? 'bg-gray-800 text-white hover:bg-gray-700 border border-gray-700'
+                        : 'bg-gray-200 text-gray-900 hover:bg-gray-300 border border-gray-200'
+                      : 'bg-red-500 hover:bg-red-600 text-white'
+                      }`}
                   >
                     {isFollowing ? 'Following' : 'Follow'}
                   </button>
                   <button
                     onClick={onMessage}
-                    className={`px-6 py-2.5 text-sm font-semibold rounded-lg transition-colors min-w-[100px] ${
-                      theme === 'dark' 
-                        ? 'bg-gray-800 text-white hover:bg-gray-700 border border-gray-700' 
-                        : 'bg-gray-100 text-gray-900 hover:bg-gray-200 border border-gray-200'
-                    }`}
+                    className={`px-6 py-2.5 text-sm font-semibold rounded-lg transition-colors min-w-[100px] ${theme === 'dark'
+                      ? 'bg-gray-800 text-white hover:bg-gray-700 border border-gray-700'
+                      : 'bg-gray-100 text-gray-900 hover:bg-gray-200 border border-gray-200'
+                      }`}
                   >
                     Message
                   </button>
                   <div className="relative">
                     <button
                       onClick={() => setShowMenu(!showMenu)}
-                      className={`px-5 py-2.5 rounded-lg transition-colors ${
-                        theme === 'dark' 
-                          ? 'bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700' 
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200'
-                      }`}
+                      className={`px-5 py-2.5 rounded-lg transition-colors ${theme === 'dark'
+                        ? 'bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200'
+                        }`}
                     >
                       <DotsHorizontalIcon className="w-5 h-5" />
                     </button>
-                    
+
                     {showMenu && (
-                      <div className={`absolute right-0 mt-2 w-48 rounded-lg shadow-lg z-10 ${
-                        theme === 'dark' ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'
-                      }`}>
+                      <div className={`absolute right-0 mt-2 w-48 rounded-lg shadow-lg z-10 ${theme === 'dark' ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'
+                        }`}>
                         {!isOwnProfile && (
                           <button
                             onClick={async () => {
@@ -177,9 +174,8 @@ export default function ProfileHeader({
                               }
                               setShowMenu(false);
                             }}
-                            className={`w-full text-left px-4 py-3 text-sm rounded-t-lg hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                              theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                            }`}
+                            className={`w-full text-left px-4 py-3 text-sm rounded-t-lg hover:bg-gray-50 dark:hover:bg-gray-700 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                              }`}
                           >
                             {isCloseFriend ? 'Remove from Close Friends' : 'Add to Close Friends'}
                           </button>
@@ -189,9 +185,8 @@ export default function ProfileHeader({
                             onRestrict();
                             setShowMenu(false);
                           }}
-                          className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${
-                            theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                          }`}
+                          className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+                            }`}
                         >
                           Restrict User
                         </button>
@@ -212,60 +207,59 @@ export default function ProfileHeader({
             </div>
           </div>
 
-          {/* Stats Row */}
+          {/* Stats Row - Clickable (Issue 6.5) */}
           <div className="flex items-center gap-8 md:gap-10">
             <div>
-              <span className={`text-lg md:text-xl font-semibold ${
-                theme === 'dark' ? 'text-white' : 'text-gray-900'
-              }`}>
-                {postsCount.toLocaleString()}
+              <span className={`text-lg md:text-xl font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'
+                }`}>
+                {animatedPostsCount.toLocaleString()}
               </span>
-              <span className={`ml-1 text-sm ${
-                theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-              }`}>
+              <span className={`ml-1 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                }`}>
                 posts
               </span>
             </div>
-            <div>
-              <span className={`text-lg md:text-xl font-semibold ${
-                theme === 'dark' ? 'text-white' : 'text-gray-900'
-              }`}>
-                {followersCount.toLocaleString()}
+            <button
+              onClick={() => {/* TODO: Open followers modal */ }}
+              className={`hover:opacity-70 transition-opacity cursor-pointer`}
+            >
+              <span className={`text-lg md:text-xl font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'
+                }`}>
+                {animatedFollowersCount.toLocaleString()}
               </span>
-              <span className={`ml-1 text-sm ${
-                theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-              }`}>
+              <span className={`ml-1 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                }`}>
                 followers
               </span>
-            </div>
-            <div>
-              <span className={`text-lg md:text-xl font-semibold ${
-                theme === 'dark' ? 'text-white' : 'text-gray-900'
-              }`}>
-                {followingCount.toLocaleString()}
+            </button>
+            <button
+              onClick={() => {/* TODO: Open following modal */ }}
+              className={`hover:opacity-70 transition-opacity cursor-pointer`}
+            >
+              <span className={`text-lg md:text-xl font-semibold ${theme === 'dark' ? 'text-white' : 'text-gray-900'
+                }`}>
+                {animatedFollowingCount.toLocaleString()}
               </span>
-              <span className={`ml-1 text-sm ${
-                theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
-              }`}>
+              <span className={`ml-1 text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'
+                }`}>
                 following
               </span>
-            </div>
+            </button>
           </div>
 
           {/* Bio */}
           {profile.bio && (
-            <div className={`text-sm md:text-base leading-relaxed max-w-md ${
-              theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-            }`}>
+            <div className={`text-sm md:text-base leading-relaxed max-w-md ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'
+              }`}>
               {profile.bio}
             </div>
           )}
-          
+
         </div>
       </div>
-      
+
       {/* Highlights Section */}
-      <HighlightsSection 
+      <HighlightsSection
         profileData={profile}
         isOwnProfile={isOwnProfile}
         onCreateMemory={onCreateMemory}
@@ -273,7 +267,7 @@ export default function ProfileHeader({
         theme={theme}
         className="border-t border-gray-200 dark:border-gray-700 mt-4"
       />
-      
+
       {/* Create Post Modal */}
       {showCreatePost && (
         <CreatePostModal
@@ -290,11 +284,11 @@ export default function ProfileHeader({
           }}
         />
       )}
-      
+
       {/* Settings Modal */}
-      <MacOSSettingsModal 
-        isOpen={showSettings} 
-        onClose={() => setShowSettings(false)} 
+      <MacOSSettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
       />
     </div>
   );

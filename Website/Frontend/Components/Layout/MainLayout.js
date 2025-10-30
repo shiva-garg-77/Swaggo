@@ -82,18 +82,36 @@ export default function MainLayout({ children }) {
     preloadOnHover(route);
   }, [preloadOnHover]);
 
-  // All navigation items (shown in compact mode as icons only)
+  // All navigation items with keyboard shortcuts
   const navItems = [
-    { id: 'home', label: 'Home', route: '/home', icon: <HomeIcon /> },
-    { id: 'create', label: 'Create', route: '/create', icon: <CreateIcon /> },
-    { id: 'message', label: 'Message', route: '/message', icon: <MessageIcon /> },
-    { id: 'profile', label: 'Profile', route: '/Profile', icon: <UserIcon /> },
-    { id: 'dashboard', label: 'Dashboard', route: '/dashboard', icon: <DashboardIcon /> },
-    { id: 'moments', label: 'Moments', route: '/reel', icon: <MomentsIcon /> },
-    { id: 'bonus', label: 'Bonus', route: '/bonus', icon: <BonusIcon /> },
-    { id: 'games', label: 'Games', route: '/game', icon: <GamesIcon /> },
-    { id: 'debug', label: 'Debug', route: '/debug', icon: <DebugIcon /> },
+    { id: 'home', label: 'Home', route: '/home', icon: <HomeIcon />, shortcut: 'Alt+1', ariaLabel: 'Go to Home page' },
+    { id: 'create', label: 'Create', route: '/create', icon: <CreateIcon />, shortcut: 'Alt+2', ariaLabel: 'Create new post' },
+    { id: 'message', label: 'Message', route: '/message', icon: <MessageIcon />, shortcut: 'Alt+3', ariaLabel: 'View messages' },
+    { id: 'profile', label: 'Profile', route: '/Profile', icon: <UserIcon />, shortcut: 'Alt+4', ariaLabel: 'View your profile' },
+    { id: 'dashboard', label: 'Dashboard', route: '/dashboard', icon: <DashboardIcon />, shortcut: 'Alt+5', ariaLabel: 'View dashboard' },
+    { id: 'moments', label: 'Moments', route: '/reel', icon: <MomentsIcon />, shortcut: 'Alt+6', ariaLabel: 'View moments and reels' },
+    { id: 'bonus', label: 'Bonus', route: '/bonus', icon: <BonusIcon />, shortcut: 'Alt+7', ariaLabel: 'View bonus rewards' },
+    { id: 'games', label: 'Games', route: '/game', icon: <GamesIcon />, shortcut: 'Alt+8', ariaLabel: 'Play games' },
+    { id: 'debug', label: 'Debug', route: '/debug', icon: <DebugIcon />, shortcut: 'Alt+9', ariaLabel: 'Debug tools' },
   ];
+  
+  // Keyboard navigation handler
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Alt + Number shortcuts
+      if (e.altKey && e.key >= '1' && e.key <= '9') {
+        e.preventDefault();
+        const index = parseInt(e.key) - 1;
+        if (navItems[index]) {
+          handleNavigation(navItems[index].route);
+          announce(`Navigating to ${navItems[index].label}`);
+        }
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleNavigation, announce]);
   
   return (
     <>
@@ -109,15 +127,22 @@ export default function MainLayout({ children }) {
       } ${
         theme === 'dark' ? 'bg-gray-900 border-r border-gray-800' : 'bg-white border-r border-gray-200'
       }`}>
-        {/* Logo */}
+        {/* Logo - Clickable */}
         <div className={`flex items-center justify-center ${
           isFullScreenPage ? 'p-4' : 'p-8'
         }`}>
-          <img
-            src={theme === 'light' ? '/logo_light.png' : '/Logo_dark1.png'}
-            alt="Swaggo"
-            className={isFullScreenPage ? 'h-10 w-auto' : 'h-20 w-auto'}
-          />
+          <button
+            onClick={() => handleNavigation('/home')}
+            className="transition-transform hover:scale-105 focus:scale-105 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 rounded"
+            aria-label="Go to home page"
+            title="Go to home"
+          >
+            <img
+              src={theme === 'light' ? '/logo_light.png' : '/Logo_dark1.png'}
+              alt="Swaggo"
+              className={isFullScreenPage ? 'h-10 w-auto' : 'h-20 w-auto'}
+            />
+          </button>
         </div>
         
         {/* Navigation - Enhanced with Accessibility */}
@@ -139,24 +164,23 @@ export default function MainLayout({ children }) {
           </div>
         </nav>
         
-        {/* Theme Toggle - Hidden in compact mode */}
-        {!isFullScreenPage && (
-          <div className="px-4 pb-2">
-            <ThemeToggle />
-          </div>
-        )}
+        {/* Theme Toggle - Always accessible */}
+        <div className="px-4 pb-2">
+          <ThemeToggle />
+        </div>
         
-        {/* Logout Button */}
-        <div className="p-4">
+        {/* Logout Button - Subtle design */}
+        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
           <button
             onClick={handleLogout}
-            className={`bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white text-sm py-2.5 rounded-full transition-all duration-300 hover:shadow-lg flex items-center justify-center mx-auto ${
-              isFullScreenPage ? 'px-2 w-12 h-12' : 'px-4 space-x-1.5'
+            className={`w-full flex items-center justify-center text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all duration-200 min-h-[44px] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 ${
+              isFullScreenPage ? 'px-2' : 'px-4 space-x-2'
             }`}
-            title={isFullScreenPage ? 'Log out' : ''}
+            aria-label="Logout from account"
+            title="Logout"
           >
             <LogoutIcon />
-            {!isFullScreenPage && <span>Log out</span>}
+            {!isFullScreenPage && <span className="font-medium text-sm">Logout</span>}
           </button>
         </div>
       </aside>
@@ -198,8 +222,8 @@ export default function MainLayout({ children }) {
         
         {/* Mobile Layout */}
         <div className="lg:hidden flex-1 flex flex-col h-full">
-          {/* Mobile Header with shadow */}
-          <header className={`p-4 shadow-sm transition-colors duration-300 flex-shrink-0 ${
+          {/* Mobile Header - Sticky with shadow */}
+          <header className={`sticky top-0 z-40 p-4 shadow-md transition-colors duration-300 shrink-0 ${
             theme === 'dark' ? 'bg-gray-900 shadow-gray-800/20' : 'bg-white shadow-gray-200/50'
           }`}>
             <div className="flex items-center justify-between">
@@ -223,22 +247,33 @@ export default function MainLayout({ children }) {
             </div>
           </header>
           
-          {/* Mobile Content - Scrollable */}
-          <main className="flex-1 overflow-y-auto scrollbar-hide" style={{ WebkitOverflowScrolling: 'touch' }}>
+          {/* Mobile Content - Scrollable with bottom padding */}
+          <main 
+            className="flex-1 overflow-y-auto scrollbar-hide pb-20" 
+            style={{ 
+              WebkitOverflowScrolling: 'touch',
+              paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))'
+            }}
+          >
             <div className="p-4 space-y-4">
               {children}
             </div>
           </main>
           
-          {/* Mobile Bottom Navigation with shadow */}
-          <nav className={`p-4 shadow-lg transition-colors duration-300 flex-shrink-0 ${
-            theme === 'dark' ? 'bg-gray-900 shadow-gray-800/20' : 'bg-white shadow-gray-200/50'
-          }`}>
+          {/* Mobile Bottom Navigation - Fixed with safe area */}
+          <nav 
+            className={`fixed bottom-0 left-0 right-0 z-50 p-4 shadow-lg transition-colors duration-300 shrink-0 ${
+              theme === 'dark' ? 'bg-gray-900 shadow-gray-800/20' : 'bg-white shadow-gray-200/50'
+            }`}
+            style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}
+            role="navigation"
+            aria-label="Mobile navigation"
+          >
             <div className="flex items-center justify-around">
-              <MobileNavButton icon={<HomeIcon />} isActive={activeTab === 'home'} onClick={() => handleNavigation('/home')} theme={theme} />
-              <MobileNavButton icon={<CreateIcon />} isActive={activeTab === 'create'} onClick={() => handleNavigation('/create')} theme={theme} />
-              <MobileNavButton icon={<MessageIcon />} isActive={activeTab === 'message'} onClick={() => handleNavigation('/message')} theme={theme} />
-              <MobileNavButton icon={<UserIcon />} isActive={activeTab === 'profile'} onClick={() => handleNavigation('/Profile')} theme={theme} />
+              <MobileNavButton icon={<HomeIcon />} isActive={activeTab === 'home'} onClick={() => handleNavigation('/home')} theme={theme} label="Home" />
+              <MobileNavButton icon={<CreateIcon />} isActive={activeTab === 'create'} onClick={() => handleNavigation('/create')} theme={theme} label="Create" />
+              <MobileNavButton icon={<MessageIcon />} isActive={activeTab === 'message'} onClick={() => handleNavigation('/message')} theme={theme} label="Messages" />
+              <MobileNavButton icon={<UserIcon />} isActive={activeTab === 'profile'} onClick={() => handleNavigation('/Profile')} theme={theme} label="Profile" />
             </div>
           </nav>
         </div>
@@ -250,19 +285,19 @@ export default function MainLayout({ children }) {
 }
 
 // Navigation Item Component with enhanced interactions and accessibility
-function NavItem({ icon, text, isActive, onClick, onMouseEnter, theme, isCompact = false, title = '' }) {
+function NavItem({ icon, text, isActive, onClick, onMouseEnter, theme, isCompact = false, title = '', ariaLabel = '', shortcut = '' }) {
   return (
     <div className={isCompact ? 'compact-nav-item relative' : ''}>
       <button
         onClick={onClick}
         onMouseEnter={onMouseEnter}
-        className={`w-full flex items-center rounded-xl transition-all duration-200 text-left transform hover:scale-[1.02] focus:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 ${
+        className={`w-full flex items-center rounded-xl transition-all duration-200 text-left transform hover:scale-[1.02] focus:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 min-h-[44px] ${
           isCompact 
             ? 'justify-center p-3' 
             : 'space-x-4 px-4 py-3'
         } ${
           isActive 
-            ? 'bg-gradient-to-r from-red-500 to-red-600 text-white shadow-lg' 
+            ? 'bg-linear-to-r from-red-500 to-red-600 text-white shadow-lg' 
             : (theme === 'dark'
                 ? 'hover:bg-gray-800 text-gray-300 hover:text-white focus:bg-gray-800'
                 : 'hover:bg-gray-100 text-gray-600 hover:text-gray-900 focus:bg-gray-100')
@@ -272,8 +307,9 @@ function NavItem({ icon, text, isActive, onClick, onMouseEnter, theme, isCompact
         // ♿ Enhanced accessibility attributes
         role="tab"
         aria-selected={isActive}
-        aria-label={title || text}
-        title={isCompact ? (title || text) : undefined}
+        aria-label={ariaLabel || title || text}
+        aria-current={isActive ? 'page' : undefined}
+        title={isCompact ? `${title || text} (${shortcut})` : `${shortcut}`}
         tabIndex={0}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -282,11 +318,14 @@ function NavItem({ icon, text, isActive, onClick, onMouseEnter, theme, isCompact
           }
         }}
       >
-        <div className="w-6 h-6 flex items-center justify-center flex-shrink-0" aria-hidden="true">
+        <div className="w-6 h-6 flex items-center justify-center shrink-0 transition-transform group-hover:scale-110" aria-hidden="true">
           {icon}
         </div>
         {!isCompact && text && (
           <span className="font-medium text-left">{text}</span>
+        )}
+        {!isCompact && isActive && (
+          <span className="ml-auto w-2 h-2 bg-white rounded-full" aria-hidden="true" />
         )}
         {/* Screen reader only status */}
         {isActive && (
@@ -294,26 +333,36 @@ function NavItem({ icon, text, isActive, onClick, onMouseEnter, theme, isCompact
         )}
       </button>
       {isCompact && title && (
-        <div className="nav-tooltip" role="tooltip" aria-hidden="true">
+        <div className="compact-tooltip" role="tooltip" aria-hidden="true">
           {title}
+          {shortcut && <span className="block text-xs mt-1 opacity-75">{shortcut}</span>}
         </div>
       )}
     </div>
   );
 }
 
-// Mobile Navigation Button Component
-function MobileNavButton({ icon, isActive, onClick, theme }) {
+// Mobile Navigation Button Component - Accessible
+function MobileNavButton({ icon, isActive, onClick, theme, label = '' }) {
   return (
     <button
       onClick={onClick}
-      className={`p-2 transition-colors duration-200 ${
+      className={`p-3 min-w-[44px] min-h-[44px] rounded-lg transition-all duration-200 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 ${
         isActive
-          ? (theme === 'dark' ? 'text-red-400' : 'text-red-600')
-          : (theme === 'dark' ? 'text-gray-400' : 'text-gray-600')
+          ? (theme === 'dark' 
+              ? 'text-red-400 bg-red-900/20' 
+              : 'text-red-600 bg-red-50')
+          : (theme === 'dark' 
+              ? 'text-gray-400 hover:text-white hover:bg-gray-800' 
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100')
       }`}
+      aria-label={label}
+      aria-current={isActive ? 'page' : undefined}
     >
       {icon}
+      {isActive && (
+        <span className="absolute -top-1 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-red-500 rounded-full" aria-hidden="true" />
+      )}
     </button>
   );
 }
@@ -507,7 +556,11 @@ function SuggestionItem({ user, theme }) {
             className="w-12 h-12 rounded-full object-cover"
           />
           {user.isOnline && (
-            <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>
+            <div 
+              className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full border-2 border-white animate-pulse"
+              aria-label="Online"
+              role="status"
+            ></div>
           )}
         </div>
         <div className="flex-1">
@@ -524,7 +577,10 @@ function SuggestionItem({ user, theme }) {
         </div>
       </div>
       
-      <button className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white px-4 py-1.5 rounded-full text-xs font-medium transition-all duration-300 hover:shadow-lg">
+      <button 
+        className="bg-linear-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white px-6 py-2.5 rounded-full text-xs font-medium transition-all duration-300 hover:shadow-lg min-h-[44px] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+        aria-label={`Follow ${user.username}`}
+      >
         Follow
       </button>
     </div>

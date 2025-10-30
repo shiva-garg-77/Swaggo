@@ -103,9 +103,8 @@ export default function NotificationItem({ notification, theme = 'light' }) {
 
   return (
     <div
-      onClick={handleClick}
       className={`
-        relative p-4 border-b cursor-pointer transition-all duration-200
+        relative border-b cursor-pointer transition-all duration-200
         ${!notification.isread
           ? isDark
             ? 'bg-blue-900/20 border-gray-700'
@@ -117,73 +116,80 @@ export default function NotificationItem({ notification, theme = 'light' }) {
         ${isDeleting ? 'opacity-50' : ''}
       `}
     >
-      <div className="flex items-start gap-3">
-        {/* Icon */}
-        <div className="flex-shrink-0 mt-1">
-          {getIcon()}
-        </div>
+      {/* Make entire item clickable (Issue 7.4) */}
+      <div onClick={handleClick} className="p-4">
+        <div className="flex items-start gap-3">
+          {/* Icon */}
+          <div className="flex-shrink-0 mt-1">
+            {getIcon()}
+          </div>
 
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-            {notification.content}
-          </p>
-          <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
-            {timeAgo}
-          </p>
-        </div>
+          {/* Content */}
+          <div className="flex-1 min-w-0">
+            <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+              {notification.content}
+            </p>
+            <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
+              {timeAgo}
+            </p>
+          </div>
 
-        {/* Unread indicator & Delete button */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {!notification.isread && (
-            <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-          )}
-          <button
-            onClick={handleDelete}
-            disabled={isDeleting}
-            className={`
-              p-1.5 rounded-lg transition-colors
-              ${isDark
-                ? 'hover:bg-gray-700 text-gray-400 hover:text-red-400'
-                : 'hover:bg-gray-200 text-gray-500 hover:text-red-600'
-              }
-              disabled:opacity-50 disabled:cursor-not-allowed
-            `}
-            title="Delete notification"
-          >
-            {isDeleting ? (
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
-            ) : (
-              <Trash2 className="w-4 h-4" />
+          {/* Unread indicator & Delete button */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {!notification.isread && (
+              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
             )}
-          </button>
+            <button
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className={`
+                p-1.5 rounded-lg transition-colors
+                ${isDark
+                  ? 'hover:bg-gray-700 text-gray-400 hover:text-red-400'
+                  : 'hover:bg-gray-200 text-gray-500 hover:text-red-600'
+                }
+                disabled:opacity-50 disabled:cursor-not-allowed
+              `}
+              title="Delete notification"
+            >
+              {isDeleting ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-// Helper function
+// Helper function (Issue 7.9 - More accurate timing)
 function getTimeAgo(dateString) {
   const now = new Date();
   const date = new Date(dateString);
   const diffInSeconds = Math.floor((now - date) / 1000);
 
-  const intervals = [
-    { label: 'year', seconds: 31536000 },
-    { label: 'month', seconds: 2592000 },
-    { label: 'week', seconds: 604800 },
-    { label: 'day', seconds: 86400 },
-    { label: 'hour', seconds: 3600 },
-    { label: 'minute', seconds: 60 }
-  ];
-
-  for (const interval of intervals) {
-    const count = Math.floor(diffInSeconds / interval.seconds);
-    if (count >= 1) {
-      return `${count}${interval.label.charAt(0)} ago`;
-    }
-  }
-
-  return 'Just now';
+  // More precise intervals
+  if (diffInSeconds < 10) return 'Just now';
+  if (diffInSeconds < 60) return `${diffInSeconds}s ago`;
+  
+  const diffInMinutes = Math.floor(diffInSeconds / 60);
+  if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+  
+  const diffInHours = Math.floor(diffInMinutes / 60);
+  if (diffInHours < 24) return `${diffInHours}h ago`;
+  
+  const diffInDays = Math.floor(diffInHours / 24);
+  if (diffInDays < 7) return `${diffInDays}d ago`;
+  
+  const diffInWeeks = Math.floor(diffInDays / 7);
+  if (diffInWeeks < 4) return `${diffInWeeks}w ago`;
+  
+  const diffInMonths = Math.floor(diffInDays / 30);
+  if (diffInMonths < 12) return `${diffInMonths}mo ago`;
+  
+  const diffInYears = Math.floor(diffInDays / 365);
+  return `${diffInYears}y ago`;
 }

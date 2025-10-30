@@ -240,8 +240,20 @@ export default function HighlightsSection({
   }, [user, addStoryToHighlight, refetch]);
 
   return (
-    <div className={`${className}`}>
-      <div className="flex items-center space-x-3 py-3 overflow-x-auto scrollbar-hide">
+    <div className={`${className} relative`}>
+      {/* Scroll Indicators (Issue 6.8) */}
+      <div className="relative">
+        {highlights.length > 5 && (
+          <>
+            <div className={`absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r pointer-events-none z-10 ${
+              theme === 'dark' ? 'from-gray-900' : 'from-white'
+            }`} />
+            <div className={`absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l pointer-events-none z-10 ${
+              theme === 'dark' ? 'from-gray-900' : 'from-white'
+            }`} />
+          </>
+        )}
+        <div className="flex items-center space-x-3 py-3 overflow-x-auto scrollbar-hide">
         {/* Add New Highlight (only for own profile) */}
         {isOwnProfile && (
           <div className="flex-shrink-0">
@@ -304,6 +316,7 @@ export default function HighlightsSection({
             userStories={userStories}
           />
         ))}
+        </div>
       </div>
 
       {/* Story Selector Modal */}

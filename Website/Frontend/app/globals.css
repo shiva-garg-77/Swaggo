@@ -1,35 +1,82 @@
 @import "tailwindcss";
+@import "../styles/design-tokens.css";
 
 @variant dark (.dark &);
 
 @source "./Components/**/*.{js,ts,jsx,tsx,mdx}";
 @source "./app/**/*.{js,ts,jsx,tsx,mdx}";
 
-/* Custom styles */
+/* ============================================
+   GLOBAL STYLES
+   ============================================ */
+
+/* Font Loading Optimization */
+@font-face {
+  font-display: swap;
+}
+
+/* Base Styles */
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
 body {
-  transition: background-color 0.3s ease, color 0.3s ease;
+  transition: background-color var(--transition-base), color var(--transition-base);
+  overflow-x: hidden;
+  min-height: 100vh;
 }
 
-/* Global scrollbar hiding */
+/* ============================================
+   CUSTOM SCROLLBAR (Visible & Accessible)
+   ============================================ */
+
+/* Firefox */
 * {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
 }
 
+/* Webkit browsers (Chrome, Safari, Edge) */
 *::-webkit-scrollbar {
-  display: none;  /* Chrome, Safari and Opera */
+  width: 8px;
+  height: 8px;
 }
 
-/* Specific elements that need scrollbars hidden */
-html, body {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-  overflow-x: hidden; /* Prevent horizontal scroll */
+*::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: var(--radius-base);
 }
 
-html::-webkit-scrollbar,
-body::-webkit-scrollbar {
-  display: none;
+*::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.5);
+  border-radius: var(--radius-base);
+  transition: background var(--transition-fast);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.7);
+}
+
+/* Dark mode scrollbar */
+.dark * {
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
+
+.dark *::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.dark *::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* Prevent horizontal overflow globally */
+html, body, #__next, main {
+  overflow-x: hidden;
+  max-width: 100vw;
 }
 
 /* Custom animations */
@@ -42,6 +89,37 @@ body::-webkit-scrollbar {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+@keyframes animate-heart {
+  0%, 100% { transform: scale(1); }
+  15% { transform: scale(1.3); }
+  30% { transform: scale(0.9); }
+  45% { transform: scale(1.1); }
+  60% { transform: scale(1); }
+}
+
+@keyframes animate-bounce-once {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes animate-shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+  20%, 40%, 60%, 80% { transform: translateX(5px); }
+}
+
+.animate-heart {
+  animation: animate-heart 0.6s ease-in-out;
+}
+
+.animate-bounce-once {
+  animation: animate-bounce-once 0.5s ease-in-out;
+}
+
+.animate-shake {
+  animation: animate-shake 0.5s ease-in-out;
 }
 
 /* Accessibility styles */
@@ -86,26 +164,82 @@ body::-webkit-scrollbar {
   outline-offset: 2px;
 }
 
-/* Focus visible styles for keyboard navigation */
-.keyboard-navigation :focus {
-  outline: 2px solid #4f46e5;
+/* ============================================
+   FOCUS MANAGEMENT (Keyboard & Mouse)
+   ============================================ */
+
+/* Focus-visible polyfill support */
+:focus-visible {
+  outline: 2px solid var(--color-border-focus);
   outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
-.mouse-navigation :focus {
+:focus:not(:focus-visible) {
   outline: none;
 }
 
-/* High contrast mode support */
+/* Keyboard navigation mode */
+.keyboard-navigation *:focus {
+  outline: 2px solid var(--color-border-focus) !important;
+  outline-offset: 2px !important;
+}
+
+/* Mouse navigation mode */
+.mouse-navigation *:focus:not(:focus-visible) {
+  outline: none !important;
+}
+
+/* Interactive elements always show focus */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible,
+[role="link"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   HIGH CONTRAST MODE SUPPORT (Complete)
+   ============================================ */
 @media (prefers-contrast: high) {
+  /* Focus styles */
   :focus {
-    outline: 2px solid transparent;
-    outline-offset: 2px;
-    box-shadow: 0 0 0 2px white, 0 0 0 4px black;
+    outline: 3px solid currentColor !important;
+    outline-offset: 3px !important;
+  }
+  
+  /* Interactive elements */
+  button, a, input, select, textarea {
+    border: 2px solid currentColor !important;
+  }
+  
+  /* Ensure sufficient contrast */
+  * {
+    background-color: Canvas !important;
+    color: CanvasText !important;
+    border-color: CanvasText !important;
+  }
+  
+  /* Links */
+  a {
+    text-decoration: underline !important;
+  }
+  
+  /* Buttons */
+  button:hover, a:hover {
+    background-color: Highlight !important;
+    color: HighlightText !important;
   }
 }
 
-/* Reduced motion support */
+/* ============================================
+   REDUCED MOTION SUPPORT (Complete)
+   ============================================ */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -113,20 +247,28 @@ body::-webkit-scrollbar {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+    transform: none !important;
+  }
+  
+  /* Disable all motion-based animations */
+  @keyframes * {
+    animation-duration: 0.01ms !important;
   }
 }
 
-/* Hide scrollbars */
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
 @layer utilities {
-  .scrollbar-hide {
-    -ms-overflow-style: none;  /* IE and Edge */
-    scrollbar-width: none;  /* Firefox */
-  }
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;  /* Chrome, Safari and Opera */
+  /* Line clamp utilities (complete set) */
+  .line-clamp-1 {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
   
-  /* Line clamp utilities */
   .line-clamp-2 {
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -139,5 +281,76 @@ body::-webkit-scrollbar {
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+  
+  .line-clamp-4 {
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  
+  .line-clamp-5 {
+    display: -webkit-box;
+    -webkit-line-clamp: 5;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  
+  /* GPU acceleration hint */
+  .gpu-accelerated {
+    will-change: transform, opacity;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+  }
+  
+  /* Smooth scrolling */
+  .smooth-scroll {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* ============================================
+   PRINT STYLES
+   ============================================ */
+@media print {
+  /* Hide non-essential elements */
+  nav,
+  aside,
+  .no-print,
+  button,
+  [role="navigation"],
+  [role="complementary"] {
+    display: none !important;
+  }
+  
+  /* Optimize for print */
+  * {
+    background: white !important;
+    color: black !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+  
+  /* Show links */
+  a[href]:after {
+    content: " (" attr(href) ")";
+  }
+  
+  /* Page breaks */
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+  }
+  
+  img {
+    max-width: 100% !important;
+    page-break-inside: avoid;
+  }
+  
+  /* Ensure readability */
+  body {
+    font-size: 12pt;
+    line-height: 1.5;
   }
 }

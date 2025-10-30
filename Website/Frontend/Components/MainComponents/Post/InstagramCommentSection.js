@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation } from '@apollo/client/react';
 import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { gql } from '@apollo/client';
+import { getRelativeTime } from '../../../utils/timeUtils';
+import AutoExpandTextarea from '../../UI/AutoExpandTextarea';
 
 // Define queries directly to avoid import issues
 const GET_POST_COMMENTS = gql`
@@ -93,6 +95,21 @@ export default function InstagramCommentSection({
   const [likeAnimations, setLikeAnimations] = useState({});
   const [optimisticLikes, setOptimisticLikes] = useState({}); // Track like states
   const inputRef = useRef(null);
+  
+  // Comment sorting with persistence (Issue 5.21)
+  const [sortBy, setSortBy] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('commentSortPreference') || 'recent';
+    }
+    return 'recent';
+  });
+
+  const handleSortChange = (newSort) => {
+    setSortBy(newSort);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('commentSortPreference', newSort);
+    }
+  };
 
   // Fetch comments
   const { data, loading, error, refetch } = useQuery(GET_POST_COMMENTS, {
@@ -101,17 +118,27 @@ export default function InstagramCommentSection({
     fetchPolicy: 'cache-and-network'
   });
 
-  const comments = data?.getCommentsByPost || [];
+  let comments = data?.getCommentsByPost || [];
+  
+  // Sort comments based on preference
+  comments = [...comments].sort((a, b) => {
+    if (sortBy === 'popular') {
+      return (b.likeCount || 0) - (a.likeCount || 0);
+    } else if (sortBy === 'oldest') {
+      return new Date(a.createdAt) - new Date(b.createdAt);
+    } else { // recent (default)
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    }
+  });
 
   // Mutations
   const [createComment] = useMutation(CREATE_COMMENT);
   const [createCommentReply] = useMutation(CREATE_COMMENT_REPLY);
   const [toggleCommentLike] = useMutation(TOGGLE_COMMENT_LIKE);
 
-  // Time formatter
+  // Time formatter - Use relative time utility (Issue 5.7)
   const formatTime = (timestamp) => {
-    const date = new Date(timestamp);
-    const now = new Date();
+    return getRelativeTime(timestamp);
     const diff = Math.floor((now - date) / 1000);
 
     if (diff < 60) return 'now';
@@ -214,7 +241,9 @@ export default function InstagramCommentSection({
     const hasReplies = comment.replies && comment.replies.length > 0;
 
     return (
-      <div className={`${isReply ? 'ml-12' : ''} mb-4`}>
+      <div className={`${isReply ? 'ml-12 pl-4 border-l-2' : ''} mb-4 ${
+        isReply ? (theme === 'dark' ? 'border-gray-700' : 'border-gray-200') : ''
+      }`}>
         <div className="flex space-x-3">
           {/* Avatar */}
           <div className="flex-shrink-0">
@@ -340,6 +369,25 @@ export default function InstagramCommentSection({
 
   return (
     <div className={`flex flex-col h-full ${className}`}>
+      {/* Sort dropdown (Issue 5.21) */}
+      {comments.length > 1 && (
+        <div className={`px-4 py-2 border-b ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
+          <select
+            value={sortBy}
+            onChange={(e) => handleSortChange(e.target.value)}
+            className={`text-xs px-2 py-1 rounded ${
+              theme === 'dark' 
+                ? 'bg-gray-800 text-gray-300 border-gray-600' 
+                : 'bg-gray-100 text-gray-700 border-gray-300'
+            } border focus:outline-none focus:ring-1 focus:ring-blue-500`}
+          >
+            <option value="recent">Most Recent</option>
+            <option value="popular">Most Popular</option>
+            <option value="oldest">Oldest First</option>
+          </select>
+        </div>
+      )}
+      
       {/* Comments list - Scrollable content */}
       <div className={`flex-1 px-4 py-2 ${comments.length > 2 ? 'max-h-80 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600' : 'min-h-[200px]'}`}>
         {comments.length > 0 ? (
@@ -421,17 +469,20 @@ export default function InstagramCommentSection({
             className="w-8 h-8 rounded-full object-cover ring-2 ring-gray-200 dark:ring-gray-700"
           />
           <div className="flex-1 relative">
-            <input
+            {/* Auto-expanding textarea (Issue 5.5) */}
+            <AutoExpandTextarea
               ref={inputRef}
-              type="text"
               value={replyingTo ? replyText : newComment}
               onChange={(e) => replyingTo ? setReplyText(e.target.value) : setNewComment(e.target.value)}
+              onSubmit={handleCreateComment}
               placeholder={replyingTo ? `Reply to @${replyingTo.profile?.username}...` : "Add a comment..."}
-              className={`w-full px-4 py-2 rounded-full border focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
+              className={`w-full px-4 py-2 rounded-full border focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all resize-none ${
                 theme === 'dark' 
                   ? 'bg-gray-800 border-gray-600 text-white placeholder-gray-400 focus:bg-gray-700' 
                   : 'bg-gray-100 border-gray-300 text-gray-900 placeholder-gray-500 focus:bg-white focus:shadow-sm'
               }`}
+              minHeight={40}
+              maxHeight={120}
               disabled={isSubmitting}
             />
             {(replyingTo ? replyText.trim() : newComment.trim()) && (

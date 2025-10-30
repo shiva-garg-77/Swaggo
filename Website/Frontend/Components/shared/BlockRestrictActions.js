@@ -146,6 +146,12 @@ const BlockRestrictActions = ({
       return;
     }
 
+    // Add confirmation (Issue 6.12)
+    const confirmed = window.confirm(
+      `Block @${targetUsername}?\n\nThis will:\n• Hide all their posts\n• Prevent them from seeing your profile\n• Stop them from contacting you`
+    );
+    if (!confirmed) return;
+
     setIsLoading(true);
     try {
       await blockUser({
@@ -170,6 +176,12 @@ const BlockRestrictActions = ({
       alert('You cannot restrict yourself.');
       return;
     }
+
+    // Add confirmation (Issue 6.12)
+    const confirmed = window.confirm(
+      `Restrict @${targetUsername}?\n\nThis will:\n• Limit their interactions with you\n• Hide their comments from others\n• They won't be notified`
+    );
+    if (!confirmed) return;
 
     setIsLoading(true);
     try {

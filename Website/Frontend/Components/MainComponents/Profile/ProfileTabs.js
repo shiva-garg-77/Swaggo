@@ -24,15 +24,31 @@ export default function ProfileTabs({ activeTab, onTabChange, isOwnProfile, them
 
   const visibleTabs = tabs.filter(tab => tab.showForAll || isOwnProfile);
 
+  // Keyboard navigation (Issue 6.6)
+  const handleKeyDown = (e, currentIndex) => {
+    if (e.key === 'ArrowLeft' && currentIndex > 0) {
+      e.preventDefault();
+      onTabChange(visibleTabs[currentIndex - 1].id);
+    } else if (e.key === 'ArrowRight' && currentIndex < visibleTabs.length - 1) {
+      e.preventDefault();
+      onTabChange(visibleTabs[currentIndex + 1].id);
+    }
+  };
+
   return (
     <div className={`border-b ${
       theme === 'dark' ? 'border-gray-700' : 'border-gray-200'
-    } py-2`}>
+    } py-2`} role="tablist">
       <div className="flex justify-center gap-8 md:gap-12">
-        {visibleTabs.map((tab) => (
+        {visibleTabs.map((tab, index) => (
           <button
             key={tab.id}
             onClick={() => onTabChange(tab.id)}
+            onKeyDown={(e) => handleKeyDown(e, index)}
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            aria-controls={`${tab.id}-panel`}
+            tabIndex={activeTab === tab.id ? 0 : -1}
             className={`flex items-center gap-2 px-2 py-4 text-sm font-medium transition-all duration-200 border-b-2 -mb-px ${
               activeTab === tab.id
                 ? theme === 'dark'

@@ -174,7 +174,7 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-900 dark:to-gray-800 flex flex-col items-center justify-center p-5 gap-5 flex-wrap transition-all duration-300">
+    <div className="min-h-screen bg-linear-to-br from-gray-100 to-gray-200 dark:from-gray-900 dark:to-gray-800 flex flex-col items-center justify-center p-5 gap-5 flex-wrap transition-all duration-300">
       <div className="absolute top-4 right-4 flex space-x-2">
         <LanguageSelector variant="icon" />
         <UnifiedThemeToggle showChatThemes={false} />
@@ -237,7 +237,7 @@ export default function Login() {
                 type="submit"
                 disabled={isSubmitting}
                 ariaLabel={t('auth.login.loginButton')}
-                className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold rounded-3xl transition-all duration-300 mb-5"
+                className="w-full bg-linear-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold rounded-3xl transition-all duration-300 mb-5"
               >
                 {isSubmitting ? t('common.loading') : t('auth.login.loginButton')}
               </AccessibleButton>
@@ -258,7 +258,7 @@ export default function Login() {
             /* MFA Form */
             <form onSubmit={handleMFASubmit} className="w-full">
               <div className="mb-5 text-center">
-                <div className="w-16 h-16 mx-auto bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center mb-4">
+                <div className="w-16 h-16 mx-auto bg-linear-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center mb-4">
                   <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   </svg>
@@ -301,7 +301,7 @@ export default function Login() {
                   type="submit"
                   disabled={isSubmitting || !mfaState.code.trim()}
                   ariaLabel={t('auth.mfa.verifyButton')}
-                  className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold rounded-3xl transition-all duration-300"
+                  className="w-full bg-linear-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold rounded-3xl transition-all duration-300"
                 >
                   {isSubmitting ? t('common.loading') : t('auth.mfa.verifyButton')}
                 </AccessibleButton>

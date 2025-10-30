@@ -6,6 +6,7 @@ import { X, AlertTriangle, Check } from 'lucide-react';
 import { REPORT_POST } from '../../../lib/graphql/postQueries';
 import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 import toast from 'react-hot-toast';
+import ConfirmationModal from '../../UI/ConfirmationModal';
 
 /**
  * Report Post Modal
@@ -17,6 +18,7 @@ export default function ReportPostModal({ post, isOpen, onClose, theme = 'light'
   const [description, setDescription] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [showConfirmation, setShowConfirmation] = useState(false); // Issue 5.10
 
   const [reportPost] = useMutation(REPORT_POST);
 
@@ -70,7 +72,7 @@ export default function ReportPostModal({ post, isOpen, onClose, theme = 'light'
     }
   ];
 
-  const handleSubmit = async () => {
+  const handleSubmitClick = () => {
     if (!selectedReason) {
       toast.error('Please select a reason');
       return;
@@ -81,6 +83,12 @@ export default function ReportPostModal({ post, isOpen, onClose, theme = 'light'
       return;
     }
 
+    // Show confirmation modal (Issue 5.10)
+    setShowConfirmation(true);
+  };
+
+  const handleConfirmedSubmit = async () => {
+    setShowConfirmation(false);
     setIsSubmitting(true);
     try {
       await reportPost({
@@ -189,7 +197,7 @@ export default function ReportPostModal({ post, isOpen, onClose, theme = 'light'
                 </p>
                 <div className="flex gap-3">
                   {post.mediaUrl && (
-                    <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
+                    <div className="w-16 h-16 rounded-lg overflow-hidden shrink-0">
                       <img
                         src={post.mediaUrl}
                         alt="Post"
@@ -245,7 +253,7 @@ export default function ReportPostModal({ post, isOpen, onClose, theme = 'light'
                           </p>
                         </div>
                         {selectedReason === reason.value && (
-                          <Check className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 ml-2" />
+                          <Check className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 ml-2" />
                         )}
                       </div>
                     </button>
@@ -298,7 +306,7 @@ export default function ReportPostModal({ post, isOpen, onClose, theme = 'light'
               Cancel
             </button>
             <button
-              onClick={handleSubmit}
+              onClick={handleSubmitClick}
               disabled={!selectedReason || isSubmitting}
               className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors
                        disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
@@ -318,6 +326,18 @@ export default function ReportPostModal({ post, isOpen, onClose, theme = 'light'
           </div>
         )}
       </div>
+      
+      {/* Confirmation Modal (Issue 5.10) */}
+      <ConfirmationModal
+        isOpen={showConfirmation}
+        onClose={() => setShowConfirmation(false)}
+        onConfirm={handleConfirmedSubmit}
+        title="Confirm Report"
+        message={`Are you sure you want to report this post for "${reportReasons.find(r => r.value === selectedReason)?.label}"? This action cannot be undone.`}
+        confirmText="Yes, Report"
+        cancelText="Cancel"
+        type="danger"
+      />
     </div>
   );
 }

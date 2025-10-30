@@ -30,7 +30,7 @@ const GET_POSTS = gql`
         profilePic
       }
       title
-      Description
+      description
       postUrl
       postType
       createdAt

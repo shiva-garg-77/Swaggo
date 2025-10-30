@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
-import { X, Copy, Check, Facebook, Twitter, Linkedin, Mail, MessageCircle } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { X, Copy, Check, Facebook, Twitter, Linkedin, Mail, MessageCircle, Send } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { trapFocus } from '../../../utils/focusManagement';
 
 /**
  * Share Post Modal
@@ -10,10 +11,33 @@ import toast from 'react-hot-toast';
  */
 export default function SharePostModal({ post, isOpen, onClose, theme = 'light' }) {
   const [copied, setCopied] = useState(false);
+  const modalRef = useRef(null);
 
   const isDark = theme === 'dark';
-  const postUrl = `${window.location.origin}/post/${post?.postid}`;
+  const postUrl = typeof window !== 'undefined' ? `${window.location.origin}/post/${post?.postid}` : '';
   const shareText = post?.caption?.slice(0, 100) || 'Check out this post!';
+  
+  // Focus trap for accessibility (Issue 5.8)
+  useEffect(() => {
+    if (isOpen && modalRef.current) {
+      const cleanup = trapFocus(modalRef.current);
+      return cleanup;
+    }
+  }, [isOpen]);
+  
+  // Close on Escape key
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isOpen, onClose]);
 
   const handleCopyLink = async () => {
     try {
@@ -104,8 +128,15 @@ export default function SharePostModal({ post, isOpen, onClose, theme = 'light' 
   if (!isOpen || !post) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+    <div 
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" 
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="share-modal-title"
+    >
       <div
+        ref={modalRef}
         className={`rounded-lg shadow-xl max-w-md w-full ${
           isDark ? 'bg-gray-800' : 'bg-white'
         }`}
@@ -115,9 +146,12 @@ export default function SharePostModal({ post, isOpen, onClose, theme = 'light' 
         <div className={`flex items-center justify-between p-6 border-b ${
           isDark ? 'border-gray-700' : 'border-gray-200'
         }`}>
-          <h2 className={`text-xl font-bold ${
-            isDark ? 'text-white' : 'text-gray-900'
-          }`}>
+          <h2 
+            id="share-modal-title"
+            className={`text-xl font-bold ${
+              isDark ? 'text-white' : 'text-gray-900'
+            }`}
+          >
             Share Post
           </h2>
           <button
@@ -138,7 +172,7 @@ export default function SharePostModal({ post, isOpen, onClose, theme = 'light' 
           }`}>
             <div className="flex gap-3">
               {post.mediaUrl && (
-                <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
+                <div className="w-16 h-16 rounded-lg overflow-hidden shrink-0">
                   <img
                     src={post.mediaUrl}
                     alt="Post"

@@ -100,7 +100,8 @@ export default function UserSearch({
 
   const users = data?.searchUsers || [];
   console.log('Users data:', users);
-  const prioritizedUsers = users.sort((a, b) => {
+  // Create a copy before sorting (Apollo data is read-only)
+  const prioritizedUsers = [...users].sort((a, b) => {
     if (a.isVerified && !b.isVerified) return -1;
     if (!a.isVerified && b.isVerified) return 1;
     return 0;

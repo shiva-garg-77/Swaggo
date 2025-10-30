@@ -1,0 +1,36 @@
+{
+  "name": "swaggo-chess-backend",
+  "version": "1.0.0",
+  "description": "Swaggo Chess Game Backend - Production Ready",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "start": "node main.js",
+    "dev": "nodemon main.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
+  },
+  "keywords": ["chess", "multiplayer", "socket.io", "webrtc"],
+  "author": "Swaggo Team",
+  "license": "MIT",
+  "dependencies": {
+    "socket.io": "^4.8.1",
+    "express": "^5.1.0",
+    "mongoose": "^8.18.2",
+    "ioredis": "^5.7.0",
+    "chess.js": "^1.0.0-beta.8",
+    "jsonwebtoken": "^9.0.2",
+    "joi": "^18.0.1",
+    "isomorphic-dompurify": "^2.28.0",
+    "uuid": "^13.0.0",
+    "cors": "^2.8.5",
+    "helmet": "^8.1.0",
+    "compression": "^1.8.1",
+    "dotenv": "^17.2.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10",
+    "jest": "^30.2.0"
+  }
+}

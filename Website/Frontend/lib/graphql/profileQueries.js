@@ -25,7 +25,7 @@ export const GET_USER_BY_USERNAME = gql`
         postid
         postUrl
         title
-        Description
+        description
         postType
         like {
           profile {
@@ -73,7 +73,7 @@ export const GET_USER_POSTS = gql`
         postid
         postUrl
         title
-        Description
+        description
         postType
         like {
           profile {
@@ -270,7 +270,7 @@ export const PUBLISH_DRAFT_MUTATION = gql`
       postid
       postUrl
       title
-      Description
+      description
       postType
       location
       tags
@@ -289,7 +289,7 @@ export const CREATE_POST_MUTATION = gql`
     $profileid: String!
     $postUrl: String!
     $title: String
-    $Description: String
+    $description: String
     $postType: String!
     $location: String
     $taggedPeople: [String!]
@@ -303,7 +303,7 @@ export const CREATE_POST_MUTATION = gql`
       profileid: $profileid
       postUrl: $postUrl
       title: $title
-      Description: $Description
+      description: $description
       postType: $postType
       location: $location
       taggedPeople: $taggedPeople
@@ -316,7 +316,7 @@ export const CREATE_POST_MUTATION = gql`
       postid
       postUrl
       title
-      Description
+      description
       postType
       location
       taggedPeople

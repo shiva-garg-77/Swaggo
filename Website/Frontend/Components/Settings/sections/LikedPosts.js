@@ -1,9 +1,9 @@
 'use client'
 
-import { ArrowLeft, Bookmark, Heart, MessageCircle, MoreHorizontal } from 'lucide-react'
+import { ArrowLeft, Bookmark, Heart, MessageCircle, MoreHorizontal, Lock, Unlock } from 'lucide-react'
 import { useQuery, useMutation } from '@apollo/client/react';
 import { GET_USER_BY_USERNAME, TOGGLE_POST_LIKE, TOGGLE_SAVE_POST } from '@/lib/graphql/queries'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useFixedSecureAuth } from '../../../context/FixedSecureAuthContext';
 import Image from 'next/image'
 import InstagramPostModal from '../../MainComponents/Post/InstagramPostModal'
@@ -12,6 +12,20 @@ export default function LikedPosts({ onBack, isModal = false }) {
   const { user } = useFixedSecureAuth()
   const [selectedPost, setSelectedPost] = useState(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  
+  // Privacy toggle (Issue 6.19)
+  const [isPrivate, setIsPrivate] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('likedPostsPrivate') === 'true'
+    }
+    return true // Private by default
+  })
+  
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('likedPostsPrivate', isPrivate.toString())
+    }
+  }, [isPrivate])
   
   const { loading, error, data, refetch } = useQuery(GET_USER_BY_USERNAME, {
     variables: { username: user?.username },
@@ -226,7 +240,35 @@ export default function LikedPosts({ onBack, isModal = false }) {
                 <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
               </button>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Liked Posts</h1>
+              
+              {/* Privacy Toggle (Issue 6.19) */}
+              <button
+                onClick={() => setIsPrivate(!isPrivate)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg transition-colors bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700"
+                title={isPrivate ? "Liked posts are private" : "Liked posts are public"}
+              >
+                {isPrivate ? (
+                  <>
+                    <Lock className="w-4 h-4" />
+                    <span className="text-sm font-medium">Private</span>
+                  </>
+                ) : (
+                  <>
+                    <Unlock className="w-4 h-4" />
+                    <span className="text-sm font-medium">Public</span>
+                  </>
+                )}
+              </button>
             </div>
+            
+            {/* Privacy Notice */}
+            {isPrivate && (
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-4">
+                <p className="text-sm text-blue-800 dark:text-blue-300">
+                  🔒 Your liked posts are private. Only you can see them.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

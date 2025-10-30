@@ -7,6 +7,7 @@ import { useFixedSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { CREATE_POST_MUTATION, CREATE_DRAFT_MUTATION, UPDATE_DRAFT_MUTATION, SEARCH_USERS, GET_USER_BY_USERNAME } from '../../../lib/graphql/profileQueries';
 // 🔒 SECURITY: Import connection state management for secure post operations
 import connectionState from '../../../lib/ConnectionState.js';
+import { saveDraft, loadDraft, clearDraft } from '../../../utils/storageUtils';
 
 export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onPostSuccess, draftData }) {
   const { theme: contextTheme } = useTheme();
@@ -47,6 +48,33 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
   const [taggedPeople, setTaggedPeople] = useState([]);
   const [allowComments, setAllowComments] = useState(true);
   const [hideLikeCount, setHideLikeCount] = useState(false);
+  
+  // Hashtag suggestions (Issue 5.18)
+  const [hashtagInput, setHashtagInput] = useState('');
+  const [hashtagSuggestions, setHashtagSuggestions] = useState([]);
+  const [showHashtagSuggestions, setShowHashtagSuggestions] = useState(false);
+  
+  const trendingHashtags = ['photography', 'travel', 'food', 'nature', 'art', 'fitness', 'fashion', 'music'];
+  
+  const handleHashtagInput = (value) => {
+    setHashtagInput(value);
+    if (value.startsWith('#') && value.length > 1) {
+      const query = value.slice(1).toLowerCase();
+      const suggestions = trendingHashtags.filter(tag => tag.includes(query));
+      setHashtagSuggestions(suggestions);
+      setShowHashtagSuggestions(suggestions.length > 0);
+    } else {
+      setShowHashtagSuggestions(false);
+    }
+  };
+  
+  const addHashtag = (tag) => {
+    if (!tags.includes(tag)) {
+      setTags([...tags, tag]);
+    }
+    setHashtagInput('');
+    setShowHashtagSuggestions(false);
+  };
   const [autoPlay, setAutoPlay] = useState(false);
   const [isCloseFriendOnly, setIsCloseFriendOnly] = useState(false);
   const [tagInput, setTagInput] = useState('');
@@ -86,13 +114,17 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
     }
   }, [searchUsersData, taggedPeople, user?.profileid]);
   
-  // Handle people input change with search
+  // Handle people input change with debounced search (Issue 5.19)
   const handlePeopleInputChange = (e) => {
     const query = e.target.value;
     setPeopleInput(query);
     
     if (query.length > 1) {
-      searchUsers({ variables: { query } });
+      // Debounce search to avoid excessive API calls
+      if (window.searchTimeout) clearTimeout(window.searchTimeout);
+      window.searchTimeout = setTimeout(() => {
+        searchUsers({ variables: { query } });
+      }, 300); // 300ms debounce
       setShowUserSearch(true);
     } else {
       setShowUserSearch(false);
@@ -142,18 +174,42 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
       setCurrentStep(1);
     }
   }, [draftData, isOpen]);
-  
-  // Cleanup blob URLs on component unmount or file change
+
+  // Auto-save draft (Issue 5.15)
   useEffect(() => {
+    if (isOpen && (title || caption || location || tags.length > 0)) {
+      const draftContent = { title, caption, location, tags, taggedPeople };
+      saveDraft('createPost', draftContent, 2000); // Auto-save after 2 seconds
+    }
+  }, [title, caption, location, tags, taggedPeople, isOpen]);
+  
+  // Cleanup blob URLs properly - track all created URLs
+  const blobUrlsRef = useRef(new Set());
+  
+  useEffect(() => {
+    // Add current URLs to tracking set
+    if (filePreview && filePreview.startsWith('blob:')) {
+      blobUrlsRef.current.add(filePreview);
+    }
+    if (editedPreview && editedPreview.startsWith('blob:')) {
+      blobUrlsRef.current.add(editedPreview);
+    }
+    
+    // Cleanup all tracked URLs on unmount
     return () => {
-      if (filePreview && filePreview.startsWith('blob:')) {
-        URL.revokeObjectURL(filePreview);
-      }
-      if (editedPreview && editedPreview.startsWith('blob:') && editedPreview !== filePreview) {
-        URL.revokeObjectURL(editedPreview);
+      if (!isOpen) {
+        // Only revoke when modal is closing
+        blobUrlsRef.current.forEach(url => {
+          try {
+            URL.revokeObjectURL(url);
+          } catch (e) {
+            // Ignore errors
+          }
+        });
+        blobUrlsRef.current.clear();
       }
     };
-  }, [filePreview, editedPreview]);
+  }, [filePreview, editedPreview, isOpen]);
 
   const [createPost] = useMutation(CREATE_POST_MUTATION, {
     onCompleted: (data) => {
@@ -315,12 +371,23 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
     }
 
     try {
+      const detectedFileType = isVideo ? 'VIDEO' : 'IMAGE';
+      
       setSelectedFile(file);
-      setFileType(isVideo ? 'VIDEO' : 'IMAGE');
+      setFileType(detectedFileType);
       
       // Create preview URL with error handling
       const previewUrl = URL.createObjectURL(file);
-      console.log('Created preview URL:', previewUrl);
+      
+      console.log('📸 File selection details:', {
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        detectedType: detectedFileType,
+        previewUrl: previewUrl,
+        isImage: isImage,
+        isVideo: isVideo
+      });
       
       setFilePreview(previewUrl);
       setEditedPreview(previewUrl);
@@ -328,14 +395,9 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
       // Auto-advance to edit step
       setCurrentStep(2);
       
-      console.log('File selected successfully:', {
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        lastModified: file.lastModified
-      });
+      console.log('✅ File preview set successfully');
     } catch (error) {
-      console.error('Error processing file:', error);
+      console.error('❌ Error processing file:', error);
       alert('❌ Error processing file. Please try again.');
     }
   };
@@ -690,6 +752,16 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
 
   if (!isOpen) return null;
 
+  // Debug: Log state before render
+  console.log('🎬 CreatePostModal rendering:', {
+    currentStep,
+    selectedFile: selectedFile?.name,
+    fileType,
+    filePreview: filePreview?.substring(0, 50),
+    editedPreview: editedPreview?.substring(0, 50),
+    hasFile: !!selectedFile
+  });
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
@@ -860,10 +932,13 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
           )}
 
           {/* STEP 2: EDIT & ENHANCE */}
-          {currentStep === 2 && selectedFile && (
+          {currentStep === 2 && selectedFile && (filePreview || editedPreview) && (
             <div className="flex-1 flex">
               {/* Image Preview */}
               <div className="flex-1 flex items-center justify-center bg-black">
+                {/* Debug info */}
+                {console.log('🎨 Rendering preview:', { fileType, filePreview, editedPreview, selectedFile: selectedFile?.name })}
+                
                 {fileType === 'VIDEO' ? (
                   <video
                     src={editedPreview || filePreview}
@@ -889,13 +964,24 @@ export default function CreatePostModal({ isOpen, onClose, theme: propTheme, onP
                     alt="Post preview"
                     className="max-w-full max-h-full object-contain"
                     style={{
-                      filter: getFilterString()
+                      filter: getFilterString(),
+                      display: 'block' // Ensure image is visible
                     }}
                     onError={(e) => {
-                      console.error('Image load error:', e.target.error);
+                      console.error('Image load error:', {
+                        src: e.target.src,
+                        filePreview,
+                        editedPreview,
+                        naturalWidth: e.target.naturalWidth,
+                        naturalHeight: e.target.naturalHeight
+                      });
                     }}
-                    onLoad={() => {
-                      console.log('Image loaded successfully');
+                    onLoad={(e) => {
+                      console.log('Image loaded successfully:', {
+                        src: e.target.src,
+                        width: e.target.naturalWidth,
+                        height: e.target.naturalHeight
+                      });
                     }}
                   />
                 )}

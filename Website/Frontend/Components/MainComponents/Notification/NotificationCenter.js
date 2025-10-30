@@ -19,6 +19,54 @@ export default function NotificationCenter({
 }) {
   const [activeTab, setActiveTab] = useState('all');
   const [notifications, setNotifications] = useState([]);
+  const [showPushPrompt, setShowPushPrompt] = useState(false);
+  
+  // Notification sound (Issue 7.8)
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('notificationSound') !== 'false';
+    }
+    return true;
+  });
+  
+  const playNotificationSound = () => {
+    if (soundEnabled && typeof window !== 'undefined') {
+      const audio = new Audio('/sounds/notification.mp3');
+      audio.volume = 0.5;
+      audio.play().catch(e => console.log('Sound play failed:', e));
+    }
+  };
+  
+  const toggleSound = () => {
+    const newValue = !soundEnabled;
+    setSoundEnabled(newValue);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('notificationSound', newValue.toString());
+    }
+  };
+
+  // Request push notification permission (Issue 7.13)
+  useEffect(() => {
+    if (isOpen && 'Notification' in window && Notification.permission === 'default') {
+      // Show prompt after a short delay
+      const timer = setTimeout(() => {
+        setShowPushPrompt(true);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
+
+  const handleRequestPushPermission = async () => {
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        notificationService.showToast('success', 'Push notifications enabled!');
+      }
+      setShowPushPrompt(false);
+    } catch (error) {
+      console.error('Error requesting notification permission:', error);
+    }
+  };
   
   // Query notifications
   const { data: notificationsData, loading, error, refetch } = useQuery(GET_NOTIFICATIONS, {
@@ -63,6 +111,10 @@ export default function NotificationCenter({
 
   const handleMarkAllAsRead = async () => {
     if (!user?.profileid) return;
+    
+    // Add confirmation (Issue 7.5)
+    const confirmed = window.confirm('Mark all notifications as read?');
+    if (!confirmed) return;
     
     try {
       await markAllAsReadMutation({
@@ -134,6 +186,43 @@ export default function NotificationCenter({
           </div>
           
           <div className="flex items-center gap-2">
+            {/* Sound Toggle (Issue 7.8) */}
+            <button
+              onClick={toggleSound}
+              className={`p-2 rounded-lg transition-colors ${
+                isDark 
+                  ? 'hover:bg-gray-700 text-gray-400' 
+                  : 'hover:bg-gray-100 text-gray-600'
+              }`}
+              title={soundEnabled ? "Sound On" : "Sound Off"}
+            >
+              {soundEnabled ? (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                </svg>
+              )}
+            </button>
+            
+            {/* Settings Button (Issue 7.12) */}
+            <button
+              onClick={() => window.location.href = '/settings/notifications'}
+              className={`p-2 rounded-lg transition-colors ${
+                isDark 
+                  ? 'hover:bg-gray-700 text-gray-400' 
+                  : 'hover:bg-gray-100 text-gray-600'
+              }`}
+              title="Notification Settings"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </button>
+            
             {unreadCount > 0 && (
               <button
                 onClick={handleMarkAllAsRead}
@@ -189,8 +278,44 @@ export default function NotificationCenter({
           </div>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto">
+        {/* Push Notification Prompt (Issue 7.13) */}
+        {showPushPrompt && (
+          <div className={`p-4 border-b ${isDark ? 'border-gray-700 bg-blue-900/20' : 'border-gray-200 bg-blue-50'}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <p className={`text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  Enable push notifications?
+                </p>
+                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  Get notified when someone interacts with you
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleRequestPushPermission}
+                  className="px-3 py-1 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600"
+                >
+                  Enable
+                </button>
+                <button
+                  onClick={() => setShowPushPrompt(false)}
+                  className={`px-3 py-1 text-sm rounded-lg ${
+                    isDark ? 'text-gray-400 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  Later
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Content with scroll indicator (Issue 7.11) */}
+        <div className="flex-1 overflow-y-auto relative">
+          {/* Scroll indicator - fade at bottom */}
+          <div className={`absolute bottom-0 left-0 right-0 h-8 pointer-events-none bg-gradient-to-t ${
+            isDark ? 'from-gray-800' : 'from-white'
+          } z-10`} />
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
@@ -219,30 +344,68 @@ export default function NotificationCenter({
             </div>
           ) : (
             <div>
-              {filteredNotifications.map(notification => {
-                // Render different notification types
-                switch (notification.type) {
-                  case 'follow_request':
-                    return (
-                      <FollowRequestNotification
-                        key={notification.notificationid}
-                        notification={notification}
-                        onAccept={handleAcceptFollow}
-                        onReject={handleRejectFollow}
-                        theme={theme}
-                      />
-                    );
-                  
-                  default:
-                    return (
-                      <GenericNotification
-                        key={notification.notificationid}
-                        notification={notification}
-                        theme={theme}
-                      />
-                    );
-                }
-              })}
+              {/* Group notifications by time (Issue 7.3) */}
+              {(() => {
+                const now = new Date();
+                const today = [];
+                const yesterday = [];
+                const thisWeek = [];
+                const older = [];
+
+                filteredNotifications.forEach(notification => {
+                  const notifDate = new Date(notification.createdAt);
+                  const diffDays = Math.floor((now - notifDate) / (1000 * 60 * 60 * 24));
+
+                  if (diffDays === 0) today.push(notification);
+                  else if (diffDays === 1) yesterday.push(notification);
+                  else if (diffDays < 7) thisWeek.push(notification);
+                  else older.push(notification);
+                });
+
+                const renderGroup = (title, notifications) => {
+                  if (notifications.length === 0) return null;
+                  return (
+                    <div key={title} className="mb-4">
+                      <h3 className={`text-xs font-semibold px-4 py-2 ${
+                        isDark ? 'text-gray-400' : 'text-gray-600'
+                      }`}>
+                        {title}
+                      </h3>
+                      {notifications.map(notification => {
+                        switch (notification.type) {
+                          case 'follow_request':
+                            return (
+                              <FollowRequestNotification
+                                key={notification.notificationid}
+                                notification={notification}
+                                onAccept={handleAcceptFollow}
+                                onReject={handleRejectFollow}
+                                theme={theme}
+                              />
+                            );
+                          default:
+                            return (
+                              <GenericNotification
+                                key={notification.notificationid}
+                                notification={notification}
+                                theme={theme}
+                              />
+                            );
+                        }
+                      })}
+                    </div>
+                  );
+                };
+
+                return (
+                  <>
+                    {renderGroup('Today', today)}
+                    {renderGroup('Yesterday', yesterday)}
+                    {renderGroup('This Week', thisWeek)}
+                    {renderGroup('Older', older)}
+                  </>
+                );
+              })()}
             </div>
           )}
         </div>

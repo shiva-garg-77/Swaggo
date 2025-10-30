@@ -75,14 +75,15 @@ export default function PostTabsContainer({
         break;
     }
 
-    // Sort posts
+    // Sort posts (create copy to avoid mutating Apollo data)
+    const sortedPosts = [...posts];
     switch (sortBy) {
       case 'popular':
-        return posts.sort((a, b) => (b.likeCount || 0) - (a.likeCount || 0));
+        return sortedPosts.sort((a, b) => (b.likeCount || 0) - (a.likeCount || 0));
       case 'discussed':
-        return posts.sort((a, b) => (b.commentCount || 0) - (a.commentCount || 0));
+        return sortedPosts.sort((a, b) => (b.commentCount || 0) - (a.commentCount || 0));
       default: // recent
-        return posts.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        return sortedPosts.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     }
   }, [rawPosts, activeTab, sortBy]);
 

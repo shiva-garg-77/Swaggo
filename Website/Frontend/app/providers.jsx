@@ -5,6 +5,7 @@ import { FixedSecureAuthProvider } from '../context/FixedSecureAuthContext';
 import { Toaster } from 'react-hot-toast';
 import { isProduction, isDevelopment } from '../config/environment';
 import dynamic from 'next/dynamic';
+import { initializeFocusManagement } from '../utils/focusManagement';
 
 // Import all the providers that were in the original layout
 import { I18nProvider } from '../context/I18nContext';
@@ -191,6 +192,10 @@ const SafeProviderWrapper = ({ children, provider: Provider, providerName }) => 
 };
 
 const Providers = ({ children }) => {
+  // Initialize focus management for keyboard/mouse navigation
+  useEffect(() => {
+    initializeFocusManagement();
+  }, []);
 
   // Define providers in order of dependency - filter out undefined ones
   const providers = [

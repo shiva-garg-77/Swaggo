@@ -5,6 +5,8 @@ import { useSecureAuth } from '../../../context/FixedSecureAuthContext';
 import { useMutation, useQuery } from '@apollo/client/react';
 import { gql } from '@apollo/client';
 import { BLOCK_USER, RESTRICT_USER } from '../../../lib/graphql/profileQueries';
+import { hapticLike } from '../../../utils/hapticUtils';
+import { generateBlurDataURL } from '../../../utils/imageUtils';
 
 // GraphQL mutations
 const DELETE_POST = gql`
@@ -33,7 +35,7 @@ const TOGGLE_SAVE_POST = gql`
     ToggleSavePost(profileid: $profileid, postid: $postid) {
       postid
       title
-      Description
+      description
       postType
     }
   }
@@ -114,6 +116,9 @@ export default function InstagramPost({
   // Handle like
   const handleLike = async () => {
     if (!user?.profileid) return;
+    
+    // Add haptic feedback (Issue 5.3)
+    hapticLike();
 
     // Trigger animation
     setLikeAnimation(true);
@@ -342,14 +347,14 @@ export default function InstagramPost({
             </svg>
           </button>
           
-          {/* Options Dropdown */}
+          {/* Options Dropdown - Responsive positioning (Issue 5.22) */}
           {showOptionsMenu && (
             <>
               <div 
                 className="fixed inset-0 z-10" 
                 onClick={() => setShowOptionsMenu(false)}
               ></div>
-              <div className={`absolute right-0 top-8 z-20 py-2 w-48 rounded-lg shadow-lg border ${
+              <div className={`absolute right-0 md:right-0 left-auto md:left-auto top-8 z-20 py-2 w-48 rounded-lg shadow-lg border ${
                 theme === 'dark' 
                   ? 'bg-gray-800 border-gray-700' 
                   : 'bg-white border-gray-200'
@@ -461,7 +466,8 @@ export default function InstagramPost({
             loop
             muted
             playsInline
-            preload="metadata"
+            loading="lazy"
+            preload="none"
             onError={(e) => {
               console.error('Video load error for URL:', post.postUrl);
               e.target.style.display = 'none';
@@ -481,6 +487,11 @@ export default function InstagramPost({
             src={post.postUrl}
             alt={post.title}
             className="w-full max-h-96 object-cover"
+            loading="lazy"
+            style={{ 
+              backgroundImage: `url(${generateBlurDataURL()})`,
+              backgroundSize: 'cover'
+            }}
             onError={(e) => {
               console.error('Image load error for URL:', post.postUrl);
               e.target.src = '/placeholder-image.png'; // Fallback image
